@@ -54,15 +54,18 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        // Tuned down from Media3's defaults (50s/50s/2.5s/5s) for faster play-to-sound
-        // latency on what's a personal LAN/home setup -- a little extra rebuffering risk
-        // is an acceptable trade for a snappier start.
+        // Aggressively tuned for low latency: Media3's defaults are 50s/50s/2.5s/5s,
+        // we use 1s/5s/250ms/500ms to prioritize "sound in <1s" over buffering stability
+        // on home wifi/4G. The trade-off: occasional rebuffering if network hiccups, but
+        // the common case (playing a single track on stable network) feels instant. On weak
+        // networks, the EQ preset + sleep timer logic will naturally be more responsive
+        // since they don't wait for huge buffers to populate.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 15_000,
-                /* maxBufferMs = */ 30_000,
-                /* bufferForPlaybackMs = */ 500,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_000,
+                /* minBufferMs = */ 1_000,        // 1s minimum (was 15s!)
+                /* maxBufferMs = */ 5_000,        // 5s max (was 30s)
+                /* bufferForPlaybackMs = */ 250,  // 250ms before playing (was 500ms)
+                /* bufferForPlaybackAfterRebufferMs = */ 500,
             )
             .build()
 

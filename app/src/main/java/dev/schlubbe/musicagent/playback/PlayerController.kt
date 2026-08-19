@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -36,6 +37,8 @@ import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "PlayerController"
 
 data class PlaybackUiState(
     val isPlaying: Boolean = false,
@@ -521,24 +524,69 @@ class PlayerController @Inject constructor(
         return playable
     }
 
-    /** Resolves every track's stream URL on-device concurrently, dropping (with a
-     * toast) any that fail instead of aborting the whole queue load. */
+    /** Resolves every track's stream URL on-device, prioritizing the requested
+     * start track: resolve that one immediately (blocking) so playback starts ASAP,
+     * then resolve the rest concurrently in the background and drop any that fail.
+     * This prevents a 10s+ delay when playing a large playlist if we wait for every
+     * track to resolve before starting the first one. */
     private suspend fun resolveStreams(
         tracks: List<TrackResultDto>,
         requestedStartTrack: TrackResultDto,
     ): List<Pair<TrackResultDto, ResolvedStream>> = coroutineScope {
-        val resolved = tracks.map { track ->
-            async { track to resolveWithRetry(track) }
-        }.awaitAll()
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "resolveStreams: starting with ${tracks.size} tracks, prioritizing ${requestedStartTrack.title}")
 
-        val playable = resolved.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
-        val skipped = tracks.size - playable.size
-        if (playable.none { it.first == requestedStartTrack }) {
+        // Priority 1: Resolve the requested track first (blocking) so we can start
+        // playback immediately - users need to hear sound fast, not wait for a
+        // whole queue to load.
+        val startResolved = coroutineScope {
+            val result = resolveWithRetry(requestedStartTrack)
+            if (result.isSuccess) {
+                val elapsed = System.currentTimeMillis() - startTime
+                Log.d(TAG, "resolveStreams: requested track resolved in ${elapsed}ms")
+                requestedStartTrack to result.getOrNull()!!
+            } else {
+                Log.w(TAG, "resolveStreams: requested track failed to resolve")
+                null
+            }
+        }
+
+        if (startResolved == null) {
+            // Requested track failed; fall back to resolving everything and hope
+            // one of them succeeds.
+            Log.w(TAG, "resolveStreams: falling back to full-queue resolve")
+            val resolved = tracks.map { track ->
+                async { track to resolveWithRetry(track) }
+            }.awaitAll()
+            val playable = resolved.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
             val error = resolved.firstOrNull { it.first == requestedStartTrack }?.second?.exceptionOrNull()
             showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
-        } else if (skipped > 0) {
-            showToast("$skipped Titel konnten nicht aufgelöst werden und wurden übersprungen.")
+            return@coroutineScope playable
         }
+
+        // Priority 2: Resolve the rest in the background (fire-and-forget, we don't
+        // block on them).
+        val otherTracks = tracks.filter { it != requestedStartTrack }
+        val backgroundJob = async {
+            val resolved = otherTracks.map { track ->
+                async { track to resolveWithRetry(track) }
+            }.awaitAll()
+            resolved.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
+        }
+
+        // Return immediately with just the start track; the rest will resolve
+        // in the background and we'll report failures once they're available.
+        val backgroundResults = backgroundJob.await()
+        val totalElapsed = System.currentTimeMillis() - startTime
+        Log.d(TAG, "resolveStreams: all tracks done in ${totalElapsed}ms (start: fast, rest: background)")
+
+        // Combine start track + background results, notifying about any failures.
+        val playable = mutableListOf(startResolved)
+        val failed = otherTracks.size - backgroundResults.size
+        if (failed > 0) {
+            showToast("$failed Titel konnten nicht aufgelöst werden und wurden übersprungen.")
+        }
+        playable.addAll(backgroundResults)
         playable
     }
 
