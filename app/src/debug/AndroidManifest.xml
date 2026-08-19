@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+    Debug-only override: lets the app talk to a plaintext local/LAN backend during
+    development. Release builds keep cleartext blocked, matching the production
+    deployment (Caddy terminates TLS in front of the backend).
+    -->
+    <application android:usesCleartextTraffic="true" />
+
+</manifest>

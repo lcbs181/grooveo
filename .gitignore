@@ -1,0 +1,29 @@
+# Build outputs
+/app/build/
+/build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+
+# Local machine config - sdk.dir is machine-specific, and this is also where the
+# (currently empty) silent service-account credentials go, see local.properties
+# itself for the full explanation - never commit real values here.
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Native build intermediates
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Loose debug artifacts (screenshots, gradle install logs, uiautomator dumps) that
+# ended up sitting directly in this directory from earlier ad-hoc adb sessions -
+# not part of the app, kept out of the repo without touching the actual files.
+/*.png
+/*.log
+/dump.xml

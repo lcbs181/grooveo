@@ -1,0 +1,141 @@
+package dev.schlubbe.musicagent.ui.player
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.schlubbe.musicagent.data.repository.DownloadRepository
+import dev.schlubbe.musicagent.data.repository.LikesRepository
+import dev.schlubbe.musicagent.data.repository.SearchRepository
+import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import dev.schlubbe.musicagent.playback.EqPreset
+import dev.schlubbe.musicagent.playback.PlaybackUiState
+import dev.schlubbe.musicagent.playback.PlayerController
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class PlayerArtistNavState(
+    // Set once an artist (resolved by name from the now-playing track's artist
+    // label) is ready to open - the screen navigates on seeing this, then calls
+    // onArtistNavigated() to clear it back to null. Same pattern as
+    // SearchViewModel/PlaylistDetailViewModel's "Zum Künstler" resolution.
+    val artistNavTarget: Pair<String, String>? = null,
+    val artistLookupError: String? = null,
+)
+
+@HiltViewModel
+class PlayerViewModel @Inject constructor(
+    private val playerController: PlayerController,
+    private val likesRepository: LikesRepository,
+    private val downloadRepository: DownloadRepository,
+    private val searchRepository: SearchRepository,
+    private val settingsRepository: SettingsRepository,
+) : ViewModel() {
+
+    val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
+
+    val eqPreset: StateFlow<EqPreset> = settingsRepository.eqPreset
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EqPreset.FLAT)
+
+    fun setEqPreset(preset: EqPreset) {
+        viewModelScope.launch { settingsRepository.setEqPreset(preset) }
+    }
+    val sleepTimerEndAtMs: StateFlow<Long?> = playerController.sleepTimerEndAtMs
+
+    val isLiked: StateFlow<Boolean> = combine(
+        playerController.playbackState,
+        likesRepository.likedTrackIds,
+    ) { playback, likedIds -> playback.currentTrackId != null && playback.currentTrackId in likedIds }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val _artistNavState = MutableStateFlow(PlayerArtistNavState())
+    val artistNavState: StateFlow<PlayerArtistNavState> = _artistNavState.asStateFlow()
+
+    fun togglePlayPause() {
+        viewModelScope.launch { playerController.togglePlayPause() }
+    }
+
+    fun seekTo(positionMs: Long) {
+        viewModelScope.launch { playerController.seekTo(positionMs) }
+    }
+
+    fun skipToNext() {
+        viewModelScope.launch { playerController.skipToNext() }
+    }
+
+    fun skipToPrevious() {
+        viewModelScope.launch { playerController.skipToPrevious() }
+    }
+
+    fun playQueueItem(index: Int) {
+        viewModelScope.launch { playerController.skipToQueueIndex(index) }
+    }
+
+    fun toggleLike() {
+        val track = playerController.nowPlayingTrack() ?: return
+        viewModelScope.launch { runCatching { likesRepository.toggle(track) } }
+    }
+
+    fun toggleSource() {
+        viewModelScope.launch { playerController.toggleSource() }
+    }
+
+    fun toggleShuffle() {
+        viewModelScope.launch { playerController.toggleShuffle() }
+    }
+
+    fun cycleRepeatMode() {
+        viewModelScope.launch { playerController.cycleRepeatMode() }
+    }
+
+    fun onDownloadClicked() {
+        val track = playerController.nowPlayingTrack() ?: return
+        downloadRepository.startDownload(track)
+    }
+
+    // The now-playing artist label is only a name, not an id - resolve it to a real
+    // artist page via a 1-result artist search on the same source, same best-effort
+    // pattern as SearchViewModel/PlaylistDetailViewModel's "Zum Künstler".
+    fun onArtistClicked() {
+        val track = playerController.nowPlayingTrack() ?: return
+        val name = track.artist
+        if (name.isNullOrBlank()) return
+        viewModelScope.launch {
+            runCatching { searchRepository.searchArtists(name, source = track.source, limit = 1) }
+                .onSuccess { artists ->
+                    val artist = artists.firstOrNull()
+                    _artistNavState.value = if (artist != null) {
+                        _artistNavState.value.copy(artistNavTarget = artist.source to artist.sourceId)
+                    } else {
+                        _artistNavState.value.copy(artistLookupError = "Künstler „$name“ nicht gefunden")
+                    }
+                }
+                .onFailure {
+                    _artistNavState.value = _artistNavState.value.copy(
+                        artistLookupError = "Künstler konnte nicht geladen werden",
+                    )
+                }
+        }
+    }
+
+    fun onArtistNavigated() {
+        _artistNavState.value = _artistNavState.value.copy(artistNavTarget = null)
+    }
+
+    fun onArtistLookupErrorShown() {
+        _artistNavState.value = _artistNavState.value.copy(artistLookupError = null)
+    }
+
+    fun currentPositionMs(): Long = playerController.currentPositionMs()
+
+    fun currentDurationMs(): Long = playerController.currentDurationMs()
+
+    fun startSleepTimer(minutes: Int) = playerController.startSleepTimer(minutes)
+
+    fun cancelSleepTimer() = playerController.cancelSleepTimer()
+}

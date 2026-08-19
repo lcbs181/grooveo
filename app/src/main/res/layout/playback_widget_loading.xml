@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown for one frame before Glance replaces it with the real Compose-driven
+     RemoteViews content (see PlaybackWidget.kt); required by AppWidgetProviderInfo,
+     never actually visible for more than an instant. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A2E" />

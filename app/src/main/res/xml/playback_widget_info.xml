@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- minWidth/minHeight follow the standard (cells * 70) - 30 dp formula launchers
+     use to size a widget's default placement in cells - minHeight was previously
+     100dp (~a 2-row height), which is why this rendered as a tall 4x3 block instead
+     of the intended compact 4x1 row despite targetCellWidth/Height already saying
+     4x1. minResizeWidth/Height set the actual floor a user can drag it down to. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:initialLayout="@layout/playback_widget_loading"
+    android:updatePeriodMillis="0" />
