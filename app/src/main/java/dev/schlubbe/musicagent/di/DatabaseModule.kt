@@ -9,7 +9,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.schlubbe.musicagent.data.local.AppDatabase
 import dev.schlubbe.musicagent.data.local.MIGRATION_1_2
+import dev.schlubbe.musicagent.data.local.MIGRATION_2_3
+import dev.schlubbe.musicagent.data.local.MIGRATION_3_4
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.dao.FollowedArtistDao
 import dev.schlubbe.musicagent.data.local.dao.LikeDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistTrackDao
@@ -24,7 +27,7 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "music-agent.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -41,4 +44,7 @@ object DatabaseModule {
 
     @Provides
     fun providePlaylistTrackDao(database: AppDatabase): PlaylistTrackDao = database.playlistTrackDao()
+
+    @Provides
+    fun provideFollowedArtistDao(database: AppDatabase): FollowedArtistDao = database.followedArtistDao()
 }

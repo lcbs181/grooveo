@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_background">#1A1A2E</color>
+    <!-- Nocturne tokens (see ui/theme/Color.kt's Nocturne object) -->
+    <color name="launcher_background">#161826</color>
+    <color name="nocturne_accent">#9184D9</color>
+    <color name="nocturne_accent_300">#D2CEFD</color>
 </resources>

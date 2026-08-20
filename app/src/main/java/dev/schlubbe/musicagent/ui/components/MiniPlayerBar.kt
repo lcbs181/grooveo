@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,7 +58,14 @@ fun MiniPlayerBar(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TrackThumbnail(playbackState.artworkUrl, size = 40.dp)
+            Box {
+                TrackThumbnail(playbackState.artworkUrl, size = 40.dp)
+                EqualizerBadge(
+                    isPlaying = playbackState.isPlaying,
+                    size = 15.dp,
+                    modifier = Modifier.align(Alignment.BottomEnd),
+                )
+            }
             Column(
                 modifier = Modifier
                     .weight(1f)

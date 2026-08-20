@@ -103,9 +103,9 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 
-    fun rename(name: String) {
+    fun updateDetails(name: String, description: String?, accentColorKey: String?, moodTags: List<String>) {
         viewModelScope.launch {
-            runCatching { playlistRepository.rename(playlistId, name) }
+            runCatching { playlistRepository.updateDetails(playlistId, name, description, accentColorKey, moodTags) }
             load()
         }
     }

@@ -9,6 +9,7 @@ import dev.schlubbe.musicagent.data.remote.dto.ArtistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
+import dev.schlubbe.musicagent.data.repository.FollowRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
@@ -27,6 +28,7 @@ data class ArtistUiState(
     val playlists: List<PlaylistOutDto> = emptyList(),
     val trackPendingPlaylistAdd: TrackResultDto? = null,
     val navigateToFollowers: Boolean = false,
+    val isFollowing: Boolean = false,
 )
 
 @HiltViewModel
@@ -37,6 +39,7 @@ class ArtistViewModel @Inject constructor(
     private val likesRepository: LikesRepository,
     private val playlistRepository: PlaylistRepository,
     private val downloadRepository: DownloadRepository,
+    private val followRepository: FollowRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ArtistUiState())
@@ -48,13 +51,35 @@ class ArtistViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(likedTrackIds = ids)
             }
         }
+        viewModelScope.launch {
+            followRepository.followedIds.collect { ids ->
+                val artist = _uiState.value.artist
+                if (artist != null) {
+                    _uiState.value = _uiState.value.copy(isFollowing = "${artist.source}:${artist.sourceId}" in ids)
+                }
+            }
+        }
+        viewModelScope.launch { runCatching { followRepository.refresh() } }
+    }
+
+    fun toggleFollow() {
+        val artist = _uiState.value.artist ?: return
+        viewModelScope.launch {
+            followRepository.toggle(artist.source, artist.sourceId, artist.name, artist.thumbnailUrl)
+        }
     }
 
     fun load(source: String, sourceId: String) {
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
             runCatching { searchRepository.getArtist(source, sourceId) }
-                .onSuccess { artist -> _uiState.value = _uiState.value.copy(artist = artist, isLoading = false) }
+                .onSuccess { artist ->
+                    _uiState.value = _uiState.value.copy(
+                        artist = artist,
+                        isLoading = false,
+                        isFollowing = "$source:$sourceId" in followRepository.followedIds.value,
+                    )
+                }
                 .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = e.message) }
         }
     }

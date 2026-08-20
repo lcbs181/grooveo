@@ -24,6 +24,9 @@ data class PlaylistOutDto(
     val name: String,
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("track_count") val trackCount: Int,
+    val description: String? = null,
+    val accentColorKey: String? = null,
+    val moodTags: List<String> = emptyList(),
 )
 
 data class PlaylistTrackOutDto(
@@ -37,6 +40,9 @@ data class PlaylistDetailOutDto(
     val name: String,
     @SerializedName("created_at") val createdAt: String,
     val tracks: List<PlaylistTrackOutDto>,
+    val description: String? = null,
+    val accentColorKey: String? = null,
+    val moodTags: List<String> = emptyList(),
 )
 
 fun TrackOutDto.toTrackResultDto(): TrackResultDto = TrackResultDto(

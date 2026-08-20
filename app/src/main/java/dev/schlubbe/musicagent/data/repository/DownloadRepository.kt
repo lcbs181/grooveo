@@ -1,6 +1,8 @@
 package dev.schlubbe.musicagent.data.repository
 
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -23,6 +25,7 @@ class DownloadRepository @Inject constructor(
     private val workManager: WorkManager,
     private val downloadDao: DownloadDao,
     private val trackDao: TrackDao,
+    private val settingsRepository: SettingsRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -70,8 +73,14 @@ class DownloadRepository @Inject constructor(
             DownloadWorker.KEY_TITLE to track.title,
             DownloadWorker.KEY_ARTIST to (track.artist ?: ""),
         )
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(
+                if (settingsRepository.downloadsWifiOnlyCached) NetworkType.UNMETERED else NetworkType.CONNECTED,
+            )
+            .build()
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(data)
+            .setConstraints(constraints)
             .build()
 
         workManager.enqueueUniqueWork(trackId, ExistingWorkPolicy.KEEP, request)

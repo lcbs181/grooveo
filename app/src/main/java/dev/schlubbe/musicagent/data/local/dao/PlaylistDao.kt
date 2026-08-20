@@ -39,8 +39,14 @@ interface PlaylistDao {
     @Insert
     suspend fun insert(playlist: PlaylistEntity)
 
-    @Query("UPDATE playlists SET name = :name WHERE id = :id")
-    suspend fun rename(id: String, name: String)
+    @Query(
+        """
+        UPDATE playlists
+        SET name = :name, description = :description, accentColorKey = :accentColorKey, moodTags = :moodTags
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateDetails(id: String, name: String, description: String?, accentColorKey: String?, moodTags: String?)
 
     @Query("DELETE FROM playlists WHERE id = :id")
     suspend fun delete(id: String)

@@ -36,11 +36,34 @@ class PlaylistRepository @Inject constructor(
     suspend fun get(playlistId: String): PlaylistDetailOutDto {
         val playlist = playlistDao.getById(playlistId) ?: error("playlist not found: $playlistId")
         val tracks = playlistTrackDao.getForPlaylist(playlistId).map { it.toPlaylistTrackOutDto() }
-        return PlaylistDetailOutDto(playlist.id, playlist.name, playlist.createdAt, tracks)
+        return PlaylistDetailOutDto(
+            id = playlist.id,
+            name = playlist.name,
+            createdAt = playlist.createdAt,
+            tracks = tracks,
+            description = playlist.description,
+            accentColorKey = playlist.accentColorKey,
+            moodTags = playlist.moodTags?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+        )
     }
 
-    suspend fun rename(playlistId: String, name: String): PlaylistOutDto {
-        playlistDao.rename(playlistId, name)
+    /** Persists the playlist edit sheet's full set of fields at once (name,
+     * description, accent color, mood tags) -- a single call rather than one
+     * setter per field since the sheet always submits all of them together. */
+    suspend fun updateDetails(
+        playlistId: String,
+        name: String,
+        description: String?,
+        accentColorKey: String?,
+        moodTags: List<String>,
+    ): PlaylistOutDto {
+        playlistDao.updateDetails(
+            playlistId,
+            name,
+            description?.takeIf { it.isNotBlank() },
+            accentColorKey,
+            moodTags.takeIf { it.isNotEmpty() }?.joinToString(","),
+        )
         return playlistDao.getByIdWithCount(playlistId)?.toPlaylistOutDto()
             ?: error("playlist not found: $playlistId")
     }

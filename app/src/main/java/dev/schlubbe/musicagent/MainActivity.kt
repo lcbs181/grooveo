@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dagger.hilt.android.AndroidEntryPoint
 import dev.schlubbe.musicagent.ui.navigation.MusicAgentNavGraph
 import dev.schlubbe.musicagent.ui.theme.MusicAgentTheme
@@ -25,6 +26,11 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Must run before super.onCreate() per the SplashScreen API's contract -
+        // it reads the calling activity's theme (Theme.MusicAgent.Splash, set in
+        // the manifest) to know what to show, then hands off to
+        // postSplashScreenTheme (Theme.MusicAgent) once dismissed.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
         setContent {

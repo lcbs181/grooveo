@@ -33,6 +33,7 @@ class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
     private val equalizerController = EqualizerController()
+    private val sound3dController = Sound3dController()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
@@ -82,13 +83,21 @@ class PlaybackService : MediaSessionService() {
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
                 equalizerController.attach(audioSessionId)
+                sound3dController.attach(audioSessionId)
             }
         })
         // The session id may already be assigned by the time we attach the listener above.
         equalizerController.attach(exoPlayer.audioSessionId)
+        sound3dController.attach(exoPlayer.audioSessionId)
 
         serviceScope.launch {
             settingsRepository.eqPreset.collect { preset -> equalizerController.applyPreset(preset) }
+        }
+        serviceScope.launch {
+            settingsRepository.sound3dPreset.collect { presetName ->
+                val preset = runCatching { Sound3dPreset.valueOf(presetName) }.getOrDefault(Sound3dPreset.DISABLED)
+                sound3dController.applyPreset(preset)
+            }
         }
 
         val sessionActivity = PendingIntent.getActivity(
@@ -109,6 +118,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         serviceScope.cancel()
         equalizerController.release()
+        sound3dController.release()
         mediaSession?.run {
             player.release()
             release()

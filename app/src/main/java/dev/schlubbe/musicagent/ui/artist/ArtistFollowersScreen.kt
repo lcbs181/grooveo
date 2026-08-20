@@ -3,6 +3,7 @@ package dev.schlubbe.musicagent.ui.artist
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,17 +12,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,7 +30,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.schlubbe.musicagent.ui.components.NocturneIconButton
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
+import dev.schlubbe.musicagent.ui.icons.phosphorIcon
+import dev.schlubbe.musicagent.ui.theme.Nocturne
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,58 +58,54 @@ fun ArtistFollowersScreen(
         if (shouldLoadMore) viewModel.loadMore()
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Follower") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Zurück")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        when {
-            uiState.isLoading -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
+    Scaffold(containerColor = Nocturne.bg) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircularProgressIndicator()
+                NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                Text("Follower", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
             }
-            uiState.error != null && uiState.followers.isEmpty() -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "Follower konnten nicht geladen werden",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
-            else -> LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) {
-                items(uiState.followers, key = { it.sourceId }) { follower ->
-                    ListItem(
-                        leadingContent = { TrackThumbnail(follower.thumbnailUrl) },
-                        headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = follower.subscriberCount?.let { count ->
-                            { Text("$count Follower") }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onArtistSelected(follower.source, follower.sourceId) },
+            when {
+                uiState.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Nocturne.accent)
+                }
+                uiState.error != null && uiState.followers.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Follower konnten nicht geladen werden",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp),
                     )
                 }
-                if (uiState.isLoadingMore) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(uiState.followers, key = { it.sourceId }) { follower ->
+                        ListItem(
+                            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+                            leadingContent = { TrackThumbnail(follower.thumbnailUrl) },
+                            headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = follower.subscriberCount?.let { count ->
+                                { Text("$count Follower", color = Nocturne.neutral500) }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onArtistSelected(follower.source, follower.sourceId) },
+                        )
+                    }
+                    if (uiState.isLoadingMore) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Nocturne.accent)
+                            }
                         }
                     }
                 }

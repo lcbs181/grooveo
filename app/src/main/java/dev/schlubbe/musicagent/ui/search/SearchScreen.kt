@@ -12,33 +12,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,8 +51,12 @@ import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import dev.schlubbe.musicagent.ui.components.NocturneIconButton
+import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
+import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
+import dev.schlubbe.musicagent.ui.theme.Nocturne
 
 private val SOURCES = listOf("all" to "Alle", "ytmusic" to "YT Music", "soundcloud" to "SoundCloud")
 private val RESULT_TYPES = listOf(
@@ -76,8 +70,6 @@ private val RESULT_TYPES = listOf(
 @Composable
 fun SearchScreen(
     onTrackSelected: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onLibraryClick: () -> Unit,
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
@@ -103,26 +95,18 @@ fun SearchScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Suche") },
-                actions = {
-                    IconButton(onClick = onLibraryClick) {
-                        Icon(Icons.Filled.LibraryMusic, contentDescription = "Bibliothek")
-                    }
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Einstellungen")
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    Scaffold(containerColor = Nocturne.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            OutlinedTextField(
+            Text(
+                "Suche",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 12.dp),
+            )
+
+            TextField(
                 value = uiState.query,
                 onValueChange = viewModel::onQueryChanged,
-                label = { Text("Titel, Artist, ...") },
+                placeholder = { Text("Titel, Artist, ...") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
@@ -131,77 +115,80 @@ fun SearchScreen(
                 keyboardActions = KeyboardActions(
                     onSearch = { viewModel.runSearch() },
                 ),
+                shape = RoundedCornerShape(8.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Nocturne.surface,
+                    unfocusedContainerColor = Nocturne.surface,
+                    focusedIndicatorColor = Nocturne.divider,
+                    unfocusedIndicatorColor = Nocturne.divider,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
             )
 
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SOURCES.forEach { (value, label) ->
-                    FilterChip(
-                        selected = uiState.source == value,
-                        onClick = { viewModel.onSourceChanged(value) },
-                        label = { Text(label) },
-                    )
-                }
-            }
+            SegmentedControl(
+                options = SOURCES,
+                selected = SOURCES.first { it.first == uiState.source },
+                onSelect = { viewModel.onSourceChanged(it.first) },
+                label = { it.second },
+                fillWidth = true,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            )
 
             if (uiState.query.isNotBlank()) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    RESULT_TYPES.forEach { (value, label) ->
-                        FilterChip(
-                            selected = uiState.resultType == value,
-                            onClick = { viewModel.onResultTypeChanged(value) },
-                            label = { Text(label) },
-                        )
-                    }
-                }
+                SegmentedControl(
+                    options = RESULT_TYPES,
+                    selected = RESULT_TYPES.first { it.first == uiState.resultType },
+                    onSelect = { viewModel.onResultTypeChanged(it.first) },
+                    label = { it.second },
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                )
             }
 
             when {
-                uiState.isLoading -> CircularProgressIndicator(
-                    modifier = Modifier.padding(16.dp),
-                )
-                uiState.error != null -> Text(
-                    "Fehler: ${uiState.error}",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp),
-                )
-                uiState.query.isBlank() -> Text(
-                    "Titel, Künstler oder Playlist suchen",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
-                )
-                uiState.resultType == "artists" -> LazyColumn {
-                    items(uiState.artistResults, key = { "${it.source}:${it.sourceId}" }) { artist ->
-                        ArtistRow(
-                            artist = artist,
-                            onClick = { viewModel.onArtistResultClicked(artist) },
-                        )
+                uiState.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Nocturne.accent)
+                }
+                uiState.error != null -> CenteredHint("Fehler: ${uiState.error}", isError = true)
+                uiState.query.isBlank() -> CenteredHint("Titel, Künstler oder Playlist suchen")
+                uiState.resultType == "artists" -> if (uiState.artistResults.isEmpty()) {
+                    CenteredHint("Keine Treffer")
+                } else {
+                    LazyColumn {
+                        items(uiState.artistResults, key = { "${it.source}:${it.sourceId}" }) { artist ->
+                            ArtistRow(
+                                artist = artist,
+                                onClick = { viewModel.onArtistResultClicked(artist) },
+                            )
+                        }
                     }
                 }
-                uiState.resultType == "playlists" -> LazyColumn {
-                    items(uiState.playlistResults, key = { "${it.source}:${it.sourceId}" }) { playlist ->
-                        PlaylistResultRow(
-                            playlist = playlist,
-                            onClick = { viewModel.onPlaylistResultClicked(playlist.source, playlist.sourceId) },
-                        )
+                uiState.resultType == "playlists" -> if (uiState.playlistResults.isEmpty()) {
+                    CenteredHint("Keine Treffer")
+                } else {
+                    LazyColumn {
+                        items(uiState.playlistResults, key = { "${it.source}:${it.sourceId}" }) { playlist ->
+                            PlaylistResultRow(
+                                playlist = playlist,
+                                onClick = { viewModel.onPlaylistResultClicked(playlist.source, playlist.sourceId) },
+                            )
+                        }
                     }
                 }
-                uiState.resultType == "albums" -> LazyColumn {
-                    items(uiState.albumResults, key = { "${it.source}:${it.sourceId}" }) { album ->
-                        AlbumResultRow(
-                            album = album,
-                            onClick = { viewModel.onAlbumResultClicked(album.source, album.sourceId) },
-                        )
+                uiState.resultType == "albums" -> if (uiState.albumResults.isEmpty()) {
+                    CenteredHint("Keine Treffer")
+                } else {
+                    LazyColumn {
+                        items(uiState.albumResults, key = { "${it.source}:${it.sourceId}" }) { album ->
+                            AlbumResultRow(
+                                album = album,
+                                onClick = { viewModel.onAlbumResultClicked(album.source, album.sourceId) },
+                            )
+                        }
                     }
                 }
+                uiState.results.isEmpty() -> CenteredHint("Keine Treffer")
                 else -> LazyColumn {
                     items(uiState.results) { track ->
                         TrackRow(
@@ -229,6 +216,19 @@ fun SearchScreen(
             onDismiss = viewModel::dismissAddToPlaylist,
             onPlaylistPicked = viewModel::onPlaylistPicked,
             onCreatePlaylist = viewModel::onCreatePlaylistAndAdd,
+        )
+    }
+}
+
+/** Plain centered text for empty/no-results/prompt states -- per the design's own
+ * "no illustration" note, this is deliberately just a text label, not a graphic. */
+@Composable
+private fun CenteredHint(text: String, isError: Boolean = false) {
+    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            color = if (isError) MaterialTheme.colorScheme.error else Nocturne.neutral500,
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
@@ -261,14 +261,14 @@ private fun SwipeToQueueRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .background(Nocturne.accent800)
                     .padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Filled.QueueMusic,
+                    phosphorIcon("list-plus"),
                     contentDescription = "Zur Warteschlange hinzufügen",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    tint = Nocturne.accent100,
                 )
             }
         },
@@ -290,12 +290,13 @@ private fun TrackRow(
 ) {
     SwipeToQueueRow(onSwipeToQueue = onAddToQueueClick) {
         ListItem(
+            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
             leadingContent = { TrackThumbnail(track.thumbnailUrl) },
             headlineContent = {
                 Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
             supportingContent = {
-                Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
             },
             trailingContent = {
                 TrackActions(
@@ -321,10 +322,11 @@ private fun ArtistRow(
     onClick: () -> Unit,
 ) {
     ListItem(
+        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
         leadingContent = { TrackThumbnail(artist.thumbnailUrl) },
         headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = artist.subscriberCount?.let { count ->
-            { Text("$count Abonnenten", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            { Text("$count Abonnenten", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500) }
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -335,12 +337,13 @@ private fun ArtistRow(
 @Composable
 private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) {
     ListItem(
+        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
         leadingContent = { TrackThumbnail(playlist.thumbnailUrl) },
         headlineContent = { Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             val subtitle = listOfNotNull(playlist.owner, playlist.trackCount?.let { "$it Titel" })
                 .joinToString(" · ")
-            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
         },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
@@ -349,10 +352,11 @@ private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) 
 @Composable
 private fun AlbumResultRow(album: AlbumResultDto, onClick: () -> Unit) {
     ListItem(
+        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
         leadingContent = { TrackThumbnail(album.thumbnailUrl) },
         headlineContent = { Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
-            Text(album.artist ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(album.artist ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
         },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
@@ -373,26 +377,22 @@ private fun TrackActions(
     var menuExpanded by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     Row {
-        IconButton(
+        NocturneIconButton(
+            icon = phosphorIcon("heart", filled = isLiked),
             onClick = {
                 haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                 onLikeClick()
             },
-        ) {
-            Icon(
-                if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                contentDescription = "Gefällt mir",
-                tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        )
         Box {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Weitere Optionen")
-            }
+            NocturneIconButton(
+                icon = phosphorIcon("dots-three"),
+                onClick = { menuExpanded = true },
+            )
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 DropdownMenuItem(
                     text = { Text("Zu Playlist hinzufügen") },
-                    leadingIcon = { Icon(Icons.Filled.PlaylistAdd, contentDescription = null) },
+                    leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
                     onClick = {
                         menuExpanded = false
                         onAddToPlaylistClick()
@@ -400,7 +400,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Zur Warteschlange hinzufügen") },
-                    leadingIcon = { Icon(Icons.Filled.QueueMusic, contentDescription = null) },
+                    leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
                     onClick = {
                         menuExpanded = false
                         onAddToQueueClick()
@@ -408,7 +408,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Herunterladen") },
-                    leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
+                    leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
                     onClick = {
                         menuExpanded = false
                         onDownloadClick()
@@ -417,10 +417,7 @@ private fun TrackActions(
                 DropdownMenuItem(
                     text = { Text(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir") },
                     leadingIcon = {
-                        Icon(
-                            if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = null,
-                        )
+                        Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = Nocturne.accent)
                     },
                     onClick = {
                         menuExpanded = false
@@ -429,7 +426,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Zum Künstler") },
-                    leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                    leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
                     onClick = {
                         menuExpanded = false
                         artist?.let(onArtistClick)

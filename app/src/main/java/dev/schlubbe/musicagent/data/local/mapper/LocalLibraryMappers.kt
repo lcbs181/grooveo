@@ -30,8 +30,15 @@ fun LocalTrackEntity.toTrackOutDto(): TrackOutDto = TrackOutDto(
 
 fun LikeEntity.toLikeOutDto(): LikeOutDto = LikeOutDto(track.toTrackOutDto(), createdAt)
 
-fun PlaylistWithCount.toPlaylistOutDto(): PlaylistOutDto =
-    PlaylistOutDto(playlist.id, playlist.name, playlist.createdAt, trackCount)
+fun PlaylistWithCount.toPlaylistOutDto(): PlaylistOutDto = PlaylistOutDto(
+    id = playlist.id,
+    name = playlist.name,
+    createdAt = playlist.createdAt,
+    trackCount = trackCount,
+    description = playlist.description,
+    accentColorKey = playlist.accentColorKey,
+    moodTags = playlist.moodTags?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+)
 
 fun PlaylistTrackEntity.toPlaylistTrackOutDto(): PlaylistTrackOutDto =
     PlaylistTrackOutDto(track.toTrackOutDto(), position, addedAt)

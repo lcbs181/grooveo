@@ -3,42 +3,31 @@ package dev.schlubbe.musicagent.ui.playlist
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,15 +38,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.schlubbe.musicagent.data.remote.dto.PlaylistDetailOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistTrackOutDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
+import dev.schlubbe.musicagent.ui.components.NocturneIconButton
+import dev.schlubbe.musicagent.ui.components.NocturneTag
+import dev.schlubbe.musicagent.ui.components.NocturneTagStyle
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
+import dev.schlubbe.musicagent.ui.icons.phosphorIcon
+import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.accentColorFor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,7 +67,8 @@ fun PlaylistDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playlist = uiState.playlist
-    var showRenameDialog by remember { mutableStateOf(false) }
+    var showEditSheet by remember { mutableStateOf(false) }
+    var showTopMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
@@ -93,75 +91,92 @@ fun PlaylistDetailScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(playlist?.name ?: "Playlist") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Zurück")
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                            viewModel.onDownloadPlaylistClicked()
-                        },
-                    ) {
-                        Icon(Icons.Filled.Download, contentDescription = "Playlist herunterladen")
-                    }
-                    IconButton(onClick = { showRenameDialog = true }) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Playlist umbenennen")
-                    }
-                    IconButton(onClick = { viewModel.delete(onDeleted) }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Playlist löschen")
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    Scaffold(containerColor = Nocturne.bg) { padding ->
         when {
-            uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.padding(padding).padding(16.dp))
+            uiState.isLoading -> CircularProgressIndicator(
+                modifier = Modifier.padding(padding).padding(16.dp),
+                color = Nocturne.accent,
+            )
             playlist == null -> Text(
                 "Playlist nicht gefunden",
                 modifier = Modifier.padding(padding).padding(16.dp),
             )
-            playlist.tracks.isEmpty() -> Text(
-                "Noch keine Titel in dieser Playlist",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(padding).padding(16.dp),
-            )
             else -> LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
-                items(playlist.tracks, key = { it.track.id }) { item ->
-                    PlaylistTrackRow(
-                        item = item,
-                        isLiked = item.track.id in uiState.likedTrackIds,
-                        onClick = {
-                            viewModel.playTrack(item)
-                            onTrackSelected()
-                        },
-                        onMoveUp = { viewModel.moveTrack(item, -1) },
-                        onMoveDown = { viewModel.moveTrack(item, 1) },
-                        onRemove = { viewModel.removeTrack(item) },
-                        onLikeClick = { viewModel.onLikeToggled(item.track.toTrackResultDto()) },
-                        onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(item.track.toTrackResultDto()) },
-                        onAddToQueueClick = { viewModel.onAddToQueueClicked(item.track.toTrackResultDto()) },
-                        onDownloadClick = { viewModel.onDownloadClicked(item.track.toTrackResultDto()) },
-                        onArtistClick = { viewModel.onTrackArtistClicked(item.track.toTrackResultDto()) },
-                    )
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                        Box {
+                            NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
+                            DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Herunterladen") },
+                                    leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                        viewModel.onDownloadPlaylistClicked()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Löschen") },
+                                    leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Nocturne.accent) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        viewModel.delete(onDeleted)
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
+                item { PlaylistHeader(playlist, onEditClick = { showEditSheet = true }) }
+                if (playlist.tracks.isEmpty()) {
+                    item {
+                        Text(
+                            "Noch keine Titel",
+                            color = Nocturne.neutral500,
+                            modifier = Modifier.padding(20.dp),
+                        )
+                    }
+                } else {
+                    items(playlist.tracks, key = { it.track.id }) { item ->
+                        PlaylistTrackRow(
+                            item = item,
+                            isLiked = item.track.id in uiState.likedTrackIds,
+                            onClick = {
+                                viewModel.playTrack(item)
+                                onTrackSelected()
+                            },
+                            onMoveUp = { viewModel.moveTrack(item, -1) },
+                            onMoveDown = { viewModel.moveTrack(item, 1) },
+                            onRemove = { viewModel.removeTrack(item) },
+                            onLikeClick = { viewModel.onLikeToggled(item.track.toTrackResultDto()) },
+                            onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(item.track.toTrackResultDto()) },
+                            onAddToQueueClick = { viewModel.onAddToQueueClicked(item.track.toTrackResultDto()) },
+                            onDownloadClick = { viewModel.onDownloadClicked(item.track.toTrackResultDto()) },
+                            onArtistClick = { viewModel.onTrackArtistClicked(item.track.toTrackResultDto()) },
+                        )
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(20.dp)) }
             }
         }
     }
 
-    if (showRenameDialog && playlist != null) {
-        RenamePlaylistDialog(
-            currentName = playlist.name,
-            onDismiss = { showRenameDialog = false },
-            onRename = { name ->
-                viewModel.rename(name)
-                showRenameDialog = false
+    if (showEditSheet && playlist != null) {
+        PlaylistEditSheet(
+            playlistId = playlist.id,
+            initialName = playlist.name,
+            initialDescription = playlist.description,
+            initialAccentColorKey = playlist.accentColorKey,
+            initialMoodTags = playlist.moodTags,
+            onDismiss = { showEditSheet = false },
+            onSave = { name, description, accentColorKey, moodTags ->
+                viewModel.updateDetails(name, description, accentColorKey, moodTags)
+                showEditSheet = false
             },
         )
     }
@@ -211,94 +226,70 @@ private fun PlaylistTrackRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .background(Nocturne.accent800)
                     .padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Filled.QueueMusic,
-                    contentDescription = "Zur Warteschlange hinzufügen",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Nocturne.accent100)
             }
         },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         ListItem(
+            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
             leadingContent = { TrackThumbnail(item.track.thumbnailUrl) },
             headlineContent = {
                 Text(item.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
             supportingContent = {
-                Text(
-                    item.track.artist ?: item.track.source,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Text(item.track.artist ?: item.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
             },
             trailingContent = {
                 Row {
-                    IconButton(onClick = onMoveUp) {
-                        Icon(Icons.Filled.ArrowUpward, contentDescription = "Nach oben")
-                    }
-                    IconButton(onClick = onMoveDown) {
-                        Icon(Icons.Filled.ArrowDownward, contentDescription = "Nach unten")
-                    }
-                    IconButton(onClick = onRemove) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Entfernen")
-                    }
+                    NocturneIconButton(
+                        icon = phosphorIcon("heart", filled = isLiked),
+                        onClick = {
+                            haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                            onLikeClick()
+                        },
+                    )
                     Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Weitere Optionen")
-                        }
+                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
-                                leadingIcon = { Icon(Icons.Filled.PlaylistAdd, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onAddToPlaylistClick()
-                                },
+                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
-                                leadingIcon = { Icon(Icons.Filled.QueueMusic, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onAddToQueueClick()
-                                },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; onAddToQueueClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
-                                leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDownloadClick()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir") },
-                                leadingIcon = {
-                                    Icon(
-                                        if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    haptic.performHapticFeedback(
-                                        if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
-                                    )
-                                    onLikeClick()
-                                },
+                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; onDownloadClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zum Künstler") },
-                                leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    item.track.artist?.let(onArtistClick)
-                                },
+                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; item.track.artist?.let(onArtistClick) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Nach oben") },
+                                leadingIcon = { Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; onMoveUp() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Nach unten") },
+                                leadingIcon = { Icon(phosphorIcon("caret-down"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; onMoveDown() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Entfernen") },
+                                leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; onRemove() },
                             )
                         }
                     }
@@ -311,28 +302,43 @@ private fun PlaylistTrackRow(
     }
 }
 
+/** Small 80dp cover slot next to name/description/tags, with the edit-pencil at
+ * the row's end -- matches the design's header layout exactly (not a big
+ * full-width hero cover, which is what this looked like before). */
 @Composable
-private fun RenamePlaylistDialog(currentName: String, onDismiss: () -> Unit, onRename: (String) -> Unit) {
-    var name by remember { mutableStateOf(currentName) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Playlist umbenennen") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onRename(name) }, enabled = name.isNotBlank()) {
-                Text("Speichern")
+private fun PlaylistHeader(playlist: PlaylistDetailOutDto, onEditClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(accentColorFor(playlist.accentColorKey, playlist.id)),
+        )
+        Column(modifier = Modifier.weight(1f).padding(start = 14.dp, top = 2.dp)) {
+            Text(playlist.name, style = MaterialTheme.typography.headlineSmall)
+            if (!playlist.description.isNullOrBlank()) {
+                Text(
+                    playlist.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.neutral500,
+                    modifier = Modifier.padding(top = 5.dp),
+                )
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Abbrechen") }
-        },
-    )
+            if (playlist.moodTags.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    playlist.moodTags.forEach { key ->
+                        val label = MoodTag.entries.firstOrNull { it.key == key }?.label ?: key
+                        NocturneTag(label, style = NocturneTagStyle.Outline)
+                    }
+                }
+            }
+        }
+        NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = onEditClick, iconSize = 17.dp)
+    }
 }

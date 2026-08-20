@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.schlubbe.musicagent.data.remote.BackendApi
+import dev.schlubbe.musicagent.data.extract.di.ExtractionHttpClient
 import dev.schlubbe.musicagent.data.remote.dto.UpdateInfoDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -18,6 +20,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "UpdateRepository"
+private const val RELEASES_OWNER = "lcbs181"
+private const val RELEASES_REPO = "music-agent-releases"
 
 sealed interface UpdateCheckResult {
     data class Available(val info: UpdateInfoDto) : UpdateCheckResult
@@ -26,16 +30,31 @@ sealed interface UpdateCheckResult {
 }
 
 /**
- * Checks the backend's /updates/latest endpoint, downloads the APK it points
- * to, and hands it off to the system package installer. There's no Play
- * Store presence for this app, so this is the whole update mechanism.
+ * Checks a dedicated PUBLIC GitHub repo's Releases API for a newer .apk and
+ * downloads it straight from GitHub - no backend involved at all. Kept in its
+ * own public repo, separate from the app's private source repo
+ * (lcbs181/music-agent-standalone), specifically so this never needs a GitHub
+ * token: a private repo's Releases API requires auth for both the metadata
+ * call and the asset download, which would mean embedding a token in the APK
+ * itself - trivially extractable by anyone who unzips it. A plain
+ * unauthenticated GET works here because the repo is public.
+ *
+ * Release tags on that repo must follow "v<versionCode>" (e.g. "v6"), matching
+ * android/app/build.gradle.kts's versionCode for that build - see
+ * parseVersionCode. After building a new release APK:
+ *   gh release create v<versionCode> app-debug.apk --repo lcbs181/music-agent-releases \
+ *     --title "<versionName>" --notes "..."
+ *
+ * Uses [ExtractionHttpClient] (the same plain client SoundCloud/YouTube calls
+ * use), not the app's main OkHttpClient - that one carries
+ * DynamicBaseUrlInterceptor, which rewrites every request's scheme/host/port to
+ * the user's configured backend address and would silently redirect these
+ * GitHub calls there instead.
  */
 @Singleton
 class UpdateRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val backendApi: BackendApi,
-    private val settingsRepository: SettingsRepository,
-    private val okHttpClient: OkHttpClient,
+    @ExtractionHttpClient private val okHttpClient: OkHttpClient,
 ) {
     /** Reads the installed app's own versionCode via PackageManager (no BuildConfig needed). */
     fun currentVersionCode(): Long {
@@ -43,42 +62,60 @@ class UpdateRepository @Inject constructor(
         return info.longVersionCode
     }
 
-    // The shared OkHttpClient's read timeout is 10 minutes (tuned for audio
-    // streaming, see NetworkModule) - far too long to wait on a plain version
-    // check if the backend is unreachable. Bound this one call explicitly instead
-    // of touching that shared, streaming-tuned timeout.
     suspend fun checkForUpdate(): UpdateCheckResult = runCatching {
-        val latest = withTimeout(15_000) { backendApi.getLatestUpdate() }
-        if (latest.versionCode > currentVersionCode()) {
-            UpdateCheckResult.Available(latest)
+        val release = withTimeout(15_000) { fetchLatestRelease() }
+        val versionCode = parseVersionCode(release.get("tag_name").asString)
+        if (versionCode > currentVersionCode()) {
+            val asset = apkAsset(release) ?: error("Neuestes Release hat keine .apk-Datei")
+            UpdateCheckResult.Available(
+                UpdateInfoDto(
+                    versionCode = versionCode,
+                    versionName = release.get("name")?.takeIf { !it.isJsonNull }?.asString
+                        ?: release.get("tag_name").asString,
+                    downloadUrl = asset.get("browser_download_url").asString,
+                ),
+            )
         } else {
             UpdateCheckResult.UpToDate
         }
     }.getOrElse {
-        val message = if (it is TimeoutCancellationException) {
-            "Zeitüberschreitung – Backend nicht erreichbar"
-        } else {
-            it.message
+        val message = when {
+            it is TimeoutCancellationException -> "Zeitüberschreitung – GitHub nicht erreichbar"
+            else -> it.message
         }
         UpdateCheckResult.Error(message ?: "Unbekannter Fehler")
     }
 
-    /** Downloads the APK to the app's external files dir, reporting 0-100 progress.
-     *
-     * The actual network read (a blocking OkHttp `execute()` plus the whole
-     * byte-copy loop for a ~80-90MB file) used to run on whatever thread called
-     * this - which for every real caller is `viewModelScope.launch`, i.e. the main
-     * thread. Copying tens of megabytes synchronously on the main thread is exactly
-     * the kind of thing that trips Android's ANR watchdog partway through, which
-     * then surfaces here as some arbitrary interrupted-thread exception (often with
-     * no useful message) rather than a clean HTTP failure - almost certainly why
-     * this showed a bare "Download fehlgeschlagen" with no code, unlike the
-     * `!isSuccessful` branch below which always includes one. */
-    suspend fun downloadApk(downloadUrl: String, onProgress: (Int) -> Unit = {}): File = withContext(Dispatchers.IO) {
-        val baseUrl = settingsRepository.backendBaseUrlCached.trimEnd('/')
-        val url = if (downloadUrl.startsWith("http")) downloadUrl else "$baseUrl$downloadUrl"
-        val request = Request.Builder().url(url).build()
+    private suspend fun fetchLatestRelease(): JsonObject = withContext(Dispatchers.IO) {
+        val url = "https://api.github.com/repos/$RELEASES_OWNER/$RELEASES_REPO/releases/latest"
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        val response = okHttpClient.newCall(request).execute()
+        val (code, body) = response.use { it.code to it.body?.string().orEmpty() }
+        check(code in 200..299) { "GitHub releases API error $code" }
+        JsonParser.parseString(body).asJsonObject
+    }
 
+    private fun apkAsset(release: JsonObject): JsonObject? =
+        release.getAsJsonArray("assets")
+            ?.map { it.asJsonObject }
+            ?.firstOrNull { it.get("name").asString.endsWith(".apk") }
+
+    // Tags are expected as "v<versionCode>" (e.g. "v6"). Falls back to 0 (never
+    // looks "newer" than any installed app) if a tag doesn't follow that
+    // convention, rather than crashing the check on a malformed/manual tag.
+    private fun parseVersionCode(tagName: String): Long =
+        tagName.filter { it.isDigit() }.toLongOrNull() ?: 0L
+
+    /** Downloads the APK straight from its GitHub browser_download_url, reporting
+     * 0-100 progress. Runs on Dispatchers.IO since this blocks on OkHttp's
+     * synchronous execute() + a byte-copy loop for a ~80-90MB file - doing that on
+     * whatever thread calls this (viewModelScope.launch, i.e. main) risks tripping
+     * Android's ANR watchdog partway through. */
+    suspend fun downloadApk(downloadUrl: String, onProgress: (Int) -> Unit = {}): File = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(downloadUrl).build()
         val outputFile = File(context.getExternalFilesDir(null), "update.apk")
         runCatching {
             okHttpClient.newCall(request).execute().use { response ->
@@ -93,16 +130,12 @@ class UpdateRepository @Inject constructor(
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             out.write(buffer, 0, bytesRead)
                             totalRead += bytesRead
-                            // MutableStateFlow.value is thread-safe to set from any
-                            // thread (this loop runs on Dispatchers.IO), so no need
-                            // to hop back to Main for every one of the ~thousands
-                            // of chunks a large APK download reads.
                             if (total > 0) onProgress(((totalRead * 100) / total).toInt())
                         }
                     }
                 }
             }
-        }.onFailure { e -> Log.w(TAG, "downloadApk failed for $url", e) }.getOrThrow()
+        }.onFailure { e -> Log.w(TAG, "downloadApk failed for $downloadUrl", e) }.getOrThrow()
         outputFile
     }
 

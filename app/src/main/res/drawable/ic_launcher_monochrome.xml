@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13+ themed-icon variant: same 5-bar mark as ic_launcher_foreground,
+     but as a single flat color - the system re-tints this to match the user's
+     wallpaper-derived palette, so the actual fillColor here is a neutral
+     placeholder rather than a brand color. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M17,42 L27,42 L27,66 L17,66 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M33,36 L43,36 L43,72 L33,72 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M49,30 L59,30 L59,78 L49,78 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M65,36 L75,36 L75,72 L65,72 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M81,42 L91,42 L91,66 L81,66 Z" />
+</vector>

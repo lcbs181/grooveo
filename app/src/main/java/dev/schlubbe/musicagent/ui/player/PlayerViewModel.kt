@@ -3,8 +3,10 @@ package dev.schlubbe.musicagent.ui.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
+import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.playback.EqPreset
@@ -28,6 +30,11 @@ data class PlayerArtistNavState(
     val artistLookupError: String? = null,
 )
 
+data class PlayerAddToPlaylistState(
+    val pending: Boolean = false,
+    val playlists: List<PlaylistOutDto> = emptyList(),
+)
+
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val playerController: PlayerController,
@@ -35,6 +42,7 @@ class PlayerViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val searchRepository: SearchRepository,
     private val settingsRepository: SettingsRepository,
+    private val playlistRepository: PlaylistRepository,
 ) : ViewModel() {
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
@@ -45,6 +53,9 @@ class PlayerViewModel @Inject constructor(
     fun setEqPreset(preset: EqPreset) {
         viewModelScope.launch { settingsRepository.setEqPreset(preset) }
     }
+
+    val playerStyle: StateFlow<String> = settingsRepository.playerStyle
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "waveform")
     val sleepTimerEndAtMs: StateFlow<Long?> = playerController.sleepTimerEndAtMs
 
     val isLiked: StateFlow<Boolean> = combine(
@@ -138,4 +149,44 @@ class PlayerViewModel @Inject constructor(
     fun startSleepTimer(minutes: Int) = playerController.startSleepTimer(minutes)
 
     fun cancelSleepTimer() = playerController.cancelSleepTimer()
+
+    private val _addToPlaylistState = MutableStateFlow(PlayerAddToPlaylistState())
+    val addToPlaylistState: StateFlow<PlayerAddToPlaylistState> = _addToPlaylistState.asStateFlow()
+
+    // Part of the Player screen's shared overflow action sheet (see the design
+    // handoff's "…" menu spec) - the now-playing track otherwise had no way to be
+    // saved into a playlist from the Player screen itself, unlike every other
+    // track row in the app.
+    fun onAddToPlaylistClicked() {
+        if (playerController.nowPlayingTrack() == null) return
+        _addToPlaylistState.value = _addToPlaylistState.value.copy(pending = true)
+        viewModelScope.launch {
+            runCatching { playlistRepository.list() }.onSuccess { playlists ->
+                _addToPlaylistState.value = _addToPlaylistState.value.copy(playlists = playlists)
+            }
+        }
+    }
+
+    fun dismissAddToPlaylist() {
+        _addToPlaylistState.value = _addToPlaylistState.value.copy(pending = false)
+    }
+
+    fun onPlaylistPicked(playlistId: String) {
+        val track = playerController.nowPlayingTrack() ?: return
+        viewModelScope.launch {
+            runCatching { playlistRepository.addTrack(playlistId, track) }
+            _addToPlaylistState.value = _addToPlaylistState.value.copy(pending = false)
+        }
+    }
+
+    fun onCreatePlaylistAndAdd(name: String) {
+        val track = playerController.nowPlayingTrack() ?: return
+        viewModelScope.launch {
+            runCatching {
+                val playlist = playlistRepository.create(name)
+                playlistRepository.addTrack(playlist.id, track)
+            }
+            _addToPlaylistState.value = _addToPlaylistState.value.copy(pending = false)
+        }
+    }
 }

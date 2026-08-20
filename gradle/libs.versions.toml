@@ -22,11 +22,13 @@ coil = "2.7.0"
 newpipeExtractor = "v0.26.5"
 jsoup = "1.18.3"
 glance = "1.1.1"
+phosphorIcon = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.0.1" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
@@ -71,6 +73,13 @@ kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-co
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
 androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
+
+# Nocturne design system uses Phosphor Icons throughout (see nocturne-tokens.css /
+# design_handoff_music_agent_redesign). Verified on Maven Central at
+# https://central.sonatype.com/artifact/com.adamglin/phosphor-icon before adding --
+# an earlier guess at a different group (br.com.devsrsouza.compose.icons:phosphor)
+# didn't exist at all, that pack was never part of that library.
+phosphor-icon = { group = "com.adamglin", name = "phosphor-icon", version.ref = "phosphorIcon" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

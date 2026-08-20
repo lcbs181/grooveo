@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The Music Agent mark: five vertical bars of varying height, a stylized
+     waveform (see the design handoff's Splash & Logo spec) - the middle,
+     tallest bar in the brighter accent-300 tone, the other four in the base
+     accent color. Centered within the 108dp adaptive-icon canvas, staying
+     inside the ~66dp safe zone launchers don't crop. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,30 C40.7,30 30,40.7 30,54 C30,67.3 40.7,78 54,78 C67.3,78 78,67.3 78,54 C78,40.7 67.3,30 54,30 Z M48,66 L48,42 L66,54 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M17,42 L27,42 L27,66 L17,66 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M33,36 L43,36 L43,72 L33,72 Z" />
+    <path android:fillColor="@color/nocturne_accent_300" android:pathData="M49,30 L59,30 L59,78 L49,78 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M65,36 L75,36 L75,72 L65,72 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M81,42 L91,42 L91,66 L81,66 Z" />
 </vector>

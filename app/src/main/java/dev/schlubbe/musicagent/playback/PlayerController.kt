@@ -21,6 +21,7 @@ import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.EventReporter
+import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +83,7 @@ class PlayerController @Inject constructor(
     private val eventReporter: EventReporter,
     private val downloadDao: DownloadDao,
     private val streamResolverRegistry: StreamResolverRegistry,
+    private val searchRepository: SearchRepository,
 ) {
     private var controller: MediaController? = null
 
@@ -189,6 +191,11 @@ class PlayerController @Inject constructor(
                 if (playbackState == Player.STATE_ENDED) {
                     currentTrack?.let { eventReporter.playComplete(it, currentPositionMs()) }
                     currentTrackCompleted = true
+                    // STATE_ENDED only fires once the whole queue is exhausted with no
+                    // repeat mode active (a single track ending mid-queue instead fires
+                    // onMediaItemTransition with reason AUTO) - the right moment to
+                    // extend the queue with something else, if the user asked for it.
+                    if (settingsRepository.autoplayRadioCached) continueWithRadio()
                 }
             }
 
@@ -492,6 +499,19 @@ class PlayerController @Inject constructor(
         } else {
             "„$title“ konnte nicht aufgelöst werden."
         }
+
+    /** "Automatische Weiterempfehlung" (Einstellungen > Wiedergabe): once the
+     * queue naturally runs out, keeps playback going with shuffled global
+     * trending tracks - the same always-populated signal Home's Charts shelf
+     * uses, rather than nothing (no per-user "radio" generation exists
+     * on-device beyond that). */
+    private fun continueWithRadio() {
+        scope.launch {
+            val tracks = runCatching { searchRepository.getTrending() }.getOrNull()?.shuffled() ?: return@launch
+            if (tracks.isEmpty()) return@launch
+            playQueue(tracks, 0)
+        }
+    }
 
     private fun refreshDownloadAvailability(track: TrackResultDto) {
         scope.launch {
