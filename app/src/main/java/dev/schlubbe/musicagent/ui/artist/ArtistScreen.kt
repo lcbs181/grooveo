@@ -53,6 +53,7 @@ import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.util.shareText
 
 private const val SHELF_PREVIEW_COUNT = 5
 
@@ -75,6 +76,8 @@ fun ArtistScreen(
     // more stopped working" if it flips to the wrong artist mid-navigation.
     var showAllTop by remember(source, sourceId) { mutableStateOf(false) }
     var showAllLatest by remember(source, sourceId) { mutableStateOf(false) }
+    var showTopMenu by remember(source, sourceId) { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(source, sourceId) {
         viewModel.load(source, sourceId)
@@ -88,12 +91,27 @@ fun ArtistScreen(
 
     Scaffold(containerColor = Nocturne.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            NocturneIconButton(
-                icon = phosphorIcon("caret-left"),
-                onClick = onNavigateBack,
-                iconSize = 20.dp,
-                modifier = Modifier.padding(start = 6.dp, top = 10.dp),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                uiState.artist?.let { artist ->
+                    Box {
+                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
+                        DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Teilen") },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = {
+                                    showTopMenu = false
+                                    context.shareText(artist.webpageUrl)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             when {
                 uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Nocturne.accent)
                 uiState.error != null -> Text(
@@ -365,6 +383,11 @@ private fun ArtistTrackRow(
                                 text = { Text("Herunterladen") },
                                 leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
                                 onClick = { menuExpanded = false; onDownloadClick() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Teilen") },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
                             )
                         }
                     }

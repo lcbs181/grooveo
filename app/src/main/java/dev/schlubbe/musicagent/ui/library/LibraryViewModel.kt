@@ -54,7 +54,7 @@ internal fun TrackEntity.toTrackResultDto(): TrackResultDto = TrackResultDto(
     album = album,
     durationSec = durationSec,
     thumbnailUrl = thumbnailUrl,
-    webpageUrl = "",
+    webpageUrl = webpageUrl,
 )
 
 enum class LibraryTab { DOWNLOADS, LIKES, PLAYLISTS }

@@ -194,6 +194,7 @@ class SearchViewModel @Inject constructor(
                 durationSec = track.durationSec,
                 thumbnailUrl = track.thumbnailUrl,
                 lastAccessedAt = System.currentTimeMillis(),
+                webpageUrl = track.webpageUrl,
             ),
         )
     }

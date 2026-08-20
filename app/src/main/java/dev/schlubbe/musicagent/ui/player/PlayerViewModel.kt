@@ -109,6 +109,8 @@ class PlayerViewModel @Inject constructor(
         downloadRepository.startDownload(track)
     }
 
+    fun currentTrackWebpageUrl(): String? = playerController.nowPlayingTrack()?.webpageUrl
+
     // The now-playing artist label is only a name, not an id - resolve it to a real
     // artist page via a 1-result artist search on the same source, same best-effort
     // pattern as SearchViewModel/PlaylistDetailViewModel's "Zum Künstler".

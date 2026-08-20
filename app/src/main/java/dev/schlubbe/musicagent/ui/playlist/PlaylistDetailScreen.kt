@@ -55,6 +55,7 @@ import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Nocturne
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
+import dev.schlubbe.musicagent.ui.util.shareText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,6 +127,17 @@ fun PlaylistDetailScreen(
                                     onClick = {
                                         showTopMenu = false
                                         viewModel.delete(onDeleted)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Teilen") },
+                                    leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                    onClick = {
+                                        showTopMenu = false
+                                        // Local playlists have no remote URL - shares a
+                                        // plain-text summary (name + track list) instead.
+                                        val trackLines = playlist.tracks.joinToString("\n") { "- ${it.track.title}" }
+                                        context.shareText("${playlist.name} (${playlist.tracks.size} Titel)\n$trackLines")
                                     },
                                 )
                             }
@@ -275,6 +287,11 @@ private fun PlaylistTrackRow(
                                 text = { Text("Zum Künstler") },
                                 leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
                                 onClick = { menuExpanded = false; item.track.artist?.let(onArtistClick) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Teilen") },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; context.shareText(item.track.webpageUrl) },
                             )
                             DropdownMenuItem(
                                 text = { Text("Nach oben") },

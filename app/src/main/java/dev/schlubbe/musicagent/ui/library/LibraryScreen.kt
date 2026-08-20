@@ -61,6 +61,7 @@ import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Nocturne
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
+import dev.schlubbe.musicagent.ui.util.shareText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -200,6 +201,7 @@ private fun DownloadRow(
     val entity = item.entity
     val track = item.track
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     var menuExpanded by remember { mutableStateOf(false) }
 
     ListItem(
@@ -277,6 +279,11 @@ private fun DownloadRow(
                                 text = { Text("Zum Künstler") },
                                 leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
                                 onClick = { menuExpanded = false; onArtistClick() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Teilen") },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
                             )
                         }
                     }
@@ -406,6 +413,11 @@ private fun LikeRow(
                                     like.track.artist?.let(onArtistClick)
                                 },
                             )
+                            DropdownMenuItem(
+                                text = { Text("Teilen") },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = { menuExpanded = false; context.shareText(like.track.webpageUrl) },
+                            )
                         }
                     }
                 }
@@ -419,6 +431,7 @@ private fun LikeRow(
 
 @Composable
 private fun PlaylistsTab(uiState: LibraryUiState, onPlaylistClick: (String) -> Unit) {
+    val context = LocalContext.current
     if (uiState.isLoadingPlaylists) {
         CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Nocturne.accent)
         return
@@ -448,7 +461,15 @@ private fun PlaylistsTab(uiState: LibraryUiState, onPlaylistClick: (String) -> U
                     Text("${playlist.trackCount} Titel", color = Nocturne.neutral500)
                 },
                 trailingContent = {
-                    NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
+                    Row {
+                        // Local playlists have no remote URL - shares a plain-text
+                        // summary instead of a link, unlike every other share action.
+                        NocturneIconButton(
+                            icon = phosphorIcon("share-network"),
+                            onClick = { context.shareText("${playlist.name} (${playlist.trackCount} Titel) — geteilt aus Music Agent") },
+                        )
+                        NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
+                    }
                 },
             )
         }

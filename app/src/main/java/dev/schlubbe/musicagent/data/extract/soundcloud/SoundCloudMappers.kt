@@ -78,6 +78,7 @@ fun JsonObject.toSoundCloudPlaylistResultDto(): PlaylistResultDto? {
         thumbnailUrl = upsizeImage(stringOrNull("artwork_url")),
         trackCount = longOrNull("track_count")?.toInt(),
         owner = getAsJsonObject("user")?.stringOrNull("username"),
+        webpageUrl = webpageUrl,
     )
 }
 
@@ -94,6 +95,7 @@ fun JsonObject.toSoundCloudAlbumResultDto(): AlbumResultDto? {
         // SoundCloud's playlist/album search response has no reliable release-year
         // field (unlike ytmusicapi's album entries) - left null rather than guessed.
         year = null,
+        webpageUrl = webpageUrl,
     )
 }
 
@@ -107,5 +109,6 @@ fun JsonObject.toSoundCloudArtistResultDto(): ArtistResultDto? {
         name = name,
         thumbnailUrl = upsizeImage(stringOrNull("avatar_url")),
         subscriberCount = longOrNull("followers_count")?.let { formatCountSimple(it) },
+        webpageUrl = stringOrNull("permalink_url") ?: "https://soundcloud.com/$permalink",
     )
 }

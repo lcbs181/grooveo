@@ -14,4 +14,5 @@ data class TrackEntity(
     val durationSec: Int?,
     val thumbnailUrl: String?,
     val lastAccessedAt: Long,
+    val webpageUrl: String = "",
 )

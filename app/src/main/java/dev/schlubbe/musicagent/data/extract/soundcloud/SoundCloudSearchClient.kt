@@ -105,6 +105,7 @@ class SoundCloudSearchClient @Inject constructor(
             subscriberCount = artist.subscriberCount,
             topTracks = topTracks,
             latestTracks = latestTracks,
+            webpageUrl = artist.webpageUrl,
         )
     }
 

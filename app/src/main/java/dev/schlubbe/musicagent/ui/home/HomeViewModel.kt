@@ -82,10 +82,8 @@ data class HomeUiState(
     val latestVersionLabel: String = BuildConfig.VERSION_NAME,
 )
 
-/** Converts a locally-cached [TrackEntity] back into a [TrackResultDto] for playback.
- * TrackEntity doesn't persist webpage_url since nothing reads that field at runtime
- * (it only ever gets serialized back out to the backend on search results), so an
- * empty placeholder here is safe. */
+/** Converts a locally-cached [TrackEntity] back into a [TrackResultDto] for playback
+ * (and, since the share feature, sharing a real link for it too). */
 private fun TrackEntity.toTrackResultDto(): TrackResultDto = TrackResultDto(
     source = source,
     sourceId = sourceId,
@@ -94,7 +92,7 @@ private fun TrackEntity.toTrackResultDto(): TrackResultDto = TrackResultDto(
     album = album,
     durationSec = durationSec,
     thumbnailUrl = thumbnailUrl,
-    webpageUrl = "",
+    webpageUrl = webpageUrl,
 )
 
 @HiltViewModel

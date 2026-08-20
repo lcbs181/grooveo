@@ -28,7 +28,7 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         PlaylistTrackEntity::class,
         FollowedArtistEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -115,5 +115,17 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
                 PRIMARY KEY(source, sourceId)
             )""",
         )
+    }
+}
+
+// Share feature: the "tracks" cache table (recently played/searched, backing the
+// Downloads tab's metadata) never stored a permalink, unlike every other track
+// table (likes/playlist_tracks already have webpageUrl from MIGRATION_1_2). Existing
+// rows get an empty string, same "no link available yet" fallback already used by
+// TrackEntity.toTrackResultDto() - they'll get a real URL next time that track is
+// searched/played and re-upserted.
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tracks ADD COLUMN webpageUrl TEXT NOT NULL DEFAULT ''")
     }
 }

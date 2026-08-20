@@ -67,6 +67,7 @@ import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.util.shareText
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 import java.util.concurrent.TimeUnit
@@ -210,6 +211,15 @@ fun PlayerScreen(
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                             viewModel.toggleLike()
                         },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Teilen") },
+                        leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                        onClick = {
+                            showMoreMenu = false
+                            viewModel.currentTrackWebpageUrl()?.let { context.shareText(it) }
+                        },
+                        enabled = playbackState.currentTrackId != null,
                     )
                 }
             }

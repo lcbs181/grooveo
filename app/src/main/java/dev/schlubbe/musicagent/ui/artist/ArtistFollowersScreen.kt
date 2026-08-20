@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -34,6 +35,7 @@ import dev.schlubbe.musicagent.ui.components.NocturneIconButton
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.util.shareText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +46,7 @@ fun ArtistFollowersScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
 
     val shouldLoadMore by remember {
         derivedStateOf {
@@ -92,6 +95,12 @@ fun ArtistFollowersScreen(
                             headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             supportingContent = follower.subscriberCount?.let { count ->
                                 { Text("$count Follower", color = Nocturne.neutral500) }
+                            },
+                            trailingContent = {
+                                NocturneIconButton(
+                                    icon = phosphorIcon("share-network"),
+                                    onClick = { context.shareText(follower.webpageUrl) },
+                                )
                             },
                             modifier = Modifier
                                 .fillMaxWidth()

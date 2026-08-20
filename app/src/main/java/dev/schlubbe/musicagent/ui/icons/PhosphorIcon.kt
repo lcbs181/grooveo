@@ -51,6 +51,7 @@ import com.adamglin.phosphoricons.regular.CloudArrowUp
 import com.adamglin.phosphoricons.regular.Trash
 import com.adamglin.phosphoricons.regular.PlayCircle
 import com.adamglin.phosphoricons.regular.PauseCircle
+import com.adamglin.phosphoricons.regular.ShareNetwork
 import com.adamglin.phosphoricons.fill.Heart
 import com.adamglin.phosphoricons.fill.CheckCircle
 import com.adamglin.phosphoricons.fill.PlayCircle
@@ -126,6 +127,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "trash" -> PhosphorIcons.Regular.Trash
         "play-circle" -> PhosphorIcons.Regular.PlayCircle
         "pause-circle" -> PhosphorIcons.Regular.PauseCircle
+        "share-network" -> PhosphorIcons.Regular.ShareNetwork
         else -> PhosphorIcons.Regular.WarningCircle
     }
 }

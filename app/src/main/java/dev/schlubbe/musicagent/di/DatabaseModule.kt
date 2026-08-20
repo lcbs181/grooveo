@@ -11,6 +11,7 @@ import dev.schlubbe.musicagent.data.local.AppDatabase
 import dev.schlubbe.musicagent.data.local.MIGRATION_1_2
 import dev.schlubbe.musicagent.data.local.MIGRATION_2_3
 import dev.schlubbe.musicagent.data.local.MIGRATION_3_4
+import dev.schlubbe.musicagent.data.local.MIGRATION_4_5
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.dao.FollowedArtistDao
 import dev.schlubbe.musicagent.data.local.dao.LikeDao
@@ -27,7 +28,7 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "music-agent.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides

@@ -19,6 +19,7 @@ data class ArtistResultDto(
     val name: String,
     @SerializedName("thumbnail_url") val thumbnailUrl: String?,
     @SerializedName("subscriber_count") val subscriberCount: String?,
+    @SerializedName("webpage_url") val webpageUrl: String,
 )
 
 data class ArtistDetailDto(
@@ -31,6 +32,7 @@ data class ArtistDetailDto(
     @SerializedName("subscriber_count") val subscriberCount: String?,
     @SerializedName("top_tracks") val topTracks: List<TrackResultDto> = emptyList(),
     @SerializedName("latest_tracks") val latestTracks: List<TrackResultDto> = emptyList(),
+    @SerializedName("webpage_url") val webpageUrl: String,
 )
 
 data class PlaylistResultDto(
@@ -43,6 +45,9 @@ data class PlaylistResultDto(
     @SerializedName("thumbnail_url") val thumbnailUrl: String?,
     @SerializedName("track_count") val trackCount: Int?,
     val owner: String?,
+    // Full shareable webpage URL — unlike sourceId (opaque id), always the
+    // complete https:// permalink, for both sources.
+    @SerializedName("webpage_url") val webpageUrl: String,
 )
 
 data class AlbumResultDto(
@@ -52,4 +57,5 @@ data class AlbumResultDto(
     val artist: String?,
     @SerializedName("thumbnail_url") val thumbnailUrl: String?,
     val year: String?,
+    @SerializedName("webpage_url") val webpageUrl: String,
 )

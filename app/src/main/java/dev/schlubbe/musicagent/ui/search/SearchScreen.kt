@@ -51,6 +51,7 @@ import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import dev.schlubbe.musicagent.ui.util.shareText
 import dev.schlubbe.musicagent.ui.components.NocturneIconButton
 import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
@@ -302,6 +303,7 @@ private fun TrackRow(
                 TrackActions(
                     isLiked = isLiked,
                     artist = track.artist,
+                    webpageUrl = track.webpageUrl,
                     onLikeClick = onLikeClick,
                     onAddToPlaylistClick = onAddToPlaylistClick,
                     onAddToQueueClick = onAddToQueueClick,
@@ -317,6 +319,15 @@ private fun TrackRow(
 }
 
 @Composable
+private fun ShareIconButton(webpageUrl: String) {
+    val context = LocalContext.current
+    NocturneIconButton(
+        icon = phosphorIcon("share-network"),
+        onClick = { context.shareText(webpageUrl) },
+    )
+}
+
+@Composable
 private fun ArtistRow(
     artist: ArtistResultDto,
     onClick: () -> Unit,
@@ -328,6 +339,7 @@ private fun ArtistRow(
         supportingContent = artist.subscriberCount?.let { count ->
             { Text("$count Abonnenten", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500) }
         },
+        trailingContent = { ShareIconButton(artist.webpageUrl) },
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
@@ -345,6 +357,7 @@ private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) 
                 .joinToString(" · ")
             Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
         },
+        trailingContent = { ShareIconButton(playlist.webpageUrl) },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
 }
@@ -358,6 +371,7 @@ private fun AlbumResultRow(album: AlbumResultDto, onClick: () -> Unit) {
         supportingContent = {
             Text(album.artist ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
         },
+        trailingContent = { ShareIconButton(album.webpageUrl) },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )
 }
@@ -368,6 +382,7 @@ private fun AlbumResultRow(album: AlbumResultDto, onClick: () -> Unit) {
 private fun TrackActions(
     isLiked: Boolean,
     artist: String?,
+    webpageUrl: String,
     onLikeClick: () -> Unit,
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
@@ -376,6 +391,7 @@ private fun TrackActions(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     Row {
         NocturneIconButton(
             icon = phosphorIcon("heart", filled = isLiked),
@@ -430,6 +446,14 @@ private fun TrackActions(
                     onClick = {
                         menuExpanded = false
                         artist?.let(onArtistClick)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Teilen") },
+                    leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                    onClick = {
+                        menuExpanded = false
+                        context.shareText(webpageUrl)
                     },
                 )
             }

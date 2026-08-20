@@ -101,6 +101,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
         thumbnailUrl = thumbnails.maxByOrNull { it.height }?.url,
         trackCount = streamCount.takeIf { it >= 0 }?.toInt(),
         owner = uploaderName,
+        webpageUrl = url,
     )
 
     private fun PlaylistInfoItem.toAlbumResultDto(): AlbumResultDto = AlbumResultDto(
@@ -110,6 +111,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
         artist = uploaderName,
         thumbnailUrl = thumbnails.maxByOrNull { it.height }?.url,
         year = null, // NewPipeExtractor's PlaylistInfoItem carries no release-year field
+        webpageUrl = url,
     )
 
     /** [channelUrl] is the full YouTube channel URL, used directly as the artist's
@@ -169,6 +171,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
             subscriberCount = info.subscriberCount.takeIf { it >= 0 }?.let(::formatCount),
             topTracks = topTracks,
             latestTracks = latestTracks,
+            webpageUrl = channelUrl,
         )
     }
 
@@ -200,6 +203,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
         name = name,
         thumbnailUrl = thumbnails.maxByOrNull { it.height }?.url,
         subscriberCount = subscriberCount.takeIf { it >= 0 }?.let(::formatCount),
+        webpageUrl = url,
     )
 
     private fun formatCount(n: Long): String = when {
