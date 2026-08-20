@@ -1,10 +1,12 @@
 package dev.schlubbe.musicagent.data.extract.soundcloud
 
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
+import dev.schlubbe.musicagent.data.remote.dto.RemotePlaylistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -73,6 +75,30 @@ class SoundCloudSearchClient @Inject constructor(
         return trackRefs.mapNotNull { ref ->
             ref.asJsonObject.takeIf { it.has("title") }?.toSoundCloudTrackResultDto()
         }
+    }
+
+    /** Same "resolve" fetch as [getPlaylistTracks], but also keeps the playlist's
+     * own metadata (title/owner/artwork) instead of discarding it - backs the
+     * playlist browse screen reached from a Search result, which needs both at
+     * once rather than a second round-trip. */
+    suspend fun getPlaylistDetail(permalink: String): RemotePlaylistDetailDto {
+        val playlist = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
+        val meta = playlist.toSoundCloudPlaylistResultDto()
+            ?: error("SoundCloud playlist resolve returned an unexpected shape for $permalink")
+        val trackRefs = playlist.getAsJsonArray("tracks") ?: JsonArray()
+        val tracks = trackRefs.mapNotNull { ref ->
+            ref.asJsonObject.takeIf { it.has("title") }?.toSoundCloudTrackResultDto()
+        }
+        return RemotePlaylistDetailDto(
+            source = meta.source,
+            sourceId = meta.sourceId,
+            title = meta.title,
+            thumbnailUrl = meta.thumbnailUrl,
+            trackCount = meta.trackCount,
+            owner = meta.owner,
+            webpageUrl = meta.webpageUrl,
+            tracks = tracks,
+        )
     }
 
     suspend fun getArtist(permalink: String): ArtistDetailDto {

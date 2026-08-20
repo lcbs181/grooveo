@@ -44,7 +44,15 @@ class FeedRepository @Inject constructor(
                 affinity[key] = (affinity[key] ?: 0) + LIKE_WEIGHT
             }
         }
-        val topArtists = affinity.entries.sortedByDescending { it.value }.take(TOP_ARTIST_COUNT).map { it.key }
+        // YouTube-Music-only, same reasoning as the "novel" half below - an
+        // affinity artist discovered via SoundCloud plays/likes is excluded here
+        // rather than searched on YouTube instead, since a name search on the other
+        // source can easily resolve to a different, unrelated account/channel.
+        val topArtists = affinity.entries
+            .filter { it.key.first == "ytmusic" }
+            .sortedByDescending { it.value }
+            .take(TOP_ARTIST_COUNT)
+            .map { it.key }
 
         val familiarTarget = (limit * 0.7).toInt().coerceAtLeast(1)
         val seenIds = excludeIds.toMutableSet()
@@ -64,7 +72,9 @@ class FeedRepository @Inject constructor(
 
         val novelTarget = limit - familiar.size
         val novel = if (novelTarget > 0) {
-            runCatching { searchRepository.getTrending(novelTarget * 2) }.getOrDefault(emptyList())
+            // YouTube-Music-only, same reasoning as HomeViewModel's Charts shelf
+            // (which shares this exact call) - see loadCharts()'s comment.
+            runCatching { searchRepository.getTrending(novelTarget * 2, source = "ytmusic") }.getOrDefault(emptyList())
                 .filterNot { "${it.source}:${it.sourceId}" in seenIds }
                 .take(novelTarget)
                 .map { FeedItem(it, "Gerade beliebt") }

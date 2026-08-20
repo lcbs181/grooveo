@@ -52,6 +52,7 @@ import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.ui.util.shareText
+import dev.schlubbe.musicagent.ui.components.DrmLockIcon
 import dev.schlubbe.musicagent.ui.components.NocturneIconButton
 import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
@@ -72,6 +73,7 @@ private val RESULT_TYPES = listOf(
 fun SearchScreen(
     onTrackSelected: () -> Unit,
     onArtistSelected: (source: String, sourceId: String) -> Unit,
+    onPlaylistSelected: (source: String, sourceId: String) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -89,10 +91,10 @@ fun SearchScreen(
             viewModel.onArtistLookupErrorShown()
         }
     }
-    LaunchedEffect(uiState.playlistTracksOpened) {
-        if (uiState.playlistTracksOpened) {
-            onTrackSelected()
-            viewModel.onPlaylistTracksOpenedHandled()
+    LaunchedEffect(uiState.remotePlaylistNavTarget) {
+        uiState.remotePlaylistNavTarget?.let { (source, sourceId) ->
+            onPlaylistSelected(source, sourceId)
+            viewModel.onRemotePlaylistNavigated()
         }
     }
 
@@ -294,7 +296,10 @@ private fun TrackRow(
             colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
             leadingContent = { TrackThumbnail(track.thumbnailUrl) },
             headlineContent = {
-                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (track.isDrmProtected) DrmLockIcon()
+                }
             },
             supportingContent = {
                 Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)

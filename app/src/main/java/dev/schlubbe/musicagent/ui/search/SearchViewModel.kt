@@ -35,9 +35,10 @@ data class SearchUiState(
     val likedTrackIds: Set<String> = emptySet(),
     val playlists: List<PlaylistOutDto> = emptyList(),
     val trackPendingPlaylistAdd: TrackResultDto? = null,
-    // Set once a playlist/album search result's tracks have been resolved and handed
-    // to the player - the screen navigates to the Player on seeing this becomes true.
-    val playlistTracksOpened: Boolean = false,
+    // Set once a playlist/album search result is tapped - the screen navigates to
+    // the remote playlist browse screen on seeing this, then calls
+    // onRemotePlaylistNavigated() to clear it back to null.
+    val remotePlaylistNavTarget: Pair<String, String>? = null,
     // Set once an artist (from the artist tab, or resolved by name from a track's
     // "Zum Künstler" action) is ready to open - the screen navigates on seeing this,
     // then calls onArtistNavigated() to clear it back to null.
@@ -126,25 +127,17 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    // Resolves a playlist/album result's tracks and starts playing them as a queue
-    // (same "tap a shelf/list item, play it" pattern as everywhere else in the app) -
-    // playlistTracksOpened flips true so the screen knows to navigate to the Player.
+    // A playlist/album search result now opens the browse screen instead of
+    // immediately playing all its tracks - lets the user see what's in it (and
+    // save/like it) before committing to playback.
     fun onPlaylistResultClicked(source: String, sourceId: String) {
-        viewModelScope.launch {
-            runCatching { searchRepository.getPlaylistTracks(source, sourceId) }
-                .onSuccess { tracks ->
-                    if (tracks.isNotEmpty()) {
-                        playerController.playQueue(tracks, 0)
-                        _uiState.value = _uiState.value.copy(playlistTracksOpened = true)
-                    }
-                }
-        }
+        _uiState.value = _uiState.value.copy(remotePlaylistNavTarget = source to sourceId)
     }
 
     fun onAlbumResultClicked(source: String, sourceId: String) = onPlaylistResultClicked(source, sourceId)
 
-    fun onPlaylistTracksOpenedHandled() {
-        _uiState.value = _uiState.value.copy(playlistTracksOpened = false)
+    fun onRemotePlaylistNavigated() {
+        _uiState.value = _uiState.value.copy(remotePlaylistNavTarget = null)
     }
 
     fun onArtistResultClicked(artist: ArtistResultDto) {

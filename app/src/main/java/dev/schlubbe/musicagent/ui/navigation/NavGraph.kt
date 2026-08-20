@@ -42,6 +42,7 @@ import dev.schlubbe.musicagent.ui.home.HomeScreen
 import dev.schlubbe.musicagent.ui.library.LibraryScreen
 import dev.schlubbe.musicagent.ui.player.PlayerScreen
 import dev.schlubbe.musicagent.ui.playlist.PlaylistDetailScreen
+import dev.schlubbe.musicagent.ui.playlist.RemotePlaylistDetailScreen
 import dev.schlubbe.musicagent.ui.search.SearchScreen
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingScreen
@@ -67,10 +68,12 @@ object Routes {
     const val PLAYLIST_DETAIL = "playlist/{playlistId}"
     const val ARTIST_DETAIL = "artist/{source}/{sourceId}"
     const val ARTIST_FOLLOWERS = "artist/{source}/{sourceId}/followers"
+    const val REMOTE_PLAYLIST_DETAIL = "remote_playlist/{source}/{sourceId}"
 
     fun playlistDetail(playlistId: String) = "playlist/$playlistId"
     fun artistDetail(source: String, sourceId: String) = "artist/$source/${Uri.encode(sourceId)}"
     fun artistFollowers(source: String, sourceId: String) = "artist/$source/${Uri.encode(sourceId)}/followers"
+    fun remotePlaylistDetail(source: String, sourceId: String) = "remote_playlist/$source/${Uri.encode(sourceId)}"
 }
 
 private data class BottomNavItem(val route: String, val label: String, val iconName: String)
@@ -194,6 +197,9 @@ fun MusicAgentNavGraph(
                     onArtistSelected = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
+                    onPlaylistSelected = { source, sourceId ->
+                        navController.navigate(Routes.remotePlaylistDetail(source, sourceId))
+                    },
                 )
             }
             composable(Routes.PLAYER) {
@@ -225,6 +231,9 @@ fun MusicAgentNavGraph(
                 LibraryScreen(
                     onDownloadPlayed = { navController.navigate(Routes.PLAYER) },
                     onPlaylistClick = { playlistId -> navController.navigate(Routes.playlistDetail(playlistId)) },
+                    onSavedPlaylistClick = { source, sourceId ->
+                        navController.navigate(Routes.remotePlaylistDetail(source, sourceId))
+                    },
                     onArtistSelected = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
@@ -274,6 +283,21 @@ fun MusicAgentNavGraph(
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
                     onNavigateBack = { navController.popBackStack() },
+                )
+            }
+            composable(
+                Routes.REMOTE_PLAYLIST_DETAIL,
+                arguments = listOf(
+                    navArgument("source") { type = NavType.StringType },
+                    navArgument("sourceId") { type = NavType.StringType },
+                ),
+            ) {
+                RemotePlaylistDetailScreen(
+                    onTrackSelected = { navController.navigate(Routes.PLAYER) },
+                    onNavigateBack = { navController.popBackStack() },
+                    onArtistSelected = { source, sourceId ->
+                        navController.navigate(Routes.artistDetail(source, sourceId))
+                    },
                 )
             }
         }

@@ -6,6 +6,7 @@ import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
+import dev.schlubbe.musicagent.data.remote.dto.RemotePlaylistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,16 +53,20 @@ class YouTubeMusicSearchClient @Inject constructor() {
             .take(limit)
     }
 
-    /** NewPipeExtractor has no equivalent of ytmusicapi's dedicated YouTube-Music
-     * charts browse id (`FEmusic_charts`) - the closest first-class extractor is
-     * YouTube's general "Trending" kiosk, which mixes in non-music content (news,
-     * gaming, vlogs). A typical-song-length window (1-15 min) filters out the most
-     * obvious non-music items; imperfect, but real trending data rather than a
-     * fabricated substitute. */
+    /** NewPipeExtractor v0.26.5 registers a dedicated "trending_music" kiosk for
+     * YouTube (`YoutubeTrendingMusicExtractor`, confirmed present via bytecode
+     * inspection of the artifact) - the closest real equivalent of ytmusicapi's
+     * `FEmusic_charts`, and already music-only unlike the generic "Trending" kiosk.
+     * Kiosks are looked up by id via [org.schabi.newpipe.extractor.kiosk.KioskList]
+     * (`KioskInfo.getInfo(service, url)` is a different overload entirely - it
+     * resolves the second argument as a URL via a linkHandler match, not a kiosk
+     * id, and throws ExtractionException("Could not find a kiosk that fits to the
+     * url: ...") for a bare id like "Trending"). */
     suspend fun getTrending(limit: Int): List<TrackResultDto> = withContext(Dispatchers.IO) {
-        val info = KioskInfo.getInfo(ServiceList.YouTube, "Trending")
+        val extractor = ServiceList.YouTube.kioskList.getExtractorById("trending_music", null)
+        extractor.fetchPage()
+        val info = KioskInfo.getInfo(extractor)
         info.relatedItems.filterIsInstance<StreamInfoItem>()
-            .filter { it.duration in 60..900 }
             .mapNotNull { it.toTrackResultDto() }
             .take(limit)
     }
@@ -92,6 +97,24 @@ class YouTubeMusicSearchClient @Inject constructor() {
         val info = PlaylistInfo.getInfo(ServiceList.YouTube, playlistUrl)
         info.relatedItems.filterIsInstance<StreamInfoItem>()
             .mapNotNull { it.toTrackResultDto() }
+    }
+
+    /** Same fetch as [getPlaylistTracks], but also keeps the playlist's own name/
+     * uploader/thumbnail instead of discarding them - backs the playlist browse
+     * screen reached from a Search result. */
+    suspend fun getPlaylistDetail(playlistUrl: String): RemotePlaylistDetailDto = withContext(Dispatchers.IO) {
+        val info = PlaylistInfo.getInfo(ServiceList.YouTube, playlistUrl)
+        val tracks = info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toTrackResultDto() }
+        RemotePlaylistDetailDto(
+            source = "ytmusic",
+            sourceId = playlistUrl,
+            title = info.name,
+            thumbnailUrl = info.thumbnails.maxByOrNull { it.height }?.url,
+            trackCount = tracks.size,
+            owner = info.uploaderName,
+            webpageUrl = playlistUrl,
+            tracks = tracks,
+        )
     }
 
     private fun PlaylistInfoItem.toPlaylistResultDto(): PlaylistResultDto = PlaylistResultDto(

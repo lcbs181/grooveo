@@ -13,11 +13,13 @@ import dev.schlubbe.musicagent.data.local.MIGRATION_2_3
 import dev.schlubbe.musicagent.data.local.MIGRATION_3_4
 import dev.schlubbe.musicagent.data.local.MIGRATION_4_5
 import dev.schlubbe.musicagent.data.local.MIGRATION_5_6
+import dev.schlubbe.musicagent.data.local.MIGRATION_6_7
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.dao.FollowedArtistDao
 import dev.schlubbe.musicagent.data.local.dao.LikeDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistTrackDao
+import dev.schlubbe.musicagent.data.local.dao.SavedPlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import javax.inject.Singleton
 
@@ -29,7 +31,7 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "music-agent.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
 
     @Provides
@@ -49,4 +51,7 @@ object DatabaseModule {
 
     @Provides
     fun provideFollowedArtistDao(database: AppDatabase): FollowedArtistDao = database.followedArtistDao()
+
+    @Provides
+    fun provideSavedPlaylistDao(database: AppDatabase): SavedPlaylistDao = database.savedPlaylistDao()
 }

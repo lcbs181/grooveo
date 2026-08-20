@@ -53,6 +53,7 @@ import com.adamglin.phosphoricons.regular.PlayCircle
 import com.adamglin.phosphoricons.regular.PauseCircle
 import com.adamglin.phosphoricons.regular.ShareNetwork
 import com.adamglin.phosphoricons.regular.ArrowClockwise
+import com.adamglin.phosphoricons.regular.LockSimple
 import com.adamglin.phosphoricons.fill.Heart
 import com.adamglin.phosphoricons.fill.CheckCircle
 import com.adamglin.phosphoricons.fill.PlayCircle
@@ -130,6 +131,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "pause-circle" -> PhosphorIcons.Regular.PauseCircle
         "share-network" -> PhosphorIcons.Regular.ShareNetwork
         "arrow-clockwise" -> PhosphorIcons.Regular.ArrowClockwise
+        "lock-simple" -> PhosphorIcons.Regular.LockSimple
         else -> PhosphorIcons.Regular.WarningCircle
     }
 }

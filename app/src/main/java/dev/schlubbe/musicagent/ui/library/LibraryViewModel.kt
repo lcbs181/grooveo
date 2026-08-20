@@ -8,6 +8,7 @@ import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
@@ -16,6 +17,7 @@ import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
+import dev.schlubbe.musicagent.data.repository.SavedPlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.download.DownloadWorker
 import dev.schlubbe.musicagent.playback.PlayerController
@@ -64,6 +66,7 @@ data class LibraryUiState(
     val likes: List<LikeOutDto> = emptyList(),
     val isLoadingLikes: Boolean = false,
     val playlists: List<PlaylistOutDto> = emptyList(),
+    val savedPlaylists: List<SavedPlaylistEntity> = emptyList(),
     val isLoadingPlaylists: Boolean = false,
     val trackPendingPlaylistAdd: TrackResultDto? = null,
     // Set once an artist (resolved by name from a track's "Zum Künstler" action) is
@@ -84,6 +87,7 @@ class LibraryViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val downloadRepository: DownloadRepository,
     private val searchRepository: SearchRepository,
+    private val savedPlaylistRepository: SavedPlaylistRepository,
 ) : ViewModel() {
 
     val downloads: StateFlow<List<DownloadUiItem>> = downloadDao.observeAll()
@@ -128,6 +132,17 @@ class LibraryViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(playlists = playlists, isLoadingPlaylists = false)
                 }
                 .onFailure { _uiState.value = _uiState.value.copy(isLoadingPlaylists = false) }
+        }
+        viewModelScope.launch {
+            runCatching { savedPlaylistRepository.refresh() }
+                .onSuccess { saved -> _uiState.value = _uiState.value.copy(savedPlaylists = saved) }
+        }
+    }
+
+    fun onUnsavePlaylist(source: String, sourceId: String) {
+        viewModelScope.launch {
+            runCatching { savedPlaylistRepository.unsave(source, sourceId) }
+            refreshPlaylists()
         }
     }
 

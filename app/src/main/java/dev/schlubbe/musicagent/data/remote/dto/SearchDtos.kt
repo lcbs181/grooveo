@@ -11,6 +11,11 @@ data class TrackResultDto(
     @SerializedName("duration_sec") val durationSec: Int?,
     @SerializedName("thumbnail_url") val thumbnailUrl: String?,
     @SerializedName("webpage_url") val webpageUrl: String,
+    // SoundCloud only (see SoundCloudMappers.isDrmOnly) - true when a track's only
+    // transcodings are DRM-encrypted, so tapping it would fail to resolve a
+    // playable stream. Always false for ytmusic and for any cached/local track
+    // shape that doesn't carry this signal (likes, playlists, downloads).
+    @SerializedName("is_drm_protected") val isDrmProtected: Boolean = false,
 )
 
 data class ArtistResultDto(
@@ -48,6 +53,21 @@ data class PlaylistResultDto(
     // Full shareable webpage URL — unlike sourceId (opaque id), always the
     // complete https:// permalink, for both sources.
     @SerializedName("webpage_url") val webpageUrl: String,
+)
+
+/** A playlist/album search result's full contents - same fields as
+ * [PlaylistResultDto] plus its resolved track list, fetched together in one call
+ * (SearchRepository.getPlaylistDetail) so the new browse screen reached from Search
+ * doesn't need a second round-trip after the search result is tapped. */
+data class RemotePlaylistDetailDto(
+    val source: String,
+    @SerializedName("source_id") val sourceId: String,
+    val title: String,
+    @SerializedName("thumbnail_url") val thumbnailUrl: String?,
+    @SerializedName("track_count") val trackCount: Int?,
+    val owner: String?,
+    @SerializedName("webpage_url") val webpageUrl: String,
+    val tracks: List<TrackResultDto> = emptyList(),
 )
 
 data class AlbumResultDto(

@@ -51,7 +51,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
+import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
 import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
 import dev.schlubbe.musicagent.ui.components.NocturneIconButton
@@ -68,6 +70,7 @@ import dev.schlubbe.musicagent.ui.util.shareText
 fun LibraryScreen(
     onDownloadPlayed: () -> Unit,
     onPlaylistClick: (String) -> Unit,
+    onSavedPlaylistClick: (source: String, sourceId: String) -> Unit,
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -136,7 +139,7 @@ fun LibraryScreen(
             when (uiState.selectedTab) {
                 LibraryTab.DOWNLOADS -> DownloadsTab(downloads, likedTrackIds, onDownloadPlayed, viewModel)
                 LibraryTab.LIKES -> LikesTab(uiState, onDownloadPlayed, viewModel)
-                LibraryTab.PLAYLISTS -> PlaylistsTab(uiState, onPlaylistClick)
+                LibraryTab.PLAYLISTS -> PlaylistsTab(uiState, onPlaylistClick, onSavedPlaylistClick, viewModel)
             }
         }
     }
@@ -454,49 +457,130 @@ private fun LikeRow(
     }
 }
 
+/** Either a locally-created playlist (Room, editable, no remote origin) or a
+ * public SoundCloud/YouTube playlist the user liked from Search (see
+ * SavedPlaylistRepository) - merged into one list per the chosen "Playlists" tab
+ * UX (badge to tell them apart, rather than a separate tab). */
+private sealed class LibraryPlaylistItem {
+    abstract val key: String
+    data class Local(val playlist: PlaylistOutDto) : LibraryPlaylistItem() {
+        override val key = "local:${playlist.id}"
+    }
+    data class Saved(val playlist: SavedPlaylistEntity) : LibraryPlaylistItem() {
+        override val key = "saved:${playlist.source}:${playlist.sourceId}"
+    }
+}
+
 @Composable
-private fun PlaylistsTab(uiState: LibraryUiState, onPlaylistClick: (String) -> Unit) {
+private fun PlaylistsTab(
+    uiState: LibraryUiState,
+    onPlaylistClick: (String) -> Unit,
+    onSavedPlaylistClick: (source: String, sourceId: String) -> Unit,
+    viewModel: LibraryViewModel,
+) {
     val context = LocalContext.current
     if (uiState.isLoadingPlaylists) {
         CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Nocturne.accent)
         return
     }
-    if (uiState.playlists.isEmpty()) {
+    val items: List<LibraryPlaylistItem> =
+        uiState.playlists.map { LibraryPlaylistItem.Local(it) } +
+            uiState.savedPlaylists.map { LibraryPlaylistItem.Saved(it) }
+    if (items.isEmpty()) {
         Text("Noch keine Playlists", color = Nocturne.neutral500, modifier = Modifier.padding(20.dp))
         return
     }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(uiState.playlists, key = { it.id }) { playlist ->
-            ListItem(
-                colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
-                modifier = Modifier.fillMaxWidth().clickable { onPlaylistClick(playlist.id) },
-                leadingContent = {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(accentColorFor(playlist.accentColorKey, playlist.id)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(phosphorIcon("stack"), contentDescription = null, tint = Nocturne.text, modifier = Modifier.size(18.dp))
-                    }
-                },
-                headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = {
-                    Text("${playlist.trackCount} Titel", color = Nocturne.neutral500)
-                },
-                trailingContent = {
-                    Row {
-                        // Local playlists have no remote URL - shares a plain-text
-                        // summary instead of a link, unlike every other share action.
-                        NocturneIconButton(
-                            icon = phosphorIcon("share-network"),
-                            onClick = { context.shareText("${playlist.name} (${playlist.trackCount} Titel) — geteilt aus Music Agent") },
-                        )
-                        NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
-                    }
-                },
-            )
+        items(items, key = { it.key }) { item ->
+            when (item) {
+                is LibraryPlaylistItem.Local -> {
+                    val playlist = item.playlist
+                    ListItem(
+                        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+                        modifier = Modifier.fillMaxWidth().clickable { onPlaylistClick(playlist.id) },
+                        leadingContent = {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(accentColorFor(playlist.accentColorKey, playlist.id)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(phosphorIcon("stack"), contentDescription = null, tint = Nocturne.text, modifier = Modifier.size(18.dp))
+                            }
+                        },
+                        headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Text("${playlist.trackCount} Titel", color = Nocturne.neutral500)
+                        },
+                        trailingContent = {
+                            Row {
+                                // Local playlists have no remote URL - shares a plain-text
+                                // summary instead of a link, unlike every other share action.
+                                NocturneIconButton(
+                                    icon = phosphorIcon("share-network"),
+                                    onClick = { context.shareText("${playlist.name} (${playlist.trackCount} Titel) — geteilt aus Music Agent") },
+                                )
+                                NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
+                            }
+                        },
+                    )
+                }
+                is LibraryPlaylistItem.Saved -> {
+                    val playlist = item.playlist
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    ListItem(
+                        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            onSavedPlaylistClick(playlist.source, playlist.sourceId)
+                        },
+                        leadingContent = { TrackThumbnail(playlist.thumbnailUrl, size = 46.dp) },
+                        headlineContent = { Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (playlist.source == "soundcloud") "SoundCloud" else "YT Music",
+                                    color = Nocturne.accent,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                val subtitle = listOfNotNull(playlist.owner, playlist.trackCount?.let { "$it Titel" })
+                                    .joinToString(" · ")
+                                if (subtitle.isNotBlank()) {
+                                    Text(
+                                        " · $subtitle",
+                                        color = Nocturne.neutral500,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        },
+                        trailingContent = {
+                            Row {
+                                NocturneIconButton(
+                                    icon = phosphorIcon("share-network"),
+                                    onClick = { context.shareText(playlist.webpageUrl) },
+                                )
+                                Box {
+                                    NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Nicht mehr gespeichert") },
+                                            leadingIcon = {
+                                                Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Nocturne.accent)
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                viewModel.onUnsavePlaylist(playlist.source, playlist.sourceId)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }

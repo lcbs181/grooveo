@@ -32,24 +32,24 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
-        "share-network",
-        "Teilen",
-        "Titel, Playlists, Alben und Künstler direkt aus der App teilen.",
+        "vinyl-record",
+        "Charts & Für dich nur noch YT Music",
+        "Charts und Für-dich-Empfehlungen zeigen jetzt nur noch YouTube-Music-Titel, keine SoundCloud-Mischung mehr.",
     ),
     WhatsNewItem(
-        "download-simple",
-        "SoundCloud-Downloads",
-        "SoundCloud-Titel lassen sich jetzt herunterladen, nicht mehr nur YouTube Music.",
+        "lock-simple",
+        "DRM-Hinweis bei SoundCloud",
+        "SoundCloud-Titel, die sich wegen DRM-Schutz nicht abspielen lassen, sind jetzt schon in der Liste erkennbar.",
     ),
     WhatsNewItem(
-        "pause-circle",
-        "Downloads pausieren & fortsetzen",
-        "Laufende Downloads pausieren und später fortsetzen, fehlgeschlagene direkt erneut versuchen.",
+        "stack",
+        "Playlist-Ansicht in der Suche",
+        "Playlists und Alben aus der Suche öffnen jetzt eine eigene Übersicht mit allen Titeln, statt direkt loszuspielen.",
     ),
     WhatsNewItem(
-        "house",
-        "Widget überarbeitet",
-        "Das Home-Bildschirm-Widget zeigt jetzt in jeder Größe den Titel gut lesbar an.",
+        "heart",
+        "Playlists speichern",
+        "Öffentliche Playlists und Alben lassen sich jetzt speichern - zu finden in der Bibliothek unter Playlists.",
     ),
 )
 

@@ -7,6 +7,7 @@ import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
+import dev.schlubbe.musicagent.data.remote.dto.RemotePlaylistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -77,12 +78,26 @@ class SearchRepository @Inject constructor(
         else -> error("unknown source: $source")
     }
 
-    /** Global trending charts, independent of any local history - both sources run
-     * concurrently and independently, same fan-out/isolation pattern as [search]. */
-    suspend fun getTrending(limit: Int = 20): List<TrackResultDto> = coroutineScope {
-        val sc = async { runCatching { soundCloud.getTrending(limit) }.getOrDefault(emptyList()) }
-        val yt = async { runCatching { youTube.getTrending(limit) }.getOrDefault(emptyList()) }
-        sc.await() + yt.await()
+    // Backs the playlist/album browse screen reached from a Search result - same
+    // sourceId convention as getPlaylistTracks, but also returns the playlist's own
+    // metadata (title/owner/artwork) instead of just its tracks.
+    suspend fun getPlaylistDetail(source: String, sourceId: String): RemotePlaylistDetailDto = when (source) {
+        "soundcloud" -> soundCloud.getPlaylistDetail(sourceId)
+        "ytmusic" -> youTube.getPlaylistDetail(sourceId)
+        else -> error("unknown source: $source")
+    }
+
+    /** Global trending charts, independent of any local history - same source
+     * convention as [search] (defaults to combining both, but Charts/Für-dich now
+     * call this with source="ytmusic" - see HomeViewModel/FeedRepository). */
+    suspend fun getTrending(limit: Int = 20, source: String = "all"): List<TrackResultDto> = when (source) {
+        "soundcloud" -> soundCloud.getTrending(limit)
+        "ytmusic" -> youTube.getTrending(limit)
+        else -> coroutineScope {
+            val sc = async { runCatching { soundCloud.getTrending(limit) }.getOrDefault(emptyList()) }
+            val yt = async { runCatching { youTube.getTrending(limit) }.getOrDefault(emptyList()) }
+            sc.await() + yt.await()
+        }
     }
 
     suspend fun getArtist(source: String, sourceId: String): ArtistDetailDto = when (source) {

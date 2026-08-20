@@ -229,15 +229,20 @@ class HomeViewModel @Inject constructor(
 
     // Global trending charts, not tied to any local history - what a freshly
     // installed app has to show on Home before there's any play/like history to
-    // build a feed from at all.
+    // build a feed from at all. YouTube-Music-only: SoundCloud's own "trending"
+    // charts skew toward tracks with locked/DRM-only transcodings often enough
+    // that mixing them in here made Charts unreliable to tap into.
     private fun loadCharts() {
         _uiState.value = _uiState.value.copy(isChartsLoading = true)
         viewModelScope.launch {
-            runCatching { searchRepository.getTrending() }
+            runCatching { searchRepository.getTrending(source = "ytmusic") }
                 .onSuccess { tracks ->
                     _uiState.value = _uiState.value.copy(charts = tracks, isChartsLoading = false)
                 }
-                .onFailure { _uiState.value = _uiState.value.copy(isChartsLoading = false) }
+                .onFailure { e ->
+                    android.util.Log.w("HomeViewModel", "loadCharts failed", e)
+                    _uiState.value = _uiState.value.copy(isChartsLoading = false)
+                }
         }
     }
 

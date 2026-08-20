@@ -49,6 +49,26 @@ private fun trimTrailingZero(value: Double): String {
     return if (formatted.endsWith(".0")) formatted.dropLast(2) else formatted
 }
 
+private fun JsonObject.protocol(): String? =
+    getAsJsonObject("format")?.get("protocol")?.takeIf { !it.isJsonNull }?.asString
+
+// Same signal SoundCloudStreamResolver.resolve() uses to decide whether to throw
+// SoundCloudDrmOnlyException, checked here up front instead - search/charts/artist
+// track JSON is the same api-v2 track resource shape the resolver fetches, so
+// media.transcodings is already present without a second network round-trip.
+// True only when transcodings exist but none are plain hls/progressive (i.e. the
+// resolver would fail on this track) - a track with no media info at all (private/
+// deleted) is left false rather than guessed, same "no signal, no claim" convention
+// used elsewhere in this file.
+private fun JsonObject.isDrmOnly(): Boolean {
+    val transcodings = getAsJsonObject("media")
+        ?.getAsJsonArray("transcodings")
+        ?.map { it.asJsonObject }
+        ?: return false
+    if (transcodings.isEmpty()) return false
+    return transcodings.none { it.protocol() == "hls" || it.protocol() == "progressive" }
+}
+
 fun JsonObject.toSoundCloudTrackResultDto(): TrackResultDto? {
     val webpageUrl = stringOrNull("permalink_url") ?: return null
     val title = stringOrNull("title") ?: return null
@@ -64,6 +84,7 @@ fun JsonObject.toSoundCloudTrackResultDto(): TrackResultDto? {
         durationSec = durationMs?.let { (it / 1000).toInt() },
         thumbnailUrl = upsizeImage(stringOrNull("artwork_url") ?: user?.stringOrNull("avatar_url")),
         webpageUrl = webpageUrl,
+        isDrmProtected = isDrmOnly(),
     )
 }
 

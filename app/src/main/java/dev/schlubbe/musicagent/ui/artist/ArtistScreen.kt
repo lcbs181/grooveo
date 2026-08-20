@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import dev.schlubbe.musicagent.ui.components.DrmLockIcon
 import dev.schlubbe.musicagent.ui.components.NocturneButton
 import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
 import dev.schlubbe.musicagent.ui.components.NocturneIconButton
@@ -351,7 +352,12 @@ private fun ArtistTrackRow(
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
             leadingContent = { TrackThumbnail(track.thumbnailUrl) },
-            headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            headlineContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (track.isDrmProtected) DrmLockIcon()
+                }
+            },
             supportingContent = {
                 Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
             },

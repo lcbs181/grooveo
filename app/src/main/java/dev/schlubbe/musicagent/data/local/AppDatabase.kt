@@ -11,12 +11,14 @@ import dev.schlubbe.musicagent.data.local.dao.FollowedArtistDao
 import dev.schlubbe.musicagent.data.local.dao.LikeDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistTrackDao
+import dev.schlubbe.musicagent.data.local.dao.SavedPlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
 import dev.schlubbe.musicagent.data.local.entity.LikeEntity
 import dev.schlubbe.musicagent.data.local.entity.PlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.PlaylistTrackEntity
+import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 
 @Database(
@@ -27,8 +29,9 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
         FollowedArtistEntity::class,
+        SavedPlaylistEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -39,6 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun playlistTrackDao(): PlaylistTrackDao
     abstract fun followedArtistDao(): FollowedArtistDao
+    abstract fun savedPlaylistDao(): SavedPlaylistDao
 }
 
 // Backend-less variant: likes/playlists move from the (removed) server to local
@@ -138,5 +142,26 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE downloads ADD COLUMN tempFilePath TEXT")
         db.execSQL("ALTER TABLE downloads ADD COLUMN bytesDownloaded INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+// "Liking" a public playlist/album from Search - same local-bookmark pattern as
+// followed_artists (MIGRATION_3_4), keyed by (source, sourceId) instead of a
+// synthetic id since a remote playlist is already uniquely identified that way.
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS saved_playlists (
+                source TEXT NOT NULL,
+                sourceId TEXT NOT NULL,
+                title TEXT NOT NULL,
+                thumbnailUrl TEXT,
+                owner TEXT,
+                trackCount INTEGER,
+                webpageUrl TEXT NOT NULL,
+                savedAt TEXT NOT NULL,
+                PRIMARY KEY(source, sourceId)
+            )""",
+        )
     }
 }
