@@ -15,4 +15,5 @@
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:initialLayout="@layout/playback_widget_loading"
+    android:previewLayout="@layout/playback_widget_preview"
     android:updatePeriodMillis="0" />

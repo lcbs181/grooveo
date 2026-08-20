@@ -87,11 +87,25 @@ class DownloadRepository @Inject constructor(
     private fun reEnqueueFromCache(trackId: String) {
         scope.launch {
             val cached = trackDao.getById(trackId) ?: return@launch
-            enqueue(cached.source, cached.sourceId, cached.title, cached.artist.orEmpty(), trackId)
+            // REPLACE, not KEEP: a FAILED entity's underlying WorkManager job is
+            // often not actually finished - Result.retry() (returned on most
+            // failure paths in DownloadWorker) leaves the unique work scheduled
+            // for WorkManager's own backoff retry, so KEEP would silently no-op
+            // here, making the "Wiederholen"/"Fortsetzen" button look broken.
+            // REPLACE forces a fresh attempt right now regardless of any pending
+            // auto-retry.
+            enqueue(cached.source, cached.sourceId, cached.title, cached.artist.orEmpty(), trackId, ExistingWorkPolicy.REPLACE)
         }
     }
 
-    private fun enqueue(source: String, sourceId: String, title: String, artist: String, trackId: String) {
+    private fun enqueue(
+        source: String,
+        sourceId: String,
+        title: String,
+        artist: String,
+        trackId: String,
+        existingWorkPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
+    ) {
         val data = workDataOf(
             DownloadWorker.KEY_SOURCE to source,
             DownloadWorker.KEY_SOURCE_ID to sourceId,
@@ -108,9 +122,6 @@ class DownloadRepository @Inject constructor(
             .setConstraints(constraints)
             .build()
 
-        // KEEP is safe here even for a resume/retry re-enqueue: it only no-ops when
-        // existing work under this unique name is still pending/running, and a
-        // PAUSED (cancelled) or FAILED download's work is always already finished.
-        workManager.enqueueUniqueWork(trackId, ExistingWorkPolicy.KEEP, request)
+        workManager.enqueueUniqueWork(trackId, existingWorkPolicy, request)
     }
 }

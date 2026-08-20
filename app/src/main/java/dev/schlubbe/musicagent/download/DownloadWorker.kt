@@ -83,30 +83,49 @@ class DownloadWorker @AssistedInject constructor(
 
         return when (outcome) {
             is TransferOutcome.Completed -> {
-                val displayName = sanitizeFileName(
-                    if (artist.isBlank()) title else "$artist - $title",
-                ) + extensionFor(outcome.mimeType)
+                // The full transfer succeeding doesn't guarantee the MediaStore
+                // finalize step does too (insert can fail, scoped-storage quirks,
+                // a full disk) - unlike downloadProgressive/downloadHls, this has
+                // no try/catch of its own, so an exception here used to propagate
+                // straight out of doWork() and skip the upsert below entirely,
+                // leaving the entity stuck at DOWNLOADING/100% forever (the "pause
+                // button never disappears" bug). tempFilePath/bytesDownloaded are
+                // kept on failure so a retry can go straight back to finalizing
+                // instead of re-downloading the whole track.
+                try {
+                    val displayName = sanitizeFileName(
+                        if (artist.isBlank()) title else "$artist - $title",
+                    ) + extensionFor(outcome.mimeType)
 
-                val uri = MediaStoreWriter(applicationContext).write(
-                    displayName = displayName,
-                    mimeType = outcome.mimeType,
-                    input = tempFile.inputStream(),
-                    contentLength = tempFile.length(),
-                    onProgress = {},
-                )
-                tempFile.delete()
+                    val uri = MediaStoreWriter(applicationContext).write(
+                        displayName = displayName,
+                        mimeType = outcome.mimeType,
+                        input = tempFile.inputStream(),
+                        contentLength = tempFile.length(),
+                        onProgress = {},
+                    )
+                    tempFile.delete()
 
-                downloadDao.upsert(
-                    DownloadEntity(
-                        trackId = trackId,
-                        mediaStoreUri = uri.toString(),
-                        relativePath = "Music/PrivateMusicAgent",
-                        state = DownloadState.COMPLETED,
-                        progressPct = 100,
-                        createdAt = createdAt,
-                    ),
-                )
-                Result.success()
+                    downloadDao.upsert(
+                        DownloadEntity(
+                            trackId = trackId,
+                            mediaStoreUri = uri.toString(),
+                            relativePath = "Music/PrivateMusicAgent",
+                            state = DownloadState.COMPLETED,
+                            progressPct = 100,
+                            createdAt = createdAt,
+                        ),
+                    )
+                    Result.success()
+                } catch (e: Exception) {
+                    downloadDao.upsert(
+                        DownloadEntity(
+                            trackId, null, null, DownloadState.FAILED, 100, createdAt,
+                            tempFile.absolutePath.takeIf { tempFile.exists() }, tempFile.length(),
+                        ),
+                    )
+                    Result.retry()
+                }
             }
             is TransferOutcome.Paused -> {
                 // Wrapped in NonCancellable: this write must land even though the
@@ -153,6 +172,15 @@ class DownloadWorker @AssistedInject constructor(
 
         return try {
             okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                // A Range request for bytes already fully downloaded (e.g. retrying
+                // after the transfer succeeded but the MediaStore finalize step
+                // failed) lands past the end of the resource - the server's honest
+                // answer is 416, not an error. Treat it as already-complete rather
+                // than a dead-end failure with no way to recover short of a full
+                // redownload; the temp file already has everything finalize needs.
+                if (response.code == 416 && resumeOffset > 0) {
+                    return TransferOutcome.Completed(mimeType = "audio/mp4")
+                }
                 if (!response.isSuccessful) {
                     return TransferOutcome.Failed(resumeOffset, retryable = response.code in 500..599)
                 }
