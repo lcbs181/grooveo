@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 enum class DownloadState {
     QUEUED,
     DOWNLOADING,
+    PAUSED,
     COMPLETED,
     FAILED,
 }
@@ -18,4 +19,11 @@ data class DownloadEntity(
     val state: DownloadState,
     val progressPct: Int,
     val createdAt: Long,
+    // Partial-download bookkeeping so a PAUSED (or a FAILED-mid-transfer) progressive
+    // download can resume via an HTTP Range request instead of restarting from byte 0
+    // - see DownloadWorker. Null/0 for QUEUED/COMPLETED, and for HLS downloads (which
+    // always restart from the first segment - segments aren't byte-range-resumable
+    // as a single persisted offset).
+    val tempFilePath: String? = null,
+    val bytesDownloaded: Long = 0,
 )

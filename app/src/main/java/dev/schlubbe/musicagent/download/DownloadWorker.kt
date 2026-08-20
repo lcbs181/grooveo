@@ -7,14 +7,29 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
 import dev.schlubbe.musicagent.data.extract.di.ExtractionHttpClient
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.net.URI
+
+/** Outcome of a single transfer attempt (progressive Range-resume or HLS segment
+ * concatenation) - [DownloadWorker.doWork] turns this into the persisted
+ * [DownloadEntity] state and the [androidx.work.ListenableWorker.Result]. */
+private sealed class TransferOutcome {
+    data class Completed(val mimeType: String) : TransferOutcome()
+    data class Paused(val bytesSoFar: Long, val pct: Int) : TransferOutcome()
+    data class Failed(val bytesSoFar: Long, val retryable: Boolean) : TransferOutcome()
+}
 
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
@@ -32,57 +47,54 @@ class DownloadWorker @AssistedInject constructor(
         val artist = inputData.getString(KEY_ARTIST).orEmpty()
         val trackId = "$source:$sourceId"
 
+        val existing = downloadDao.getByTrackId(trackId)
+        val tempFile = tempFileFor(trackId)
+        // Only trust a persisted byte offset if the temp file on disk actually still
+        // has that many bytes - a cleared cache or a mismatched restart shouldn't
+        // silently resume from a wrong/missing offset.
+        val startOffset = if (existing != null && tempFile.exists() && tempFile.length() == existing.bytesDownloaded) {
+            existing.bytesDownloaded
+        } else {
+            0L
+        }
+        val createdAt = existing?.createdAt ?: System.currentTimeMillis()
+
         downloadDao.upsert(
-            DownloadEntity(trackId, null, null, DownloadState.DOWNLOADING, 0, System.currentTimeMillis()),
+            DownloadEntity(
+                trackId, existing?.mediaStoreUri, existing?.relativePath, DownloadState.DOWNLOADING,
+                existing?.progressPct ?: 0, createdAt, tempFile.absolutePath, startOffset,
+            ),
         )
 
         val resolved = try {
             streamResolverRegistry.resolve(source, sourceId)
         } catch (e: Exception) {
             downloadDao.upsert(
-                DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, System.currentTimeMillis()),
+                DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, createdAt, tempFile.absolutePath, startOffset),
             )
             return Result.retry()
         }
 
-        // SoundCloud resolves to HLS (a .m3u8 playlist of segments, not a single
-        // downloadable file) — a real offline download would need to fetch and remux
-        // segments (e.g. via Media3's HlsDownloader), which is a separate, larger
-        // piece of work not yet done in this backend-less variant. Fail clearly
-        // rather than trying to "download" a playlist file and silently producing a
-        // broken local file.
-        if (resolved.isHls) {
-            downloadDao.upsert(
-                DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, System.currentTimeMillis()),
-            )
-            return Result.failure()
+        val outcome = if (resolved.isHls) {
+            downloadHls(resolved, tempFile) { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) }
+        } else {
+            downloadProgressive(resolved, tempFile, startOffset) { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) }
         }
 
-        val requestBuilder = Request.Builder().url(resolved.url)
-        resolved.httpHeaders.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
-
-        return try {
-            okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    downloadDao.upsert(
-                        DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, System.currentTimeMillis()),
-                    )
-                    return if (response.code in 500..599) Result.retry() else Result.failure()
-                }
-
-                val body = response.body
-                val mimeType = body.contentType()?.toString() ?: "audio/mp4"
+        return when (outcome) {
+            is TransferOutcome.Completed -> {
                 val displayName = sanitizeFileName(
                     if (artist.isBlank()) title else "$artist - $title",
-                ) + extensionFor(mimeType)
+                ) + extensionFor(outcome.mimeType)
 
                 val uri = MediaStoreWriter(applicationContext).write(
                     displayName = displayName,
-                    mimeType = mimeType,
-                    input = body.byteStream(),
-                    contentLength = body.contentLength(),
-                    onProgress = { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) },
+                    mimeType = outcome.mimeType,
+                    input = tempFile.inputStream(),
+                    contentLength = tempFile.length(),
+                    onProgress = {},
                 )
+                tempFile.delete()
 
                 downloadDao.upsert(
                     DownloadEntity(
@@ -91,17 +103,156 @@ class DownloadWorker @AssistedInject constructor(
                         relativePath = "Music/PrivateMusicAgent",
                         state = DownloadState.COMPLETED,
                         progressPct = 100,
-                        createdAt = System.currentTimeMillis(),
+                        createdAt = createdAt,
                     ),
                 )
                 Result.success()
             }
-        } catch (e: IOException) {
-            downloadDao.upsert(
-                DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, System.currentTimeMillis()),
-            )
-            Result.retry()
+            is TransferOutcome.Paused -> {
+                // Wrapped in NonCancellable: this write must land even though the
+                // cancellation that got us here (WorkManager.cancelUniqueWork, see
+                // DownloadRepository.pauseDownload) is actively tearing this coroutine
+                // down - without this, the persisted PAUSED state could be lost and
+                // "Fortsetzen" would have nothing to resume from.
+                withContext(NonCancellable) {
+                    downloadDao.upsert(
+                        DownloadEntity(
+                            trackId, existing?.mediaStoreUri, existing?.relativePath, DownloadState.PAUSED,
+                            outcome.pct.takeIf { it >= 0 } ?: (existing?.progressPct ?: 0),
+                            createdAt, tempFile.absolutePath, outcome.bytesSoFar,
+                        ),
+                    )
+                }
+                Result.failure()
+            }
+            is TransferOutcome.Failed -> {
+                downloadDao.upsert(
+                    DownloadEntity(
+                        trackId, null, null, DownloadState.FAILED, 0, createdAt,
+                        tempFile.absolutePath.takeIf { outcome.bytesSoFar > 0 }, outcome.bytesSoFar,
+                    ),
+                )
+                if (outcome.retryable) Result.retry() else Result.failure()
+            }
         }
+    }
+
+    /** Direct single-file download (YouTube always, SoundCloud when its
+     * "progressive" transcoding is what resolved) - byte-range resumable via a
+     * `Range` header when [startOffset] > 0. */
+    private suspend fun downloadProgressive(
+        resolved: ResolvedStream,
+        tempFile: File,
+        startOffset: Long,
+        onProgress: suspend (Int) -> Unit,
+    ): TransferOutcome {
+        var resumeOffset = startOffset
+        val requestBuilder = Request.Builder().url(resolved.url)
+        resolved.httpHeaders.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
+        if (resumeOffset > 0) requestBuilder.addHeader("Range", "bytes=$resumeOffset-")
+
+        return try {
+            okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return TransferOutcome.Failed(resumeOffset, retryable = response.code in 500..599)
+                }
+
+                // The server may ignore our Range header and send the whole file back
+                // with a plain 200 instead of a 206 - resuming into the existing bytes
+                // in that case would produce a corrupt, duplicate-prefixed file, so
+                // fall back to a full restart.
+                val resuming = resumeOffset > 0 && response.code == 206
+                if (resumeOffset > 0 && !resuming) resumeOffset = 0
+
+                val body = response.body
+                val mimeType = body.contentType()?.toString() ?: "audio/mp4"
+                val expectedTotal = body.contentLength().let { if (it > 0) it + resumeOffset else -1L }
+
+                FileOutputStream(tempFile, resuming).use { output ->
+                    body.byteStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        var totalRead = resumeOffset
+                        var lastPct = -1
+                        while (true) {
+                            if (isStopped) return TransferOutcome.Paused(totalRead, lastPct)
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            totalRead += read
+                            if (expectedTotal > 0) {
+                                val pct = ((totalRead * 100) / expectedTotal).toInt()
+                                if (pct != lastPct) {
+                                    lastPct = pct
+                                    onProgress(pct)
+                                }
+                            }
+                        }
+                        TransferOutcome.Completed(mimeType)
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            TransferOutcome.Failed(tempFile.length(), retryable = true)
+        }
+    }
+
+    /** SoundCloud's HLS transcodings resolve to a .m3u8 media playlist of short
+     * (a few seconds each) segments, not one downloadable file - fetches the
+     * playlist, then each segment in order, concatenating them into one local file
+     * (playable via Media3's own MPEG-TS extractor, same as any other local file).
+     * Unlike [downloadProgressive], a pause/retry here always restarts from segment
+     * 0 - individual segments aren't byte-range-addressable as a single persisted
+     * offset, but since each is only a few seconds, redoing them is cheap. */
+    private suspend fun downloadHls(
+        resolved: ResolvedStream,
+        tempFile: File,
+        onProgress: suspend (Int) -> Unit,
+    ): TransferOutcome {
+        return try {
+            val playlistRequest = Request.Builder().url(resolved.url)
+            resolved.httpHeaders.forEach { (key, value) -> playlistRequest.addHeader(key, value) }
+            val playlistText = okHttpClient.newCall(playlistRequest.build()).execute().use { response ->
+                if (!response.isSuccessful) return TransferOutcome.Failed(0, retryable = response.code in 500..599)
+                response.body.string()
+            }
+
+            val segmentUrls = playlistText.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+                .map { line -> URI(resolved.url).resolve(line).toString() }
+                .toList()
+            if (segmentUrls.isEmpty()) return TransferOutcome.Failed(0, retryable = false)
+
+            FileOutputStream(tempFile, false).use { output ->
+                var lastPct = -1
+                for ((index, segmentUrl) in segmentUrls.withIndex()) {
+                    if (isStopped) return TransferOutcome.Paused(tempFile.length(), lastPct)
+
+                    val segmentRequest = Request.Builder().url(segmentUrl)
+                    resolved.httpHeaders.forEach { (key, value) -> segmentRequest.addHeader(key, value) }
+                    okHttpClient.newCall(segmentRequest.build()).execute().use { segmentResponse ->
+                        if (!segmentResponse.isSuccessful) {
+                            throw IOException("HLS segment $index failed: HTTP ${segmentResponse.code}")
+                        }
+                        segmentResponse.body.byteStream().use { it.copyTo(output) }
+                    }
+
+                    val pct = ((index + 1) * 100) / segmentUrls.size
+                    if (pct != lastPct) {
+                        lastPct = pct
+                        onProgress(pct)
+                    }
+                }
+            }
+            TransferOutcome.Completed(mimeType = "video/mp2t")
+        } catch (e: IOException) {
+            TransferOutcome.Failed(tempFile.length(), retryable = true)
+        }
+    }
+
+    private fun tempFileFor(trackId: String): File {
+        val dir = File(applicationContext.cacheDir, "downloads").apply { mkdirs() }
+        return File(dir, "${sanitizeFileName(trackId)}.part")
     }
 
     private fun sanitizeFileName(name: String): String =
@@ -113,6 +264,7 @@ class DownloadWorker @AssistedInject constructor(
         mimeType.contains("aac") -> ".aac"
         mimeType.contains("webm") -> ".weba"
         mimeType.contains("ogg") -> ".ogg"
+        mimeType.contains("mp2t") -> ".ts"
         else -> ".m4a"
     }
 

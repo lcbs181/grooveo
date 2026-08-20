@@ -28,7 +28,7 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         PlaylistTrackEntity::class,
         FollowedArtistEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -127,5 +127,16 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE tracks ADD COLUMN webpageUrl TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+// SoundCloud downloads + pause/resume/retry: DownloadEntity gained a PAUSED state
+// and partial-transfer bookkeeping (see that entity's doc comment) so a paused or
+// failed-mid-transfer progressive download can resume via an HTTP Range request
+// instead of restarting from byte 0.
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE downloads ADD COLUMN tempFilePath TEXT")
+        db.execSQL("ALTER TABLE downloads ADD COLUMN bytesDownloaded INTEGER NOT NULL DEFAULT 0")
     }
 }

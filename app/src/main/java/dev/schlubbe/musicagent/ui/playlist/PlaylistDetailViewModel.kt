@@ -121,21 +121,11 @@ class PlaylistDetailViewModel @Inject constructor(
         downloadRepository.startDownload(track)
     }
 
-    // SoundCloud tracks can't be downloaded yet (see DownloadRepository) - count them
-    // up front so the summary toast tells the user why fewer than the full playlist
-    // got queued, instead of silently dropping some tracks.
     fun onDownloadPlaylistClicked() {
         val tracks = _uiState.value.playlist?.tracks?.map { it.track.toTrackResultDto() } ?: return
         if (tracks.isEmpty()) return
-        val skipped = tracks.count { it.source == "soundcloud" }
-        val queued = tracks.size - skipped
         downloadRepository.startDownloadAll(tracks)
-        val message = if (skipped > 0) {
-            "$queued Titel werden heruntergeladen, $skipped SoundCloud-Titel werden übersprungen"
-        } else {
-            "$queued Titel werden heruntergeladen"
-        }
-        _uiState.value = _uiState.value.copy(downloadPlaylistMessage = message)
+        _uiState.value = _uiState.value.copy(downloadPlaylistMessage = "${tracks.size} Titel werden heruntergeladen")
     }
 
     fun onDownloadPlaylistMessageShown() {

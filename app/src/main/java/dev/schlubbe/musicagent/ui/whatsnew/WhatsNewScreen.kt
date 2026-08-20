@@ -32,24 +32,24 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
-        "waveform",
-        "Räumlicher 3D-Sound",
-        "Neue Klang-Vorlagen: Kino, Konzert, Rave, Studio und mehr – unter Einstellungen → 3D-Sound.",
+        "share-network",
+        "Teilen",
+        "Titel, Playlists, Alben und Künstler direkt aus der App teilen.",
     ),
     WhatsNewItem(
-        "cloud-arrow-up",
-        "Automatische Sicherung",
-        "Playlists und Likes werden automatisch gesichert und lassen sich jederzeit wiederherstellen.",
+        "download-simple",
+        "SoundCloud-Downloads",
+        "SoundCloud-Titel lassen sich jetzt herunterladen, nicht mehr nur YouTube Music.",
     ),
     WhatsNewItem(
-        "pencil-simple",
-        "Persönlichere Playlists",
-        "Eigene Cover, Beschreibungen und Farb-Tags für jede Playlist.",
+        "pause-circle",
+        "Downloads pausieren & fortsetzen",
+        "Laufende Downloads pausieren und später fortsetzen, fehlgeschlagene direkt erneut versuchen.",
     ),
     WhatsNewItem(
-        "hand-swipe-left",
-        "Gesten im Player",
-        "Wische auf dem Cover, um zum nächsten oder vorherigen Titel zu springen.",
+        "house",
+        "Widget überarbeitet",
+        "Das Home-Bildschirm-Widget zeigt jetzt in jeder Größe den Titel gut lesbar an.",
     ),
 )
 

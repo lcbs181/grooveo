@@ -178,6 +178,18 @@ class LibraryViewModel @Inject constructor(
         downloadRepository.startDownload(track)
     }
 
+    fun onPauseDownloadClicked(trackId: String) {
+        downloadRepository.pauseDownload(trackId)
+    }
+
+    fun onResumeDownloadClicked(trackId: String) {
+        downloadRepository.resumeDownload(trackId)
+    }
+
+    fun onRetryDownloadClicked(trackId: String) {
+        downloadRepository.retryDownload(trackId)
+    }
+
     fun onDownloadLikeToggled(track: TrackResultDto) {
         viewModelScope.launch { runCatching { likesRepository.toggle(track) } }
     }

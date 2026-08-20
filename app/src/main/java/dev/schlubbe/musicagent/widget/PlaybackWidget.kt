@@ -146,12 +146,16 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
             modifier = GlanceModifier.defaultWeight(),
             verticalAlignment = Alignment.Vertical.CenterVertically,
         ) {
-            AlbumArt(artwork, onClick = openApp)
+            // 44dp, matching the design's own large-size thumb spec (down from the
+            // 52dp used elsewhere) - at this widget's 250dp declared width, three
+            // 48dp touch-target buttons plus art already consume the vast majority
+            // of the row; every few dp back here is real, visible room for the title.
+            AlbumArt(artwork, onClick = openApp, size = 44.dp)
 
             Column(
                 modifier = GlanceModifier
                     .defaultWeight()
-                    .padding(horizontal = 10.dp)
+                    .padding(horizontal = 6.dp)
                     .clickable(openApp),
             ) {
                 Text(
@@ -159,14 +163,14 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
                     maxLines = 1,
                     style = TextStyle(
                         color = ColorProvider(Color.White),
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                     ),
                 )
                 Text(
                     text = state.artist ?: "Music Agent",
                     maxLines = 1,
-                    style = TextStyle(color = ColorProvider(Color(0xFFAAAAAA)), fontSize = 12.sp),
+                    style = TextStyle(color = ColorProvider(Color(0xFFAAAAAA)), fontSize = 11.sp),
                 )
             }
 
@@ -176,11 +180,7 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
                 action = actionRunCallback<SkipPreviousAction>(),
             )
 
-            Spacer(modifier = GlanceModifier.width(6.dp))
-
             PlayPauseButton(isPlaying = state.isPlaying)
-
-            Spacer(modifier = GlanceModifier.width(6.dp))
 
             WidgetControlButton(
                 icon = R.drawable.ic_widget_skip_next,
@@ -193,9 +193,11 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
     }
 }
 
-/** The compact 2x1 variant: cover + play/pause only - too little room for
- * title/artist/transport/progress to be legible, matching the design's own
- * distinction between the two sizes. Tapping the cover still opens the app. */
+/** The compact 2x1 variant: cover, title (no artist/transport/progress - too
+ * little room to stay legible), and a plain accent play/pause-circle tap target
+ * - matches the design's own compact spec (thumb + title + a `ph-fill
+ * ph-play-circle` indicator, not a full button). Tapping the cover or title
+ * opens the app; the play/pause circle toggles playback directly. */
 @Composable
 private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
     Row(
@@ -203,15 +205,40 @@ private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
             .fillMaxSize()
             .background(WIDGET_BACKGROUND)
             .cornerRadius(16.dp)
-            .padding(6.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.Vertical.CenterVertically,
     ) {
         val context = LocalContext.current
         val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
 
         AlbumArt(artwork, onClick = openApp, size = 28.dp)
-        Spacer(modifier = GlanceModifier.width(6.dp).defaultWeight())
-        PlayPauseButton(isPlaying = state.isPlaying, size = 32.dp)
+        Text(
+            text = state.title ?: "Nichts wird abgespielt",
+            maxLines = 1,
+            modifier = GlanceModifier
+                .defaultWeight()
+                .padding(horizontal = 8.dp)
+                .clickable(openApp),
+            style = TextStyle(
+                color = ColorProvider(Color.White),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+        )
+        Box(
+            modifier = GlanceModifier
+                .size(32.dp)
+                .clickable(actionRunCallback<TogglePlayPauseAction>()),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                provider = ImageProvider(
+                    if (state.isPlaying) R.drawable.ic_widget_pause_circle else R.drawable.ic_widget_play_circle,
+                ),
+                contentDescription = if (state.isPlaying) "Pause" else "Wiedergabe",
+                modifier = GlanceModifier.size(22.dp),
+            )
+        }
     }
 }
 

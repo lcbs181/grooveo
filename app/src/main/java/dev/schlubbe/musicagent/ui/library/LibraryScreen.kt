@@ -183,6 +183,9 @@ private fun DownloadsTab(
                 onAddToPlaylistClick = { item.track?.let { viewModel.onAddToPlaylistClicked(it.toTrackResultDto()) } },
                 onAddToQueueClick = { item.track?.let { viewModel.onAddToQueueClicked(it.toTrackResultDto()) } },
                 onArtistClick = { item.track?.let { viewModel.onTrackArtistClicked(it.toTrackResultDto()) } },
+                onPauseClick = { viewModel.onPauseDownloadClicked(item.entity.trackId) },
+                onResumeClick = { viewModel.onResumeDownloadClicked(item.entity.trackId) },
+                onRetryClick = { viewModel.onRetryDownloadClicked(item.entity.trackId) },
             )
         }
     }
@@ -197,12 +200,19 @@ private fun DownloadRow(
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
     onArtistClick: () -> Unit,
+    onPauseClick: () -> Unit,
+    onResumeClick: () -> Unit,
+    onRetryClick: () -> Unit,
 ) {
     val entity = item.entity
     val track = item.track
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var menuExpanded by remember { mutableStateOf(false) }
+    // Falls back to the persisted percentage (from a prior run, or right before the
+    // first live WorkManager progress event arrives) instead of always starting the
+    // bar at 0 - matters most for PAUSED, which has no live progress at all.
+    val displayPct = item.livePct ?: entity.progressPct
 
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
@@ -212,19 +222,28 @@ private fun DownloadRow(
         },
         supportingContent = {
             when (entity.state) {
-                DownloadState.DOWNLOADING -> Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Nocturne.neutral800),
-                ) {
+                DownloadState.DOWNLOADING, DownloadState.PAUSED -> Column {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth((item.livePct ?: 0) / 100f)
+                            .fillMaxWidth()
                             .height(4.dp)
-                            .background(Nocturne.accent),
-                    )
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Nocturne.neutral800),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(displayPct / 100f)
+                                .height(4.dp)
+                                .background(Nocturne.accent),
+                        )
+                    }
+                    if (entity.state == DownloadState.PAUSED) {
+                        Text(
+                            "Pausiert · $displayPct%",
+                            color = Nocturne.neutral500,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
                 }
                 DownloadState.FAILED -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -234,11 +253,7 @@ private fun DownloadRow(
                         modifier = Modifier.size(12.dp),
                     )
                     Text(
-                        // SoundCloud tracks can't be downloaded at all yet (see
-                        // DownloadRepository) -- a distinct message rather than the
-                        // generic one, since this specific failure is permanent, not
-                        // worth retrying.
-                        if (track?.source == "soundcloud") "SoundCloud: kein Download möglich" else "Fehlgeschlagen",
+                        "Fehlgeschlagen",
                         color = Nocturne.neutral500,
                         modifier = Modifier.padding(start = 4.dp),
                     )
@@ -252,8 +267,9 @@ private fun DownloadRow(
                 DownloadState.QUEUED -> Text("Wartet...", fontStyle = FontStyle.Italic, color = Nocturne.neutral500)
             }
         },
-        trailingContent = if (entity.state == DownloadState.COMPLETED && track != null) {
-            {
+        trailingContent = when (entity.state) {
+            DownloadState.COMPLETED -> if (track == null) null else {
+                {
                 Row {
                     NocturneIconButton(
                         icon = phosphorIcon("heart", filled = isLiked),
@@ -288,9 +304,18 @@ private fun DownloadRow(
                         }
                     }
                 }
+                }
             }
-        } else {
-            null
+            DownloadState.DOWNLOADING -> {
+                { NocturneIconButton(icon = phosphorIcon("pause"), onClick = onPauseClick) }
+            }
+            DownloadState.PAUSED -> {
+                { NocturneIconButton(icon = phosphorIcon("play"), onClick = onResumeClick) }
+            }
+            DownloadState.FAILED -> {
+                { NocturneIconButton(icon = phosphorIcon("arrow-clockwise"), onClick = onRetryClick) }
+            }
+            DownloadState.QUEUED -> null
         },
         modifier = Modifier
             .fillMaxWidth()
