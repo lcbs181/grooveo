@@ -49,6 +49,7 @@ class DownloadRepository @Inject constructor(
                     thumbnailUrl = track.thumbnailUrl,
                     lastAccessedAt = System.currentTimeMillis(),
                     webpageUrl = track.webpageUrl,
+                    genre = track.genre,
                 ),
             )
         }

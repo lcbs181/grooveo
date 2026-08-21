@@ -33,6 +33,7 @@ data class RemotePlaylistDetailUiState(
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
     val downloadMessage: String? = null,
+    val queueMessage: String? = null,
 )
 
 /** Backs the playlist/album browse screen reached from a Search result - a public
@@ -127,6 +128,22 @@ class RemotePlaylistDetailViewModel @Inject constructor(
 
     fun onDownloadClicked(track: TrackResultDto) {
         downloadRepository.startDownload(track)
+    }
+
+    // Playlist-level parity with the per-track "Zur Warteschlange hinzufügen" action -
+    // appends every track in order via the same single-track PlayerController.addToQueue
+    // used elsewhere, rather than a dedicated batch API.
+    fun onAddAllToQueueClicked() {
+        val tracks = _uiState.value.detail?.tracks ?: return
+        if (tracks.isEmpty()) return
+        viewModelScope.launch {
+            tracks.forEach { track -> runCatching { playerController.addToQueue(track) } }
+        }
+        _uiState.value = _uiState.value.copy(queueMessage = "${tracks.size} Titel zur Warteschlange hinzugefügt")
+    }
+
+    fun onQueueMessageShown() {
+        _uiState.value = _uiState.value.copy(queueMessage = null)
     }
 
     fun onLikeToggled(track: TrackResultDto) {

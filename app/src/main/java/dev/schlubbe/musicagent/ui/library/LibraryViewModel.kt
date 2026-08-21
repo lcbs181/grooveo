@@ -19,6 +19,7 @@ import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SavedPlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
+import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.download.DownloadWorker
 import dev.schlubbe.musicagent.playback.PlayerController
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,10 +60,22 @@ internal fun TrackEntity.toTrackResultDto(): TrackResultDto = TrackResultDto(
     webpageUrl = webpageUrl,
 )
 
-enum class LibraryTab { DOWNLOADS, LIKES, PLAYLISTS }
+// HOME is the landing/menu state (title + import banner + 3 chevron rows + the
+// "Zuletzt gespielt"/"Wiedergabeverlauf" shelves) - the other three are reached
+// by tapping a chevron row and each render with their own back header. This is
+// in-screen state, not a NavGraph route change: the whole Library tab stays one
+// nav destination, see LibraryScreen's BackHandler for the system-back wiring.
+enum class LibraryTab { HOME, DOWNLOADS, LIKES, PLAYLISTS }
+
+// Same magnitude as HomeViewModel's own recently-played query - enough to both
+// slice a short circular rail and fill a scrollable history list underneath it.
+private const val RECENTLY_PLAYED_LIMIT = 30
 
 data class LibraryUiState(
-    val selectedTab: LibraryTab = LibraryTab.DOWNLOADS,
+    val selectedTab: LibraryTab = LibraryTab.HOME,
+    // Mirrors SettingsRepository's persisted flag so the landing menu's Spotify-
+    // import banner stays dismissed across process restarts once closed.
+    val importBannerDismissed: Boolean = false,
     val likes: List<LikeOutDto> = emptyList(),
     val isLoadingLikes: Boolean = false,
     val playlists: List<PlaylistOutDto> = emptyList(),
@@ -74,6 +87,10 @@ data class LibraryUiState(
     // onArtistNavigated() to clear it back to null.
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
+    // Transient snackbar/toast text after "download all tracks" on a playlist row -
+    // same "$n Titel werden heruntergeladen" wording as the playlist detail screens'
+    // equivalent action, shown once then cleared via onDownloadPlaylistMessageShown().
+    val downloadPlaylistMessage: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -88,6 +105,7 @@ class LibraryViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val searchRepository: SearchRepository,
     private val savedPlaylistRepository: SavedPlaylistRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     val downloads: StateFlow<List<DownloadUiItem>> = downloadDao.observeAll()
@@ -103,15 +121,60 @@ class LibraryViewModel @Inject constructor(
 
     val likedTrackIds: StateFlow<Set<String>> = likesRepository.likedTrackIds
 
+    // Same source [dev.schlubbe.musicagent.ui.home.HomeViewModel] already uses for its
+    // own "Zuletzt gehört" shelf (trackDao.observeRecentlyPlayed) - reused as-is rather
+    // than adding a second query, since TrackEntity already carries everything both the
+    // landing menu's circular rail and its "Wiedergabeverlauf" list need (title, artist,
+    // durationSec, thumbnailUrl).
+    val recentlyPlayed: StateFlow<List<TrackEntity>> = trackDao.observeRecentlyPlayed(RECENTLY_PLAYED_LIMIT)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    fun selectTab(tab: LibraryTab) {
+    init {
+        viewModelScope.launch {
+            settingsRepository.libraryImportBannerDismissed.collect { dismissed ->
+                _uiState.value = _uiState.value.copy(importBannerDismissed = dismissed)
+            }
+        }
+    }
+
+    /** Opens one of the three chevron-row sub-views from the landing menu, triggering
+     * that section's own refresh - the same refresh-on-open behavior the old segmented
+     * control's [selectTab] used to do when switching tabs. */
+    fun openSection(tab: LibraryTab) {
         _uiState.value = _uiState.value.copy(selectedTab = tab)
         when (tab) {
             LibraryTab.LIKES -> refreshLikes()
             LibraryTab.PLAYLISTS -> refreshPlaylists()
-            LibraryTab.DOWNLOADS -> Unit
+            LibraryTab.DOWNLOADS, LibraryTab.HOME -> Unit
+        }
+    }
+
+    /** Returns from any sub-view to the landing menu - used by both the sub-view's own
+     * back button and the system back gesture/button (see LibraryScreen's BackHandler),
+     * without leaving the Library nav-graph destination itself. */
+    fun backToHome() {
+        _uiState.value = _uiState.value.copy(selectedTab = LibraryTab.HOME)
+    }
+
+    fun dismissImportBanner() {
+        viewModelScope.launch { settingsRepository.setLibraryImportBannerDismissed(true) }
+    }
+
+    /** Same play-the-full-list-as-queue behavior as
+     * [dev.schlubbe.musicagent.ui.home.HomeViewModel.onRecentlyPlayedClicked] - both the
+     * circular rail and the "Wiedergabeverlauf" row list call this for a tapped track. */
+    fun onRecentlyPlayedClicked(track: TrackEntity) {
+        viewModelScope.launch {
+            val queue = recentlyPlayed.value.map { it.toTrackResultDto() }
+            val index = recentlyPlayed.value.indexOfFirst { it.id == track.id }
+            if (index >= 0) {
+                playerController.playQueue(queue, index)
+            } else {
+                playerController.playTrack(track.toTrackResultDto())
+            }
         }
     }
 
@@ -137,6 +200,48 @@ class LibraryViewModel @Inject constructor(
             runCatching { savedPlaylistRepository.refresh() }
                 .onSuccess { saved -> _uiState.value = _uiState.value.copy(savedPlaylists = saved) }
         }
+    }
+
+    /** Downloads every track of a local (Room-backed) playlist from its Library row,
+     * without navigating into the detail screen first - fetches the full track list
+     * the same way [dev.schlubbe.musicagent.ui.playlist.PlaylistDetailViewModel.onDownloadPlaylistClicked]
+     * does, then reuses the same batched [DownloadRepository.startDownloadAll] call. */
+    fun onDownloadPlaylistClicked(playlistId: String) {
+        viewModelScope.launch {
+            runCatching { playlistRepository.get(playlistId) }
+                .onSuccess { detail ->
+                    val tracks = detail.tracks.map { it.track.toTrackResultDto() }
+                    if (tracks.isNotEmpty()) {
+                        downloadRepository.startDownloadAll(tracks)
+                        _uiState.value = _uiState.value.copy(
+                            downloadPlaylistMessage = "${tracks.size} Titel werden heruntergeladen",
+                        )
+                    }
+                }
+        }
+    }
+
+    /** Same as [onDownloadPlaylistClicked] but for a saved remote (SoundCloud/YT Music)
+     * playlist - mirrors [dev.schlubbe.musicagent.ui.playlist.RemotePlaylistDetailViewModel.onDownloadAllClicked],
+     * fetching the live track list via SearchRepository since saved playlists persist
+     * only the bookmark, not their contents. */
+    fun onDownloadSavedPlaylistClicked(source: String, sourceId: String) {
+        viewModelScope.launch {
+            runCatching { searchRepository.getPlaylistDetail(source, sourceId) }
+                .onSuccess { detail ->
+                    val tracks = detail.tracks
+                    if (tracks.isNotEmpty()) {
+                        downloadRepository.startDownloadAll(tracks)
+                        _uiState.value = _uiState.value.copy(
+                            downloadPlaylistMessage = "${tracks.size} Titel werden heruntergeladen",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun onDownloadPlaylistMessageShown() {
+        _uiState.value = _uiState.value.copy(downloadPlaylistMessage = null)
     }
 
     fun onUnsavePlaylist(source: String, sourceId: String) {

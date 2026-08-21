@@ -97,8 +97,21 @@ class SoundCloudSearchClient @Inject constructor(
             trackCount = meta.trackCount,
             owner = meta.owner,
             webpageUrl = meta.webpageUrl,
+            description = playlist.stringOrNull("description")?.takeIf { it.isNotBlank() },
+            tags = parseSoundCloudTagList(playlist.stringOrNull("tag_list")),
             tracks = tracks,
         )
+    }
+
+    // SoundCloud's "tag_list" is a single space-separated string where multi-word
+    // tags are wrapped in double quotes (e.g. `"hip hop" edm chill`) - not JSON, so
+    // it needs its own tiny tokenizer rather than a plain split(" ").
+    private fun parseSoundCloudTagList(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return Regex("\"([^\"]+)\"|(\\S+)").findAll(raw)
+            .map { match -> match.groupValues[1].ifEmpty { match.groupValues[2] } }
+            .filter { it.isNotBlank() }
+            .toList()
     }
 
     suspend fun getArtist(permalink: String): ArtistDetailDto {

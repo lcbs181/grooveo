@@ -7,12 +7,12 @@ import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.schlubbe.musicagent.data.backup.BackupManager
 import dev.schlubbe.musicagent.data.remote.BackendApi
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.playback.EqPreset
 import dev.schlubbe.musicagent.playback.Sound3dPreset
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +33,7 @@ sealed interface BackupState {
     data object Idle : BackupState
     data object Running : BackupState
     data object Done : BackupState
+    data class Error(val message: String) : BackupState
 }
 
 data class SettingsUiState(
@@ -68,6 +69,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val backendApi: BackendApi,
+    private val backupManager: BackupManager,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -247,18 +249,36 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    // The design's own Interactions note says this is intentionally simulated
-    // ("~1.2-1.4s artificial delay... replace with real network/backup calls") --
-    // there's no real backup destination (no server, no cloud account) for this
-    // backend-less app to back up to yet, so this matches the prototype's own
-    // documented placeholder behavior rather than being a scope cut on our part.
+    // Real local backup: serializes playlists/likes/follows/saved-playlists/
+    // settings to context.filesDir/backups/backup_<timestamp>.json via
+    // BackupManager, which round-trips through the existing repositories only.
     fun backupNow() {
         _uiState.value = _uiState.value.copy(backupState = BackupState.Running)
         viewModelScope.launch {
-            delay(1400)
-            val now = Instant.now().toString()
-            settingsRepository.setLastBackupAt(now)
-            _uiState.value = _uiState.value.copy(backupState = BackupState.Done)
+            val result = backupManager.createBackup()
+            result.fold(
+                onSuccess = {
+                    settingsRepository.setLastBackupAt(Instant.now().toString())
+                    _uiState.value = _uiState.value.copy(backupState = BackupState.Done)
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        backupState = BackupState.Error(e.message ?: "Sicherung fehlgeschlagen"),
+                    )
+                },
+            )
+        }
+    }
+
+    /** Fires the Android share sheet for the most recently written local backup
+     * file (content:// URI via FileProvider). No-op with an Error state if no
+     * local backup exists yet. */
+    fun shareBackup() {
+        val shared = backupManager.shareLatestBackup()
+        if (!shared) {
+            _uiState.value = _uiState.value.copy(
+                backupState = BackupState.Error("Keine Sicherung zum Teilen vorhanden — zuerst sichern."),
+            )
         }
     }
 
@@ -270,11 +290,19 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(showRestoreConfirm = false)
     }
 
+    // Real restore: reads the most recent local backup JSON and repopulates
+    // Room (via the existing repositories' insert/upsert methods) + DataStore
+    // settings via BackupManager.
     fun confirmRestore() {
         _uiState.value = _uiState.value.copy(showRestoreConfirm = false, backupState = BackupState.Running)
         viewModelScope.launch {
-            delay(1400)
-            _uiState.value = _uiState.value.copy(backupState = BackupState.Done)
+            val result = backupManager.restoreLatest()
+            _uiState.value = _uiState.value.copy(
+                backupState = result.fold(
+                    onSuccess = { BackupState.Done },
+                    onFailure = { e -> BackupState.Error(e.message ?: "Wiederherstellung fehlgeschlagen") },
+                ),
+            )
         }
     }
 

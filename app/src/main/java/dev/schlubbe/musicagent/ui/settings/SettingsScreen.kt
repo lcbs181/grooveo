@@ -250,12 +250,23 @@ fun SettingsScreen(
                             color = Nocturne.neutral500,
                         )
                     }
-                    NocturneButton(
-                        text = if (uiState.backupState == BackupState.Running) "…" else "Jetzt sichern",
-                        onClick = viewModel::backupNow,
-                        variant = NocturneButtonVariant.Secondary,
-                        enabled = uiState.backupState != BackupState.Running,
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        NocturneIconButton(icon = phosphorIcon("share-network"), onClick = viewModel::shareBackup, iconSize = 16.dp)
+                        NocturneButton(
+                            text = if (uiState.backupState == BackupState.Running) "…" else "Jetzt sichern",
+                            onClick = viewModel::backupNow,
+                            variant = NocturneButtonVariant.Secondary,
+                            enabled = uiState.backupState != BackupState.Running,
+                        )
+                    }
+                }
+                when (val state = uiState.backupState) {
+                    is BackupState.Error -> Text(
+                        state.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
+                    else -> Unit
                 }
                 NocturneButton(
                     text = "Aus Sicherung wiederherstellen",

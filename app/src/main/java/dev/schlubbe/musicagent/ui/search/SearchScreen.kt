@@ -59,6 +59,7 @@ import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 
 private val SOURCES = listOf("all" to "Alle", "ytmusic" to "YT Music", "soundcloud" to "SoundCloud")
 private val RESULT_TYPES = listOf(
@@ -78,6 +79,7 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val dimens = rememberResponsiveDimens()
 
     LaunchedEffect(uiState.artistNavTarget) {
         uiState.artistNavTarget?.let { (source, sourceId) ->
@@ -103,7 +105,7 @@ fun SearchScreen(
             Text(
                 "Suche",
                 style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 12.dp),
+                modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, top = 22.dp, bottom = 12.dp),
             )
 
             TextField(
@@ -127,7 +129,7 @@ fun SearchScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = dimens.horizontalPadding, vertical = 4.dp),
             )
 
             SegmentedControl(
@@ -136,7 +138,7 @@ fun SearchScreen(
                 onSelect = { viewModel.onSourceChanged(it.first) },
                 label = { it.second },
                 fillWidth = true,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = dimens.horizontalPadding, vertical = 6.dp),
             )
 
             if (uiState.query.isNotBlank()) {
@@ -145,7 +147,7 @@ fun SearchScreen(
                     selected = RESULT_TYPES.first { it.first == uiState.resultType },
                     onSelect = { viewModel.onResultTypeChanged(it.first) },
                     label = { it.second },
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = dimens.horizontalPadding, vertical = 6.dp),
                 )
             }
 
@@ -154,7 +156,15 @@ fun SearchScreen(
                     CircularProgressIndicator(color = Nocturne.accent)
                 }
                 uiState.error != null -> CenteredHint("Fehler: ${uiState.error}", isError = true)
-                uiState.query.isBlank() -> CenteredHint("Titel, Künstler oder Playlist suchen")
+                uiState.query.isBlank() -> if (uiState.searchHistory.isEmpty()) {
+                    CenteredHint("Titel, Künstler oder Playlist suchen")
+                } else {
+                    SearchHistoryList(
+                        history = uiState.searchHistory,
+                        onQueryTapped = { viewModel.onHistoryQueryTapped(it) },
+                        onQueryDeleted = { viewModel.onHistoryQueryDeleted(it) },
+                    )
+                }
                 uiState.resultType == "artists" -> if (uiState.artistResults.isEmpty()) {
                     CenteredHint("Keine Treffer")
                 } else {
@@ -236,6 +246,63 @@ private fun CenteredHint(text: String, isError: Boolean = false) {
     }
 }
 
+/** Shows recent search history as a tappable list, each entry with a delete button. */
+@Composable
+private fun SearchHistoryList(
+    history: List<String>,
+    onQueryTapped: (String) -> Unit,
+    onQueryDeleted: (String) -> Unit,
+) {
+    val dimens = rememberResponsiveDimens()
+    LazyColumn {
+        item {
+            Text(
+                "Suchverlauf",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(start = dimens.horizontalPadding, top = 12.dp, bottom = 8.dp),
+                color = Nocturne.neutral500,
+            )
+        }
+        items(history, key = { it }) { query ->
+            SearchHistoryRow(
+                query = query,
+                onQueryTapped = { onQueryTapped(query) },
+                onQueryDeleted = { onQueryDeleted(query) },
+            )
+        }
+    }
+}
+
+/** A single search history entry with a tappable query text and a delete button. */
+@Composable
+private fun SearchHistoryRow(
+    query: String,
+    onQueryTapped: () -> Unit,
+    onQueryDeleted: () -> Unit,
+) {
+    val dimens = rememberResponsiveDimens()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onQueryTapped)
+            .padding(horizontal = dimens.horizontalPadding, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            query,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        NocturneIconButton(
+            icon = phosphorIcon("x"),
+            onClick = onQueryDeleted,
+        )
+    }
+}
+
 /** Wraps [content] with a start-to-end swipe gesture that adds the row's track to the
  * playback queue without disturbing playback, then snaps back (this isn't a dismissal). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -291,10 +358,11 @@ private fun TrackRow(
     onAddToQueueClick: () -> Unit,
     onArtistClick: (String) -> Unit,
 ) {
+    val dimens = rememberResponsiveDimens()
     SwipeToQueueRow(onSwipeToQueue = onAddToQueueClick) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
-            leadingContent = { TrackThumbnail(track.thumbnailUrl) },
+            leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -337,9 +405,10 @@ private fun ArtistRow(
     artist: ArtistResultDto,
     onClick: () -> Unit,
 ) {
+    val dimens = rememberResponsiveDimens()
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
-        leadingContent = { TrackThumbnail(artist.thumbnailUrl) },
+        leadingContent = { TrackThumbnail(artist.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = artist.subscriberCount?.let { count ->
             { Text("$count Abonnenten", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500) }
@@ -353,9 +422,10 @@ private fun ArtistRow(
 
 @Composable
 private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) {
+    val dimens = rememberResponsiveDimens()
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
-        leadingContent = { TrackThumbnail(playlist.thumbnailUrl) },
+        leadingContent = { TrackThumbnail(playlist.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             val subtitle = listOfNotNull(playlist.owner, playlist.trackCount?.let { "$it Titel" })
@@ -369,9 +439,10 @@ private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) 
 
 @Composable
 private fun AlbumResultRow(album: AlbumResultDto, onClick: () -> Unit) {
+    val dimens = rememberResponsiveDimens()
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
-        leadingContent = { TrackThumbnail(album.thumbnailUrl) },
+        leadingContent = { TrackThumbnail(album.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(album.artist ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)

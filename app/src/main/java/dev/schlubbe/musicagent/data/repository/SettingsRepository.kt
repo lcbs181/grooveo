@@ -46,6 +46,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val NOTIFY_NEW_UPLOADS = booleanPreferencesKey("notify_new_uploads")
         val AUTO_BACKUP = booleanPreferencesKey("auto_backup")
         val LAST_BACKUP_AT = stringPreferencesKey("last_backup_at")
+        // Library landing menu's "Bringe deine Playlists mit" (Spotify import) banner -
+        // sticks dismissed once closed, same small on/off flag pattern as AUTO_BACKUP.
+        val LIBRARY_IMPORT_BANNER_DISMISSED = booleanPreferencesKey("library_import_banner_dismissed")
         // One flag per the README's own state-management note: "the What's-New banner
         // and the first-run tutorial share the same 'latest version' concept -- track
         // as one hasSeenVersion flag per app version, not two". 0 means "never run",
@@ -77,6 +80,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val autoBackup: Flow<Boolean> = dataStore.data.map { it[Keys.AUTO_BACKUP] ?: false }
     val lastBackupAt: Flow<String?> = dataStore.data.map { it[Keys.LAST_BACKUP_AT] }
     val lastSeenVersionCode: Flow<Int> = dataStore.data.map { it[Keys.LAST_SEEN_VERSION_CODE] ?: 0 }
+    val libraryImportBannerDismissed: Flow<Boolean> =
+        dataStore.data.map { it[Keys.LIBRARY_IMPORT_BANNER_DISMISSED] ?: false }
 
     // OkHttp interceptors run synchronously, so they read these caches rather than
     // suspending on the DataStore Flow directly. PlayerController/PlaybackService reads
@@ -181,5 +186,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setLastSeenVersionCode(versionCode: Int) {
         dataStore.edit { it[Keys.LAST_SEEN_VERSION_CODE] = versionCode }
+    }
+
+    suspend fun setLibraryImportBannerDismissed(dismissed: Boolean) {
+        dataStore.edit { it[Keys.LIBRARY_IMPORT_BANNER_DISMISSED] = dismissed }
     }
 }

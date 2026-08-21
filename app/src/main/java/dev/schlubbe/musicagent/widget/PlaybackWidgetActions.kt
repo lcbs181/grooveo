@@ -50,3 +50,17 @@ class SkipPreviousAction : ActionCallback {
         PlaybackWidget().updateAll(context)
     }
 }
+
+class ToggleShuffleAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        withContext(Dispatchers.Main) { widgetPlayerController(context).toggleShuffle() }
+        PlaybackWidget().updateAll(context)
+    }
+}
+
+class CycleRepeatModeAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        withContext(Dispatchers.Main) { widgetPlayerController(context).cycleRepeatMode() }
+        PlaybackWidget().updateAll(context)
+    }
+}

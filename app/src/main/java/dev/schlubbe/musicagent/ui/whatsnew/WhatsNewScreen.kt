@@ -32,24 +32,49 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
-        "vinyl-record",
-        "Charts & Für dich nur noch YT Music",
-        "Charts und Für-dich-Empfehlungen zeigen jetzt nur noch YouTube-Music-Titel, keine SoundCloud-Mischung mehr.",
+        "waveform",
+        "Player-Fehler behoben",
+        "Der Visualizer stand auf dem Kopf, SoundCloud-Titel brachen vorzeitig ab, und DRM-geschützte Titel wurden stumm übersprungen - alles behoben. DRM-Titel zeigen jetzt \"Song nicht verfügbar\" direkt im Player.",
     ),
     WhatsNewItem(
-        "lock-simple",
-        "DRM-Hinweis bei SoundCloud",
-        "SoundCloud-Titel, die sich wegen DRM-Schutz nicht abspielen lassen, sind jetzt schon in der Liste erkennbar.",
+        "clock-counter-clockwise",
+        "Suchverlauf",
+        "Die Suche merkt sich zuletzt gesuchte Begriffe und zeigt sie beim Öffnen an - einzeln löschbar per Wisch.",
+    ),
+    WhatsNewItem(
+        "house",
+        "Startseite überarbeitet",
+        "Neue Grußformel je Tageszeit und Jahreszeit, personalisierte Mixes unter \"Im Fokus\", und \"Neu von Künstlern\" funktioniert jetzt inklusive Vorschaubildern.",
     ),
     WhatsNewItem(
         "stack",
-        "Playlist-Ansicht in der Suche",
-        "Playlists und Alben aus der Suche öffnen jetzt eine eigene Übersicht mit allen Titeln, statt direkt loszuspielen.",
+        "Bibliothek neu gestaltet",
+        "Komplett neue Übersicht mit Downloads, Likes und Playlists als eigene Unterseiten - näher am SoundCloud-Vorbild.",
     ),
     WhatsNewItem(
-        "heart",
-        "Playlists speichern",
-        "Öffentliche Playlists und Alben lassen sich jetzt speichern - zu finden in der Bibliothek unter Playlists.",
+        "cloud-arrow-up",
+        "Eigene Sicherung",
+        "Unter Einstellungen lässt sich der eigene Bestand jetzt als Datei sichern und teilen oder wiederherstellen.",
+    ),
+    WhatsNewItem(
+        "list-plus",
+        "Fremde Playlists & Alben",
+        "Gespeicherte Playlists und Alben von SoundCloud und YT Music zeigen jetzt Beschreibung und Tags und bekommen dieselben Aktionen wie eigene Playlists.",
+    ),
+    WhatsNewItem(
+        "download-simple",
+        "Downloadgröße sichtbar",
+        "Beim Herunterladen wird jetzt die Dateigröße jedes Titels angezeigt.",
+    ),
+    WhatsNewItem(
+        "arrow-clockwise",
+        "Update-Check im Hintergrund",
+        "Music Agent prüft jetzt automatisch auf neue Versionen und meldet sich per Benachrichtigung - dazu eine überarbeitete Wiedergabe-Benachrichtigung mit mehr Reglern.",
+    ),
+    WhatsNewItem(
+        "sparkle",
+        "Neues Logo & Feinschliff",
+        "Abgerundetes Logo, funktionierende Homescreen-Widgets, eine sanftere Navigationsleiste und ein Layout, das sich an die Größe deines Handys anpasst.",
     ),
 )
 

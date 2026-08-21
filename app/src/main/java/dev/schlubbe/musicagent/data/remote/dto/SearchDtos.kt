@@ -16,6 +16,10 @@ data class TrackResultDto(
     // playable stream. Always false for ytmusic and for any cached/local track
     // shape that doesn't carry this signal (likes, playlists, downloads).
     @SerializedName("is_drm_protected") val isDrmProtected: Boolean = false,
+    // SoundCloud only - see SoundCloudMappers.toSoundCloudTrackResultDto. Null for
+    // ytmusic (NewPipeExtractor exposes no genre/category field on StreamInfoItem) -
+    // a quiet signal for FeedRepository's personalized-mix scoring, not shown in any UI.
+    @SerializedName("genre") val genre: String? = null,
 )
 
 data class ArtistResultDto(
@@ -67,6 +71,15 @@ data class RemotePlaylistDetailDto(
     @SerializedName("track_count") val trackCount: Int?,
     val owner: String?,
     @SerializedName("webpage_url") val webpageUrl: String,
+    // soundcloud: the playlist/album's "description" field, straight from the
+    // resolve response. ytmusic: NewPipeExtractor's PlaylistInfo.description
+    // content, HTML-stripped. Null when the source has none set - fetch-live
+    // only, not persisted (see SavedPlaylistEntity).
+    val description: String? = null,
+    // soundcloud: parsed from the resolve response's space-separated "tag_list"
+    // field (quoted multi-word tags). ytmusic: always empty - NewPipeExtractor's
+    // PlaylistInfo exposes no equivalent tag/keyword field for playlists.
+    val tags: List<String> = emptyList(),
     val tracks: List<TrackResultDto> = emptyList(),
 )
 

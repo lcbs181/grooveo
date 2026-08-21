@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.size
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.ui.player.PlayerViewModel
+import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 
 /** Persistent playback row shown above the bottom navigation bar on every main-app
  * screen once something is playing. Reuses [PlayerViewModel] (same one the full
@@ -41,6 +42,7 @@ fun MiniPlayerBar(
 ) {
     val playbackState by viewModel.playbackState.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val dimens = rememberResponsiveDimens()
     // Also shown while the very first track of the session is still loading (no
     // currentTrackId yet) - without this, tapping a track for the first time gave no
     // feedback at all until either the Player screen or this bar's usual content
@@ -55,11 +57,11 @@ fun MiniPlayerBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = dimens.miniPlayerPadding, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box {
-                TrackThumbnail(playbackState.artworkUrl, size = 40.dp)
+                TrackThumbnail(playbackState.artworkUrl, size = dimens.miniPlayerThumbnail)
                 EqualizerBadge(
                     isPlaying = playbackState.isPlaying,
                     size = 15.dp,
@@ -89,6 +91,11 @@ fun MiniPlayerBar(
                 CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(12.dp))
             } else {
                 IconButton(
+                    // Disabled while the current track is a DRM-blocked SoundCloud
+                    // track (see PlayerController's isUnavailable kdoc) - nothing is
+                    // loaded to play/pause; tapping the row itself still opens the full
+                    // Player screen, where skip-back/skip-forward can move off of it.
+                    enabled = !playbackState.isUnavailable,
                     onClick = {
                         haptic.performHapticFeedback(
                             if (playbackState.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,

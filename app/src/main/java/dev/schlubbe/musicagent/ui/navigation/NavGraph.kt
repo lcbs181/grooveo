@@ -50,6 +50,7 @@ import dev.schlubbe.musicagent.ui.onboarding.OnboardingViewModel
 import dev.schlubbe.musicagent.ui.settings.SettingsScreen
 import dev.schlubbe.musicagent.ui.theme.Nocturne
 import dev.schlubbe.musicagent.ui.update.UpdateDialog
+import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.update.UpdateViewModel
 import dev.schlubbe.musicagent.ui.whatsnew.WhatsNewScreen
 
@@ -100,6 +101,7 @@ fun MusicAgentNavGraph(
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = currentRoute !in BOTTOM_BAR_HIDDEN_ROUTES
     val haptic = LocalHapticFeedback.current
+    val dimens = rememberResponsiveDimens()
 
     // Best-effort against the optional service-account-backed real backend (see
     // AuthRepository) - silent no-op if unreachable/not configured, see UpdateDialog.
@@ -128,8 +130,7 @@ fun MusicAgentNavGraph(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Nocturne.surface)
-                            .padding(top = 8.dp, bottom = 12.dp),
+                            .background(Nocturne.surface),
                     ) {
                         BOTTOM_NAV_ITEMS.forEach { item ->
                             val selected = currentRoute == item.route
@@ -137,6 +138,15 @@ fun MusicAgentNavGraph(
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
+                                    // The clickable (and its default ripple) is bounded to
+                                    // whatever it wraps. The top/bottom padding used to live
+                                    // on the outer Row, *outside* this clickable, which left a
+                                    // dead-space margin above/below each item that wasn't part
+                                    // of its touch/ripple region (bug: "touch fields ...
+                                    // don't fill the nav bar completely"). Moving the padding
+                                    // to after .clickable() here makes it part of the bounds
+                                    // clickable reports, so the ripple fills the full item
+                                    // height with no visual layout change.
                                     .clickable {
                                         if (currentRoute != item.route) {
                                             haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -148,7 +158,8 @@ fun MusicAgentNavGraph(
                                                 saveState = true
                                             }
                                         }
-                                    },
+                                    }
+                                    .padding(top = 8.dp, bottom = 12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
@@ -156,7 +167,7 @@ fun MusicAgentNavGraph(
                                     phosphorIcon(item.iconName),
                                     contentDescription = item.label,
                                     tint = tint,
-                                    modifier = Modifier.size(19.dp),
+                                    modifier = Modifier.size(dimens.bottomNavIconSize),
                                 )
                                 Text(item.label, color = tint, style = MaterialTheme.typography.labelSmall)
                             }
@@ -189,6 +200,9 @@ fun MusicAgentNavGraph(
                     onSeeAllPlaylistsClick = { navController.navigate(Routes.LIBRARY) },
                     onSeeAllLikesClick = { navController.navigate(Routes.LIBRARY) },
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
+                    onArtistClick = { source, sourceId ->
+                        navController.navigate(Routes.artistDetail(source, sourceId))
+                    },
                 )
             }
             composable(Routes.SEARCH) {
@@ -237,6 +251,7 @@ fun MusicAgentNavGraph(
                     onArtistSelected = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
+                    onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 )
             }
             composable(

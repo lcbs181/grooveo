@@ -67,7 +67,9 @@ import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.util.shareText
+import androidx.compose.foundation.layout.widthIn
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 import java.util.concurrent.TimeUnit
@@ -99,6 +101,7 @@ fun PlayerScreen(
     val addToPlaylistState by viewModel.addToPlaylistState.collectAsState()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
+    val dimens = rememberResponsiveDimens()
     var positionMs by remember { mutableLongStateOf(0L) }
     var polledDurationMs by remember { mutableLongStateOf(0L) }
     var isSeeking by remember { mutableStateOf(false) }
@@ -138,8 +141,13 @@ fun PlayerScreen(
 
     LaunchedEffect(Unit) {
         while (true) {
-            if (!isSeeking) positionMs = viewModel.currentPositionMs()
-            polledDurationMs = viewModel.currentDurationMs()
+            // While isUnavailable, the MediaController's real position/duration belong
+            // to whatever real track (if any) is actually loaded underneath - not the
+            // DRM-blocked slot on screen - so show 0 instead of a stale/unrelated value.
+            if (!isSeeking) {
+                positionMs = if (playbackState.isUnavailable) 0L else viewModel.currentPositionMs()
+            }
+            polledDurationMs = if (playbackState.isUnavailable) 0L else viewModel.currentDurationMs()
             val endAt = viewModel.sleepTimerEndAtMs.value
             sleepTimerRemainingMs = if (endAt != null) (endAt - System.currentTimeMillis()).coerceAtLeast(0L) else 0L
             delay(500)
@@ -227,9 +235,9 @@ fun PlayerScreen(
 
         Column(
             modifier = if (upNext.isEmpty()) {
-                Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp)
+                Modifier.weight(1f).fillMaxWidth().padding(horizontal = dimens.playerContentPadding)
             } else {
-                Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 8.dp)
+                Modifier.fillMaxWidth().padding(horizontal = dimens.playerContentPadding, vertical = 8.dp)
             },
             verticalArrangement = if (upNext.isEmpty()) Arrangement.Center else Arrangement.Top,
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -239,6 +247,10 @@ fun PlayerScreen(
                     url = playbackState.artworkUrl,
                     modifier = Modifier
                         .fillMaxWidth(if (upNext.isEmpty()) 0.72f else 0.5f)
+                        // Caps the absolute size on tablet/foldable-width screens, where a
+                        // flat fraction-of-screen-width would otherwise blow the cover art
+                        // up far beyond what a "cover art" element should ever be.
+                        .widthIn(max = dimens.playerAlbumArtMaxWidth)
                         .aspectRatio(1f)
                         // Swipe left/right (or a trackpad's two-finger horizontal
                         // scroll, which Compose also surfaces as a horizontal drag)
@@ -272,6 +284,7 @@ fun PlayerScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(if (upNext.isEmpty()) 0.72f else 0.5f)
+                            .widthIn(max = dimens.playerAlbumArtMaxWidth)
                             .aspectRatio(1f)
                             .clip(RoundedCornerShape(20.dp))
                             .background(Color.Black.copy(alpha = 0.45f)),
@@ -312,6 +325,19 @@ fun PlayerScreen(
                             viewModel.onArtistClicked()
                         },
                 )
+                // DRM-only SoundCloud track (see PlayerController's isUnavailable kdoc) -
+                // cover/title/artist above still show, but playback is paused here and
+                // won't auto-advance; only a manual skip moves on, matching the disabled
+                // play/pause button below.
+                if (playbackState.isUnavailable) {
+                    Text(
+                        playbackState.unavailableMessage ?: "Titel nicht verfügbar",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Nocturne.accent,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
             }
 
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
@@ -433,12 +459,17 @@ fun PlayerScreen(
                     enabled = hasPrevious,
                     iconSize = 22.dp,
                 )
+                // Disabled (skip-only) while isUnavailable - see PlayerController's kdoc
+                // on that flag: there is nothing loaded to play/pause for a DRM-blocked
+                // track, only skip-back/skip-forward (unaffected above/below) can move
+                // the user off of it.
+                val transportEnabled = !playbackState.isUnavailable
                 Box(
                     modifier = Modifier
                         .size(64.dp)
                         .clip(CircleShape)
-                        .border(1.5.dp, Nocturne.accent, CircleShape)
-                        .clickable {
+                        .border(1.5.dp, if (transportEnabled) Nocturne.accent else Nocturne.neutral600, CircleShape)
+                        .clickable(enabled = transportEnabled) {
                             haptic.performHapticFeedback(
                                 if (playbackState.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
                             )
@@ -449,7 +480,7 @@ fun PlayerScreen(
                     Icon(
                         phosphorIcon(if (playbackState.isPlaying) "pause" else "play"),
                         contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                        tint = Nocturne.accent,
+                        tint = if (transportEnabled) Nocturne.accent else Nocturne.neutral600,
                         modifier = Modifier.size(26.dp),
                     )
                 }
@@ -489,7 +520,7 @@ fun PlayerScreen(
             Text(
                 "Als Nächstes",
                 style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = dimens.playerContentPadding, vertical = 8.dp),
             )
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 itemsIndexed(upNext, key = { _, track -> "${track.source}:${track.sourceId}" }) { i, track ->
@@ -591,9 +622,10 @@ private fun SleepTimerDialog(
 
 @Composable
 private fun UpNextRow(track: TrackResultDto, onClick: () -> Unit) {
+    val dimens = rememberResponsiveDimens()
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
-        leadingContent = { TrackThumbnail(track.thumbnailUrl) },
+        leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)

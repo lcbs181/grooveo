@@ -2,6 +2,7 @@ package dev.schlubbe.musicagent.ui.playlist
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,6 +47,7 @@ import dev.schlubbe.musicagent.ui.components.NocturneButton
 import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
 import dev.schlubbe.musicagent.ui.components.NocturneIconButton
 import dev.schlubbe.musicagent.ui.components.NocturneTag
+import dev.schlubbe.musicagent.ui.components.NocturneTagStyle
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Nocturne
@@ -86,6 +89,12 @@ fun RemotePlaylistDetailScreen(
             viewModel.onDownloadMessageShown()
         }
     }
+    LaunchedEffect(uiState.queueMessage) {
+        uiState.queueMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            viewModel.onQueueMessageShown()
+        }
+    }
 
     Scaffold(containerColor = Nocturne.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -105,6 +114,15 @@ fun RemotePlaylistDetailScreen(
                                     showTopMenu = false
                                     haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
                                     viewModel.onDownloadAllClicked()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Alle zur Warteschlange hinzufügen") },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                onClick = {
+                                    showTopMenu = false
+                                    haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                    viewModel.onAddAllToQueueClicked()
                                 },
                             )
                             DropdownMenuItem(
@@ -155,6 +173,20 @@ fun RemotePlaylistDetailScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        detail.description?.takeIf { it.isNotBlank() }?.let { description ->
+                            RemotePlaylistBio(description)
+                        }
+                        if (detail.tags.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                            ) {
+                                detail.tags.forEach { tag -> NocturneTag(tag, style = NocturneTagStyle.Outline) }
                             }
                         }
                         Row(
@@ -297,4 +329,38 @@ private fun RemotePlaylistTrackRow(
             .fillMaxWidth()
             .clickable(onClick = onClick),
     )
+}
+
+private const val REMOTE_PLAYLIST_BIO_COLLAPSED_LINES = 3
+
+/** Clamped to [REMOTE_PLAYLIST_BIO_COLLAPSED_LINES] lines with a "Mehr anzeigen"
+ * toggle - same pattern as ArtistScreen's ArtistBio, duplicated locally here since
+ * that one is private to its own file. */
+@Composable
+private fun RemotePlaylistBio(description: String) {
+    var expanded by remember { mutableStateOf(false) }
+    var isOverflowing by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+        Text(
+            description,
+            style = MaterialTheme.typography.bodySmall,
+            color = Nocturne.neutral500,
+            maxLines = if (expanded) Int.MAX_VALUE else REMOTE_PLAYLIST_BIO_COLLAPSED_LINES,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { result ->
+                if (!expanded && result.hasVisualOverflow) isOverflowing = true
+            },
+        )
+        if (isOverflowing || expanded) {
+            Text(
+                if (expanded) "Weniger anzeigen" else "Mehr anzeigen",
+                color = Nocturne.accent,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clickable { expanded = !expanded },
+            )
+        }
+    }
 }

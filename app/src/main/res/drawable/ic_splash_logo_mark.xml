@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Combined "logo badge" graphic for the Android SplashScreen API -
+     windowSplashScreenAnimatedIcon (themes.xml) can only point at a single
+     drawable (unlike the adaptive launcher icon's separate background +
+     foreground layers), so this bakes the rounded-rect gradient badge and the
+     five waveform bars into one vector, matching "Music Agent Splash & Logo
+     .dc.html"'s `.logo-mark` spec (104x104, 28dp corner radius,
+     linear-gradient(160deg, neutral-800 -> bg)). Scaled onto the same
+     108-unit viewport ic_launcher_foreground.xml uses so the bars keep that
+     file's exact proportions/positions; radius scaled 28/104*108 ≈ 29.
+     Gradient fill on a vector path (via aapt:attr) requires API 24+, safely
+     below this project's minSdk 30, so this uses a real gradient rather than
+     a flat-color fallback. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M29,0 H79 A29,29 0 0 1 108,29 V79 A29,29 0 0 1 79,108 H29 A29,29 0 0 1 0,79 V29 A29,29 0 0 1 29,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="28"
+                android:startY="-18"
+                android:endX="80"
+                android:endY="126"
+                android:tileMode="clamp">
+                <item android:offset="0" android:color="#3F424D" />
+                <item android:offset="0.7" android:color="@color/launcher_background" />
+                <item android:offset="1" android:color="@color/launcher_background" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M17,42 L27,42 L27,66 L17,66 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M33,36 L43,36 L43,72 L33,72 Z" />
+    <path android:fillColor="@color/nocturne_accent_300" android:pathData="M49,30 L59,30 L59,78 L49,78 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M65,36 L75,36 L75,72 L65,72 Z" />
+    <path android:fillColor="@color/nocturne_accent" android:pathData="M81,42 L91,42 L91,66 L81,66 Z" />
+</vector>

@@ -41,6 +41,8 @@ import javax.inject.Singleton
 
 private const val TAG = "PlayerController"
 
+private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – DRM-geschützt und kann von dieser App nicht abgespielt werden."
+
 data class PlaybackUiState(
     val isPlaying: Boolean = false,
     val title: String? = null,
@@ -73,6 +75,16 @@ data class PlaybackUiState(
     // Which track [isLoading] refers to (source:sourceId) - lets a tapped list row
     // show its own loading spinner rather than only the Player screen.
     val loadingTrackId: String? = null,
+    // True when the *current* queue slot ([currentTrackId]/title/artist/artworkUrl
+    // above still describe it) is a SoundCloudDrmOnlyException track - nothing was
+    // ever handed to ExoPlayer for it, playback is paused, and the queue does NOT
+    // auto-advance past it. The Player screen shows [unavailableMessage] in place of
+    // transport controls (skip-only) instead of silently jumping to another track,
+    // which is what used to happen since such tracks were just dropped from the
+    // resolved queue with no trace. See PlayerController's logicalQueue/
+    // exoIndexForLogical for how a track can be "selected" here without being loaded.
+    val isUnavailable: Boolean = false,
+    val unavailableMessage: String? = null,
 )
 
 /** Single shared [MediaController], connected lazily, that every screen plays through. */
@@ -91,8 +103,20 @@ class PlayerController @Inject constructor(
     val playbackState: StateFlow<PlaybackUiState> = _playbackState.asStateFlow()
 
     // Tracks what's currently loaded so play_complete/skip can be reported
-    // against it once we know how the track ended.
+    // against it once we know how the track ended. currentQueue is the *logical*
+    // queue - every requested track, in order, INCLUDING SoundCloudDrmOnlyException
+    // ones (see PlaybackUiState.isUnavailable) - which is why it can be longer than
+    // what's actually loaded into the MediaController. exoIndexForLogical maps a
+    // position in currentQueue to the corresponding index in the MediaController's
+    // own item list, or null if that logical slot was never loaded there (DRM-only -
+    // there is nothing playable to load). currentQueueIndex is the logical position
+    // ([PlaybackUiState.queueIndex]), which is why skip/seek navigation below walks
+    // this mapping instead of the MediaController's native
+    // seekToNextMediaItem()/hasNextMediaItem() - those only know about the
+    // (shorter, gapped) loaded item list, not the full logical queue.
     private var currentQueue: List<TrackResultDto> = emptyList()
+    private var exoIndexForLogical: List<Int?> = emptyList()
+    private var currentQueueIndex: Int = -1
     private var currentTrack: TrackResultDto? = null
     private var currentTrackCompleted = false
 
@@ -143,6 +167,14 @@ class PlayerController @Inject constructor(
             }
 
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                // While frozen on a DRM-unavailable logical slot (see the AUTO-transition
+                // gap check below), the MediaController may still be sitting on/starting
+                // the *next real* item under the hood and broadcast fresh metadata for
+                // it - applying that here would silently overwrite the unavailable
+                // track's title/artist/artwork with the next track's, which is exactly
+                // the silent-skip appearance this is meant to prevent. Ignored until a
+                // real move (moveToLogicalIndex/playQueue) clears isUnavailable again.
+                if (_playbackState.value.isUnavailable) return
                 _playbackState.value = _playbackState.value.copy(
                     title = mediaMetadata.title?.toString(),
                     artist = mediaMetadata.artist?.toString(),
@@ -162,8 +194,44 @@ class PlayerController @Inject constructor(
                     return
                 }
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
-                val newIndex = controller?.currentMediaItemIndex ?: return
-                val newTrack = currentQueue.getOrNull(newIndex) ?: return
+                val newExoIndex = controller?.currentMediaItemIndex ?: return
+                val newLogicalIndex = exoIndexForLogical.indexOf(newExoIndex).takeIf { it >= 0 } ?: return
+
+                // AUTO means ExoPlayer advanced on its own to the next item in *its own*
+                // (gapped) item list - since DRM-only logical slots were never loaded
+                // there in the first place, that native next item can correspond to a
+                // logical index further ahead than +1, meaning one or more unavailable
+                // tracks sit in between and were about to be skipped over silently. Land
+                // on the first one instead of letting the transition to newLogicalIndex
+                // happen; the real track ExoPlayer already moved to stays loaded
+                // (paused) there, ready for when the user manually skips past it.
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && newLogicalIndex > currentQueueIndex + 1) {
+                    val gapIndex = currentQueueIndex + 1
+                    val gapTrack = currentQueue.getOrNull(gapIndex)
+                    if (gapTrack != null) {
+                        controller?.pause()
+                        currentTrack?.let { previous ->
+                            if (!currentTrackCompleted) eventReporter.playComplete(previous, (previous.durationSec ?: 0) * 1000L)
+                        }
+                        currentTrack = gapTrack
+                        currentTrackCompleted = false
+                        currentQueueIndex = gapIndex
+                        _playbackState.value = _playbackState.value.copy(
+                            isPlaying = false,
+                            title = gapTrack.title,
+                            artist = gapTrack.artist,
+                            artworkUrl = gapTrack.thumbnailUrl,
+                            durationMs = (gapTrack.durationSec ?: 0) * 1000L,
+                            currentTrackId = "${gapTrack.source}:${gapTrack.sourceId}",
+                            queueIndex = gapIndex,
+                            isUnavailable = true,
+                            unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
+                        )
+                        return
+                    }
+                }
+
+                val newTrack = currentQueue.getOrNull(newLogicalIndex) ?: return
 
                 currentTrack?.let { previous ->
                     if (!currentTrackCompleted) {
@@ -177,12 +245,15 @@ class PlayerController @Inject constructor(
 
                 currentTrack = newTrack
                 currentTrackCompleted = false
+                currentQueueIndex = newLogicalIndex
                 eventReporter.playStart(newTrack)
                 _playbackState.value = _playbackState.value.copy(
                     durationMs = (newTrack.durationSec ?: 0) * 1000L,
                     currentTrackId = "${newTrack.source}:${newTrack.sourceId}",
-                    queueIndex = newIndex,
+                    queueIndex = newLogicalIndex,
                     isLocalPlayback = isCurrentItemLocal(),
+                    isUnavailable = false,
+                    unavailableMessage = null,
                 )
                 refreshDownloadAvailability(newTrack)
             }
@@ -225,6 +296,15 @@ class PlayerController @Inject constructor(
     // this fix.
     private var pendingTrackKey: String? = null
 
+    /** A single logical queue slot's resolution outcome - see [currentQueue]'s kdoc.
+     * [Playable] gets an actual MediaController item; [DrmBlocked] stays in the
+     * logical queue as an unplayable placeholder instead of being dropped, which is
+     * what let a SoundCloudDrmOnlyException track disappear with no trace before. */
+    private sealed class TrackResolution(val track: TrackResultDto) {
+        class Playable(track: TrackResultDto, val resolved: ResolvedStream) : TrackResolution(track)
+        class DrmBlocked(track: TrackResultDto) : TrackResolution(track)
+    }
+
     /** Loads [tracks] as the playback queue starting at [startIndex] — everything
      * after it becomes the "up next" list surfaced on the Player screen.
      *
@@ -233,7 +313,10 @@ class PlayerController @Inject constructor(
      * streaming) since that keeps the rest of an otherwise-downloaded queue playable.
      * Outside data-saver mode, tracks whose on-device stream resolution fails (the
      * client-side extractor can break more often than the old stable backend did) are
-     * dropped the same way. Either case notifies the user via a toast. */
+     * dropped the same way, EXCEPT a [SoundCloudDrmOnlyException] track: that one is
+     * kept in the logical queue as an unplayable placeholder (see [currentQueue]'s
+     * kdoc) so landing on it - by tapping it directly, or the queue naturally reaching
+     * it - shows "Titel nicht verfügbar" instead of silently continuing past it. */
     suspend fun playQueue(tracks: List<TrackResultDto>, startIndex: Int) {
         if (tracks.isEmpty()) return
         val requestedStartTrack = tracks[startIndex]
@@ -246,13 +329,15 @@ class PlayerController @Inject constructor(
             val mediaController = ensureConnected()
             val dataSaver = settingsRepository.dataSaverModeCached
 
-            val playable: List<Pair<TrackResultDto, ResolvedStream>> = if (dataSaver) {
-                resolveLocalOnly(tracks, requestedStartTrack)
+            val resolutions: List<TrackResolution> = if (dataSaver) {
+                resolveLocalOnly(tracks, requestedStartTrack).map { (track, resolved) ->
+                    TrackResolution.Playable(track, resolved)
+                }
             } else {
-                resolveStreams(tracks, requestedStartTrack)
+                resolveStreamsWithGaps(tracks, requestedStartTrack)
             }
 
-            if (playable.isEmpty()) {
+            if (resolutions.isEmpty()) {
                 showToast(
                     if (dataSaver) {
                         "Datensparmodus: Keine heruntergeladenen Titel in dieser Auswahl."
@@ -263,31 +348,65 @@ class PlayerController @Inject constructor(
                 return
             }
 
-            val newStartIndex = playable.indexOfFirst { it.first == requestedStartTrack }.takeIf { it >= 0 } ?: 0
+            val newQueueIndex = resolutions.indexOfFirst { it.track == requestedStartTrack }.takeIf { it >= 0 } ?: 0
 
             currentTrack?.let { previous ->
                 if (!currentTrackCompleted) eventReporter.skip(previous)
             }
 
-            val queueTracks = playable.map { it.first }
-            val startTrack = queueTracks[newStartIndex]
+            val queueTracks = resolutions.map { it.track }
+            val mediaItems = mutableListOf<MediaItem>()
+            val exoMapping = arrayOfNulls<Int>(resolutions.size)
+            resolutions.forEachIndexed { i, resolution ->
+                if (resolution is TrackResolution.Playable) {
+                    exoMapping[i] = mediaItems.size
+                    mediaItems += buildMediaItem(resolution.track, resolution.resolved)
+                }
+            }
+
+            val startTrack = queueTracks[newQueueIndex]
             currentQueue = queueTracks
+            exoIndexForLogical = exoMapping.toList()
+            currentQueueIndex = newQueueIndex
             currentTrack = startTrack
             currentTrackCompleted = false
-            eventReporter.playStart(startTrack)
-
-            val mediaItems = playable.map { (track, resolved) -> buildMediaItem(track, resolved) }
 
             _playbackState.value = _playbackState.value.copy(
                 durationMs = (startTrack.durationSec ?: 0) * 1000L,
                 currentTrackId = "${startTrack.source}:${startTrack.sourceId}",
                 queue = queueTracks,
-                queueIndex = newStartIndex,
+                queueIndex = newQueueIndex,
                 isLocalPlayback = dataSaver,
+                isUnavailable = false,
+                unavailableMessage = null,
             )
-            mediaController.setMediaItems(mediaItems, newStartIndex, 0L)
+
+            if (mediaItems.isNotEmpty()) {
+                mediaController.setMediaItems(mediaItems, exoMapping[newQueueIndex] ?: 0, 0L)
+            } else {
+                mediaController.clearMediaItems()
+            }
             mediaController.prepare()
-            mediaController.play()
+
+            val startExoIndex = exoMapping[newQueueIndex]
+            if (startExoIndex != null) {
+                eventReporter.playStart(startTrack)
+                mediaController.play()
+            } else {
+                // The requested/start slot is a SoundCloudDrmOnlyException track - nothing
+                // was loaded for it above. Stay put and show it as unavailable rather than
+                // falling back to whatever else happened to resolve (the old behaviour,
+                // which is exactly the "silently plays something else" bug this replaces).
+                mediaController.pause()
+                _playbackState.value = _playbackState.value.copy(
+                    isPlaying = false,
+                    title = startTrack.title,
+                    artist = startTrack.artist,
+                    artworkUrl = startTrack.thumbnailUrl,
+                    isUnavailable = true,
+                    unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
+                )
+            }
             refreshDownloadAvailability(startTrack)
         } finally {
             if (pendingTrackKey == requestedKey) pendingTrackKey = null
@@ -314,6 +433,8 @@ class PlayerController @Inject constructor(
                 if (!currentTrackCompleted) eventReporter.skip(previous)
             }
             currentQueue = listOf(track)
+            exoIndexForLogical = listOf(0)
+            currentQueueIndex = 0
             currentTrack = track
             currentTrackCompleted = false
             eventReporter.playStart(track)
@@ -325,6 +446,8 @@ class PlayerController @Inject constructor(
                 queueIndex = 0,
                 isLocalPlayback = true,
                 hasLocalDownload = true,
+                isUnavailable = false,
+                unavailableMessage = null,
             )
             mediaController.setMediaItem(buildMediaItem(track, ResolvedStream(url = localUri, isHls = false)))
             mediaController.prepare()
@@ -360,16 +483,19 @@ class PlayerController @Inject constructor(
             }
         }
 
+        val newExoIndex = mediaController.mediaItemCount
         mediaController.addMediaItem(buildMediaItem(track, resolved))
-        val newQueue = currentQueue + track
-        currentQueue = newQueue
-        _playbackState.value = _playbackState.value.copy(queue = newQueue)
+        currentQueue = currentQueue + track
+        exoIndexForLogical = exoIndexForLogical + newExoIndex
+        _playbackState.value = _playbackState.value.copy(queue = currentQueue)
     }
 
     suspend fun playFromUri(uriString: String) {
         val mediaController = ensureConnected()
         val mediaItem = MediaItem.Builder().setUri(uriString).build()
         currentQueue = emptyList()
+        exoIndexForLogical = emptyList()
+        currentQueueIndex = -1
         currentTrack = null
         // No TrackResultDto here (just a raw MediaStore uri from the Downloads tab), so
         // there's no stream URL to switch back to - hide the switch button entirely.
@@ -378,6 +504,8 @@ class PlayerController @Inject constructor(
             queueIndex = -1,
             isLocalPlayback = true,
             hasLocalDownload = false,
+            isUnavailable = false,
+            unavailableMessage = null,
         )
         mediaController.setMediaItem(mediaItem)
         mediaController.prepare()
@@ -401,22 +529,108 @@ class PlayerController @Inject constructor(
     }
 
     suspend fun togglePlayPause() {
+        // Belt-and-suspenders alongside the disabled buttons in PlayerScreen/
+        // MiniPlayerBar: nothing is loaded for a DRM-blocked slot to play/pause.
+        if (_playbackState.value.isUnavailable) return
         val mediaController = ensureConnected()
         if (mediaController.isPlaying) mediaController.pause() else mediaController.play()
     }
 
+    /** Next/previous/jump-to-index all navigate the *logical* queue (see
+     * [currentQueue]'s kdoc) via [moveToLogicalIndex], not MediaController's own
+     * seekToNextMediaItem()/hasNextMediaItem()/seekTo(index) - those only know about
+     * the shorter, gapped item list actually loaded there, which would either skip
+     * straight past a SoundCloudDrmOnlyException slot (defeating the point of
+     * keeping it around - see [PlaybackUiState.isUnavailable]) or, for
+     * skipToQueueIndex, misinterpret a logical index as an Exo one once the two can
+     * diverge. */
     suspend fun skipToNext() {
-        val mediaController = ensureConnected()
-        if (mediaController.hasNextMediaItem()) mediaController.seekToNextMediaItem()
+        ensureConnected()
+        nextLogicalIndex()?.let { moveToLogicalIndex(it) }
     }
 
     suspend fun skipToPrevious() {
-        val mediaController = ensureConnected()
-        if (mediaController.hasPreviousMediaItem()) mediaController.seekToPreviousMediaItem()
+        ensureConnected()
+        previousLogicalIndex()?.let { moveToLogicalIndex(it) }
     }
 
     suspend fun skipToQueueIndex(index: Int) {
-        ensureConnected().seekTo(index, 0L)
+        ensureConnected()
+        moveToLogicalIndex(index)
+    }
+
+    private fun nextLogicalIndex(): Int? {
+        if (currentQueueIndex < 0 || currentQueue.isEmpty()) return null
+        val next = currentQueueIndex + 1
+        return when {
+            next < currentQueue.size -> next
+            controller?.repeatMode == Player.REPEAT_MODE_ALL && currentQueue.size > 1 -> 0
+            else -> null
+        }
+    }
+
+    private fun previousLogicalIndex(): Int? {
+        if (currentQueueIndex < 0 || currentQueue.isEmpty()) return null
+        val previous = currentQueueIndex - 1
+        return when {
+            previous >= 0 -> previous
+            controller?.repeatMode == Player.REPEAT_MODE_ALL && currentQueue.size > 1 -> currentQueue.size - 1
+            else -> null
+        }
+    }
+
+    /** Moves to [newLogicalIndex] in the logical queue. When that slot was actually
+     * loaded into the MediaController, this is a real seek+play (state updates via
+     * the resulting onMediaItemTransition, same as before - unless the controller
+     * happens to already be sitting on that exact item, e.g. right after the
+     * AUTO-transition gap check in [ensureConnected] paused on a real track it had
+     * already advanced to under the hood, in which case a same-index seek fires no
+     * transition and state is updated directly here instead). For a
+     * SoundCloudDrmOnlyException slot (see [currentQueue]'s kdoc) there is nothing to
+     * seek to - this just pauses and shows the "Titel nicht verfügbar" state. */
+    private suspend fun moveToLogicalIndex(newLogicalIndex: Int) {
+        val track = currentQueue.getOrNull(newLogicalIndex) ?: return
+        val mediaController = ensureConnected()
+        val exoIndex = exoIndexForLogical.getOrNull(newLogicalIndex)
+
+        if (exoIndex == null) {
+            currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+            mediaController.pause()
+            currentTrack = track
+            currentTrackCompleted = false
+            currentQueueIndex = newLogicalIndex
+            _playbackState.value = _playbackState.value.copy(
+                isPlaying = false,
+                title = track.title,
+                artist = track.artist,
+                artworkUrl = track.thumbnailUrl,
+                durationMs = (track.durationSec ?: 0) * 1000L,
+                currentTrackId = "${track.source}:${track.sourceId}",
+                queueIndex = newLogicalIndex,
+                isUnavailable = true,
+                unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
+            )
+        } else if (exoIndex == mediaController.currentMediaItemIndex) {
+            currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+            currentTrack = track
+            currentTrackCompleted = false
+            currentQueueIndex = newLogicalIndex
+            eventReporter.playStart(track)
+            mediaController.seekTo(0L)
+            mediaController.play()
+            _playbackState.value = _playbackState.value.copy(
+                durationMs = (track.durationSec ?: 0) * 1000L,
+                currentTrackId = "${track.source}:${track.sourceId}",
+                queueIndex = newLogicalIndex,
+                isLocalPlayback = isCurrentItemLocal(),
+                isUnavailable = false,
+                unavailableMessage = null,
+            )
+        } else {
+            mediaController.seekTo(exoIndex, 0L)
+            mediaController.play()
+            // onMediaItemTransition (reason SEEK) handles the rest of the state update.
+        }
     }
 
     /** Seeks to [positionMs] within the current track. Both sources are now genuinely
@@ -434,6 +648,9 @@ class PlayerController @Inject constructor(
      * Player screen (only shown when [PlaybackUiState.hasLocalDownload] is true). Keeps
      * the current playback position across the swap. */
     suspend fun toggleSource() {
+        // A DRM-unavailable slot has nothing loaded to switch between - neither the
+        // stream nor the local-download branch below makes sense for it.
+        if (_playbackState.value.isUnavailable) return
         val track = currentTrack ?: return
         val mediaController = ensureConnected()
         val index = mediaController.currentMediaItemIndex
@@ -546,68 +763,77 @@ class PlayerController @Inject constructor(
 
     /** Resolves every track's stream URL on-device, prioritizing the requested
      * start track: resolve that one immediately (blocking) so playback starts ASAP,
-     * then resolve the rest concurrently in the background and drop any that fail.
-     * This prevents a 10s+ delay when playing a large playlist if we wait for every
-     * track to resolve before starting the first one. */
-    private suspend fun resolveStreams(
+     * then resolve the rest concurrently in the background. This prevents a 10s+
+     * delay when playing a large playlist if we wait for every track to resolve
+     * before starting the first one.
+     *
+     * A resolve failure normally drops that track from the result entirely, same as
+     * the old resolveStreams - EXCEPT a [SoundCloudDrmOnlyException], which produces
+     * a [TrackResolution.DrmBlocked] entry instead of vanishing (see [playQueue]'s
+     * kdoc for why). */
+    private suspend fun resolveStreamsWithGaps(
         tracks: List<TrackResultDto>,
         requestedStartTrack: TrackResultDto,
-    ): List<Pair<TrackResultDto, ResolvedStream>> = coroutineScope {
+    ): List<TrackResolution> = coroutineScope {
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "resolveStreams: starting with ${tracks.size} tracks, prioritizing ${requestedStartTrack.title}")
 
         // Priority 1: Resolve the requested track first (blocking) so we can start
         // playback immediately - users need to hear sound fast, not wait for a
         // whole queue to load.
-        val startResolved = coroutineScope {
-            val result = resolveWithRetry(requestedStartTrack)
-            if (result.isSuccess) {
+        val startResult = resolveWithRetry(requestedStartTrack)
+        val startResolution: TrackResolution? = when {
+            startResult.isSuccess -> {
                 val elapsed = System.currentTimeMillis() - startTime
                 Log.d(TAG, "resolveStreams: requested track resolved in ${elapsed}ms")
-                requestedStartTrack to result.getOrNull()!!
-            } else {
+                TrackResolution.Playable(requestedStartTrack, startResult.getOrThrow())
+            }
+            startResult.exceptionOrNull() is SoundCloudDrmOnlyException -> {
+                Log.w(TAG, "resolveStreams: requested track is DRM-only")
+                TrackResolution.DrmBlocked(requestedStartTrack)
+            }
+            else -> {
                 Log.w(TAG, "resolveStreams: requested track failed to resolve")
                 null
             }
         }
 
-        if (startResolved == null) {
-            // Requested track failed; fall back to resolving everything and hope
-            // one of them succeeds.
+        if (startResolution == null) {
+            // Requested track failed for a non-DRM reason; fall back to resolving
+            // everything and hope one of them succeeds.
             Log.w(TAG, "resolveStreams: falling back to full-queue resolve")
             val resolved = tracks.map { track ->
                 async { track to resolveWithRetry(track) }
             }.awaitAll()
-            val playable = resolved.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
             val error = resolved.firstOrNull { it.first == requestedStartTrack }?.second?.exceptionOrNull()
             showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
-            return@coroutineScope playable
+            return@coroutineScope resolved.mapNotNull { (track, result) -> toResolution(track, result) }
         }
 
-        // Priority 2: Resolve the rest in the background (fire-and-forget, we don't
-        // block on them).
+        // Priority 2: Resolve the rest in the background.
         val otherTracks = tracks.filter { it != requestedStartTrack }
-        val backgroundJob = async {
-            val resolved = otherTracks.map { track ->
-                async { track to resolveWithRetry(track) }
-            }.awaitAll()
-            resolved.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
-        }
-
-        // Return immediately with just the start track; the rest will resolve
-        // in the background and we'll report failures once they're available.
-        val backgroundResults = backgroundJob.await()
+        val backgroundResults = otherTracks.map { track ->
+            async { track to resolveWithRetry(track) }
+        }.awaitAll()
         val totalElapsed = System.currentTimeMillis() - startTime
         Log.d(TAG, "resolveStreams: all tracks done in ${totalElapsed}ms (start: fast, rest: background)")
 
-        // Combine start track + background results, notifying about any failures.
-        val playable = mutableListOf(startResolved)
-        val failed = otherTracks.size - backgroundResults.size
-        if (failed > 0) {
-            showToast("$failed Titel konnten nicht aufgelöst werden und wurden übersprungen.")
+        val failedOther = backgroundResults.count { (_, result) ->
+            result.isFailure && result.exceptionOrNull() !is SoundCloudDrmOnlyException
         }
-        playable.addAll(backgroundResults)
-        playable
+        if (failedOther > 0) {
+            showToast("$failedOther Titel konnten nicht aufgelöst werden und wurden übersprungen.")
+        }
+
+        val resolutions = mutableListOf(startResolution)
+        backgroundResults.forEach { (track, result) -> toResolution(track, result)?.let { resolutions += it } }
+        resolutions
+    }
+
+    private fun toResolution(track: TrackResultDto, result: Result<ResolvedStream>): TrackResolution? = when {
+        result.isSuccess -> TrackResolution.Playable(track, result.getOrThrow())
+        result.exceptionOrNull() is SoundCloudDrmOnlyException -> TrackResolution.DrmBlocked(track)
+        else -> null
     }
 
     private fun buildMediaItem(track: TrackResultDto, resolved: ResolvedStream): MediaItem =
