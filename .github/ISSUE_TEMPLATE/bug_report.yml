@@ -1,0 +1,72 @@
+name: Bug report
+description: Report something that's broken
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much
+        detail as you can — it makes it much more likely the bug gets fixed
+        instead of stalling for lack of information.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I've checked open and closed issues and this isn't a duplicate.
+          required: true
+        - label: I can reproduce this on the latest release.
+          required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings → About, or the APK filename you installed.
+      placeholder: "0.4.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to '...'
+        2. Tap on '...'
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logcat output (if you have it)
+      description: |
+        `adb logcat | grep dev.schlubbe.musicagent` around the time the bug
+        happened, if you're able to grab it. Not required, but very helpful
+        for anything that looks like a crash.
+
+  - type: input
+    id: device-info
+    attributes:
+      label: Device & Android version
+      placeholder: "Pixel 7, Android 15"
+
+  - type: textarea
+    id: additional-information
+    attributes:
+      label: Additional information

@@ -21,7 +21,7 @@ import javax.inject.Singleton
 
 private const val TAG = "UpdateRepository"
 private const val RELEASES_OWNER = "lcbs181"
-private const val RELEASES_REPO = "music-agent-releases"
+private const val RELEASES_REPO = "music-agent-standalone"
 
 sealed interface UpdateCheckResult {
     data class Available(val info: UpdateInfoDto) : UpdateCheckResult
@@ -30,19 +30,19 @@ sealed interface UpdateCheckResult {
 }
 
 /**
- * Checks a dedicated PUBLIC GitHub repo's Releases API for a newer .apk and
- * downloads it straight from GitHub - no backend involved at all. Kept in its
- * own public repo, separate from the app's private source repo
- * (lcbs181/music-agent-standalone), specifically so this never needs a GitHub
- * token: a private repo's Releases API requires auth for both the metadata
- * call and the asset download, which would mean embedding a token in the APK
- * itself - trivially extractable by anyone who unzips it. A plain
- * unauthenticated GET works here because the repo is public.
+ * Checks this project's own PUBLIC GitHub repo's Releases API for a newer
+ * .apk and downloads it straight from GitHub - no backend involved at all.
+ * A plain unauthenticated GET works here because the repo is public: no
+ * GitHub token needs to be embedded in the APK, which would be trivially
+ * extractable by anyone who unzips it. (Releases used to live on a separate
+ * lcbs181/music-agent-releases repo, back when this source repo was
+ * private - now that the source repo is public too, releases are cut from
+ * here directly. See docs/RELEASING.md.)
  *
  * Release tags on that repo must follow "v<versionCode>" (e.g. "v6"), matching
  * android/app/build.gradle.kts's versionCode for that build - see
  * parseVersionCode. After building a new release APK:
- *   gh release create v<versionCode> app-debug.apk --repo lcbs181/music-agent-releases \
+ *   gh release create v<versionCode> app-debug.apk --repo lcbs181/music-agent-standalone \
  *     --title "<versionName>" --notes "..."
  *
  * Uses [ExtractionHttpClient] (the same plain client SoundCloud/YouTube calls
