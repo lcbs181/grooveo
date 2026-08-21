@@ -45,9 +45,13 @@ fun EqualizerBadge(
             .padding(horizontal = size * 0.2f, vertical = size * 0.15f),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        Row {
+        Row(verticalAlignment = Alignment.Bottom) {
             // Staggered durations (0.5-0.85s) + phase offsets so bars don't move
             // in lockstep -- matches the design's per-bar animation-delay values.
+            // Bottom-aligned so each bar grows *up* from a shared baseline like a
+            // real equalizer meter -- Row defaults to top alignment, which anchored
+            // bars to their top edge and made them grow *down* instead, reading as
+            // an upside-down/mirrored visualizer.
             val durations = listOf(500, 650, 720, 850)
             durations.forEachIndexed { index, durationMs ->
                 EqBar(durationMs = durationMs, maxHeight = size * 0.7f, color = barColor)

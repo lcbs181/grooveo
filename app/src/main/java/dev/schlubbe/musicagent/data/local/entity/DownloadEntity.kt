@@ -26,4 +26,8 @@ data class DownloadEntity(
     // as a single persisted offset).
     val tempFilePath: String? = null,
     val bytesDownloaded: Long = 0,
+    // Total file size in bytes from HTTP Content-Length header (progressive downloads)
+    // or calculated from HLS segments. Used for displaying download file size to the user.
+    // Null for QUEUED, populated when download starts.
+    val totalBytes: Long? = null,
 )

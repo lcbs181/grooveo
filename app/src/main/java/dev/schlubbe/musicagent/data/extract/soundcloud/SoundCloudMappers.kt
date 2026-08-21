@@ -85,6 +85,10 @@ fun JsonObject.toSoundCloudTrackResultDto(): TrackResultDto? {
         thumbnailUrl = upsizeImage(stringOrNull("artwork_url") ?: user?.stringOrNull("avatar_url")),
         webpageUrl = webpageUrl,
         isDrmProtected = isDrmOnly(),
+        // Real field on SoundCloud's track resource, previously discarded here - see
+        // TrackEntity.genre for where this ends up cached. Blank strings ("" is a real
+        // value SoundCloud sends for untagged tracks) are treated the same as absent.
+        genre = stringOrNull("genre")?.takeIf { it.isNotBlank() },
     )
 }
 

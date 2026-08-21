@@ -26,9 +26,10 @@ import java.net.URI
  * concatenation) - [DownloadWorker.doWork] turns this into the persisted
  * [DownloadEntity] state and the [androidx.work.ListenableWorker.Result]. */
 private sealed class TransferOutcome {
-    data class Completed(val mimeType: String) : TransferOutcome()
-    data class Paused(val bytesSoFar: Long, val pct: Int) : TransferOutcome()
-    data class Failed(val bytesSoFar: Long, val retryable: Boolean) : TransferOutcome()
+    abstract val totalBytes: Long?
+    data class Completed(val mimeType: String, override val totalBytes: Long? = null) : TransferOutcome()
+    data class Paused(val bytesSoFar: Long, val pct: Int, override val totalBytes: Long? = null) : TransferOutcome()
+    data class Failed(val bytesSoFar: Long, val retryable: Boolean, override val totalBytes: Long? = null) : TransferOutcome()
 }
 
 @HiltWorker
@@ -62,7 +63,7 @@ class DownloadWorker @AssistedInject constructor(
         downloadDao.upsert(
             DownloadEntity(
                 trackId, existing?.mediaStoreUri, existing?.relativePath, DownloadState.DOWNLOADING,
-                existing?.progressPct ?: 0, createdAt, tempFile.absolutePath, startOffset,
+                existing?.progressPct ?: 0, createdAt, tempFile.absolutePath, startOffset, existing?.totalBytes,
             ),
         )
 
@@ -114,6 +115,7 @@ class DownloadWorker @AssistedInject constructor(
                             state = DownloadState.COMPLETED,
                             progressPct = 100,
                             createdAt = createdAt,
+                            totalBytes = outcome.totalBytes,
                         ),
                     )
                     Result.success()
@@ -121,7 +123,7 @@ class DownloadWorker @AssistedInject constructor(
                     downloadDao.upsert(
                         DownloadEntity(
                             trackId, null, null, DownloadState.FAILED, 100, createdAt,
-                            tempFile.absolutePath.takeIf { tempFile.exists() }, tempFile.length(),
+                            tempFile.absolutePath.takeIf { tempFile.exists() }, tempFile.length(), outcome.totalBytes,
                         ),
                     )
                     Result.retry()
@@ -138,7 +140,7 @@ class DownloadWorker @AssistedInject constructor(
                         DownloadEntity(
                             trackId, existing?.mediaStoreUri, existing?.relativePath, DownloadState.PAUSED,
                             outcome.pct.takeIf { it >= 0 } ?: (existing?.progressPct ?: 0),
-                            createdAt, tempFile.absolutePath, outcome.bytesSoFar,
+                            createdAt, tempFile.absolutePath, outcome.bytesSoFar, outcome.totalBytes,
                         ),
                     )
                 }
@@ -148,7 +150,7 @@ class DownloadWorker @AssistedInject constructor(
                 downloadDao.upsert(
                     DownloadEntity(
                         trackId, null, null, DownloadState.FAILED, 0, createdAt,
-                        tempFile.absolutePath.takeIf { outcome.bytesSoFar > 0 }, outcome.bytesSoFar,
+                        tempFile.absolutePath.takeIf { outcome.bytesSoFar > 0 }, outcome.bytesSoFar, outcome.totalBytes,
                     ),
                 )
                 if (outcome.retryable) Result.retry() else Result.failure()
@@ -179,10 +181,10 @@ class DownloadWorker @AssistedInject constructor(
                 // than a dead-end failure with no way to recover short of a full
                 // redownload; the temp file already has everything finalize needs.
                 if (response.code == 416 && resumeOffset > 0) {
-                    return TransferOutcome.Completed(mimeType = "audio/mp4")
+                    return TransferOutcome.Completed(mimeType = "audio/mp4", totalBytes = response.body.contentLength().takeIf { it > 0 })
                 }
                 if (!response.isSuccessful) {
-                    return TransferOutcome.Failed(resumeOffset, retryable = response.code in 500..599)
+                    return TransferOutcome.Failed(resumeOffset, retryable = response.code in 500..599, totalBytes = response.body.contentLength().takeIf { it > 0 })
                 }
 
                 // The server may ignore our Range header and send the whole file back
@@ -194,7 +196,10 @@ class DownloadWorker @AssistedInject constructor(
 
                 val body = response.body
                 val mimeType = body.contentType()?.toString() ?: "audio/mp4"
-                val expectedTotal = body.contentLength().let { if (it > 0) it + resumeOffset else -1L }
+                val contentLength = body.contentLength()
+                val expectedTotal = contentLength.let { if (it > 0) it + resumeOffset else -1L }
+                // Store the total bytes (original file size, not including resume offset)
+                val totalBytes = contentLength.takeIf { it > 0 }
 
                 FileOutputStream(tempFile, resuming).use { output ->
                     body.byteStream().use { input ->
@@ -202,7 +207,7 @@ class DownloadWorker @AssistedInject constructor(
                         var totalRead = resumeOffset
                         var lastPct = -1
                         while (true) {
-                            if (isStopped) return TransferOutcome.Paused(totalRead, lastPct)
+                            if (isStopped) return TransferOutcome.Paused(totalRead, lastPct, totalBytes)
                             val read = input.read(buffer)
                             if (read == -1) break
                             output.write(buffer, 0, read)
@@ -215,12 +220,12 @@ class DownloadWorker @AssistedInject constructor(
                                 }
                             }
                         }
-                        TransferOutcome.Completed(mimeType)
+                        TransferOutcome.Completed(mimeType, totalBytes)
                     }
                 }
             }
         } catch (e: IOException) {
-            TransferOutcome.Failed(tempFile.length(), retryable = true)
+            TransferOutcome.Failed(tempFile.length(), retryable = true, totalBytes = null)
         }
     }
 

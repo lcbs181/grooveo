@@ -3,4 +3,7 @@
     <!-- Matches context.getExternalFilesDir(null), where UpdateRepository writes the
          downloaded APK before handing it to the system installer. -->
     <external-files-path name="update" path="." />
+    <!-- Matches context.getFilesDir()/backups, where BackupManager writes local
+         backup JSON files before handing one off via the "Teilen" share sheet. -->
+    <files-path name="backups" path="backups/" />
 </paths>

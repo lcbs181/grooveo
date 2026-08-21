@@ -12,6 +12,7 @@ import dev.schlubbe.musicagent.data.local.dao.LikeDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistTrackDao
 import dev.schlubbe.musicagent.data.local.dao.SavedPlaylistDao
+import dev.schlubbe.musicagent.data.local.dao.SearchHistoryDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
@@ -19,6 +20,7 @@ import dev.schlubbe.musicagent.data.local.entity.LikeEntity
 import dev.schlubbe.musicagent.data.local.entity.PlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.PlaylistTrackEntity
 import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
+import dev.schlubbe.musicagent.data.local.entity.SearchHistoryEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 
 @Database(
@@ -30,8 +32,9 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         PlaylistTrackEntity::class,
         FollowedArtistEntity::class,
         SavedPlaylistEntity::class,
+        SearchHistoryEntity::class,
     ],
-    version = 7,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -43,6 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistTrackDao(): PlaylistTrackDao
     abstract fun followedArtistDao(): FollowedArtistDao
     abstract fun savedPlaylistDao(): SavedPlaylistDao
+    abstract fun searchHistoryDao(): SearchHistoryDao
 }
 
 // Backend-less variant: likes/playlists move from the (removed) server to local
@@ -163,5 +167,39 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
                 PRIMARY KEY(source, sourceId)
             )""",
         )
+    }
+}
+
+// Search history: store recent queries to display in the search tab when the
+// query field is empty or on focus. Keyed by the trimmed query string; tapping
+// a past entry re-runs that search. Timestamp allows sorting by recency and
+// capping at ~20 entries.
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS search_history (
+                query TEXT NOT NULL PRIMARY KEY,
+                searchedAt TEXT NOT NULL
+            )""",
+        )
+    }
+}
+
+// Background genre capture (see TrackEntity.genre) - SoundCloud's track JSON already
+// carries a "genre" field that was being discarded on the way into the cache; ytmusic
+// tracks have no equivalent source field and stay null. Nullable with no default, same
+// no-rebuild-needed ALTER TABLE ADD COLUMN as MIGRATION_2_3/MIGRATION_4_5.
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tracks ADD COLUMN genre TEXT")
+    }
+}
+
+// File size indicator for downloads: DownloadEntity gained totalBytes (Long, nullable)
+// to store the total file size from the HTTP Content-Length header (progressive downloads)
+// or calculated from HLS segments. Used to display download size to the user.
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE downloads ADD COLUMN totalBytes INTEGER")
     }
 }

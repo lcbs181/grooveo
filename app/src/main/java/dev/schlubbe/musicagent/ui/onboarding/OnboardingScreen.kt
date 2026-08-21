@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.ui.components.NocturneButton
 import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.WaveformLogo
+import dev.schlubbe.musicagent.ui.components.WaveformLogoBadge
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Nocturne
 import kotlinx.coroutines.delay
@@ -118,7 +118,7 @@ private fun IntroAnimation(onContinue: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            WaveformLogo(modifier = Modifier.scale(logoScale).alpha(logoAlpha))
+            WaveformLogoBadge(modifier = Modifier.scale(logoScale).alpha(logoAlpha))
             Spacer(modifier = Modifier.padding(top = 22.dp))
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(textAlpha)) {
                 Text("Willkommen bei Music Agent", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)

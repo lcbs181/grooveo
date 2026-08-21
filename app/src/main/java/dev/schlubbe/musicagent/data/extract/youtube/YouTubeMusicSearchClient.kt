@@ -113,6 +113,16 @@ class YouTubeMusicSearchClient @Inject constructor() {
             trackCount = tracks.size,
             owner = info.uploaderName,
             webpageUrl = playlistUrl,
+            // PlaylistInfo.description is a Description wrapper (unlike ChannelInfo's
+            // plain String used for artist bios above) - its content can be HTML for
+            // some playlists, so tags are stripped before display.
+            description = info.description?.content
+                ?.let { Regex("<[^>]*>").replace(it, "") }
+                ?.trim()
+                ?.takeIf { it.isNotBlank() },
+            // NewPipeExtractor's PlaylistInfo has no tag/keyword field for playlists
+            // (unlike SoundCloud's tag_list) - always empty for ytmusic.
+            tags = emptyList(),
             tracks = tracks,
         )
     }

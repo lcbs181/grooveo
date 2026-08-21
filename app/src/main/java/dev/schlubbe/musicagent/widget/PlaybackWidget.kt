@@ -128,8 +128,11 @@ private suspend fun loadArtwork(context: Context, url: String): Bitmap? = withCo
     }.getOrNull()
 }
 
-/** The 4x2 large variant: cover, title/artist, full transport (prev/play/next),
- * and a thin progress bar - everything the design's large widget spec lists. */
+/** The 4x2 large variant: cover, title/artist, then a *separate* full-width
+ * transport row (shuffle/skip-back/play-pause/skip-forward/repeat) plus a thin
+ * progress bar - matching the design spec's two-row layout (header row, then a
+ * `justify-content:space-between` control row) rather than cramming every
+ * control into the header row alongside the art and title. */
 @Composable
 private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progress: Float) {
     Column(
@@ -147,9 +150,7 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
             verticalAlignment = Alignment.Vertical.CenterVertically,
         ) {
             // 44dp, matching the design's own large-size thumb spec (down from the
-            // 52dp used elsewhere) - at this widget's 250dp declared width, three
-            // 48dp touch-target buttons plus art already consume the vast majority
-            // of the row; every few dp back here is real, visible room for the title.
+            // 52dp used elsewhere).
             AlbumArt(artwork, onClick = openApp, size = 44.dp)
 
             Column(
@@ -173,19 +174,48 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
                     style = TextStyle(color = ColorProvider(Color(0xFFAAAAAA)), fontSize = 11.sp),
                 )
             }
+        }
+
+        // Full-width control row: shuffle - skip-back - play/pause - skip-forward -
+        // repeat, matching the design's five-icon spec exactly. Glance's Row has no
+        // "space-between" arrangement, so equal-weight Spacers between each icon
+        // reproduce it the standard Glance way.
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Vertical.CenterVertically,
+        ) {
+            WidgetControlButton(
+                icon = R.drawable.ic_widget_shuffle,
+                contentDescription = "Zufallswiedergabe",
+                action = actionRunCallback<ToggleShuffleAction>(),
+                touchTarget = 36.dp,
+                iconSize = 16.dp,
+            )
+            Spacer(modifier = GlanceModifier.defaultWeight())
 
             WidgetControlButton(
                 icon = R.drawable.ic_widget_skip_previous,
                 contentDescription = "Vorheriger Titel",
                 action = actionRunCallback<SkipPreviousAction>(),
             )
+            Spacer(modifier = GlanceModifier.defaultWeight())
 
             PlayPauseButton(isPlaying = state.isPlaying)
+            Spacer(modifier = GlanceModifier.defaultWeight())
 
             WidgetControlButton(
                 icon = R.drawable.ic_widget_skip_next,
                 contentDescription = "Nächster Titel",
                 action = actionRunCallback<SkipNextAction>(),
+            )
+            Spacer(modifier = GlanceModifier.defaultWeight())
+
+            WidgetControlButton(
+                icon = R.drawable.ic_widget_repeat,
+                contentDescription = "Wiederholen",
+                action = actionRunCallback<CycleRepeatModeAction>(),
+                touchTarget = 36.dp,
+                iconSize = 16.dp,
             )
         }
 
@@ -211,7 +241,8 @@ private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
         val context = LocalContext.current
         val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
 
-        AlbumArt(artwork, onClick = openApp, size = 28.dp)
+        // 34dp, matching the design's own compact-size thumb spec.
+        AlbumArt(artwork, onClick = openApp, size = 34.dp)
         Text(
             text = state.title ?: "Nichts wird abgespielt",
             maxLines = 1,
@@ -297,20 +328,29 @@ private fun AlbumArt(artwork: Bitmap?, onClick: Action, size: androidx.compose.u
     }
 }
 
-/** Skip-previous/-next: a plain icon, but with its clickable bounds padded out to
- * [CONTROL_TOUCH_TARGET] instead of matching the visible glyph size. */
+/** A transport icon with its clickable bounds padded out beyond the visible glyph
+ * size - defaults to [CONTROL_TOUCH_TARGET]/22dp for skip-previous/-next, but the
+ * design's smaller/secondary shuffle+repeat icons pass a smaller [touchTarget]/
+ * [iconSize] instead so all five controls fit across one row without shrinking
+ * skip-previous/-next or play/pause below their own spec sizes. */
 @Composable
-private fun WidgetControlButton(icon: Int, contentDescription: String, action: Action) {
+private fun WidgetControlButton(
+    icon: Int,
+    contentDescription: String,
+    action: Action,
+    touchTarget: androidx.compose.ui.unit.Dp = CONTROL_TOUCH_TARGET,
+    iconSize: androidx.compose.ui.unit.Dp = 22.dp,
+) {
     Box(
         modifier = GlanceModifier
-            .size(CONTROL_TOUCH_TARGET)
+            .size(touchTarget)
             .clickable(action),
         contentAlignment = Alignment.Center,
     ) {
         Image(
             provider = ImageProvider(icon),
             contentDescription = contentDescription,
-            modifier = GlanceModifier.size(22.dp),
+            modifier = GlanceModifier.size(iconSize),
         )
     }
 }

@@ -14,6 +14,7 @@ import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.EventReporter
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
+import dev.schlubbe.musicagent.data.repository.SearchHistoryRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.playback.PlayerController
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +45,7 @@ data class SearchUiState(
     // then calls onArtistNavigated() to clear it back to null.
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
+    val searchHistory: List<String> = emptyList(), // Recent query strings
 )
 
 @HiltViewModel
@@ -55,6 +57,7 @@ class SearchViewModel @Inject constructor(
     private val likesRepository: LikesRepository,
     private val playlistRepository: PlaylistRepository,
     private val eventReporter: EventReporter,
+    private val searchHistoryRepository: SearchHistoryRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -66,7 +69,13 @@ class SearchViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(likedTrackIds = ids)
             }
         }
+        viewModelScope.launch {
+            searchHistoryRepository.history.collect { historyEntities ->
+                _uiState.value = _uiState.value.copy(searchHistory = historyEntities.map { it.query })
+            }
+        }
         viewModelScope.launch { runCatching { likesRepository.refresh() } }
+        viewModelScope.launch { runCatching { searchHistoryRepository.refresh() } }
     }
 
     fun onQueryChanged(query: String) {
@@ -90,6 +99,9 @@ class SearchViewModel @Inject constructor(
         val source = _uiState.value.source
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
+            // Record search query into history
+            runCatching { searchHistoryRepository.addQuery(query) }
+
             when (_uiState.value.resultType) {
                 "artists" -> runCatching { searchRepository.searchArtists(query, source) }
                     .onSuccess { artists ->
@@ -158,7 +170,7 @@ class SearchViewModel @Inject constructor(
                     _uiState.value = if (artist != null) {
                         _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)
                     } else {
-                        _uiState.value.copy(artistLookupError = "Künstler „$name“ nicht gefunden")
+                        _uiState.value.copy(artistLookupError = "Künstler \"$name\" nicht gefunden")
                     }
                 }
                 .onFailure {
@@ -188,6 +200,7 @@ class SearchViewModel @Inject constructor(
                 thumbnailUrl = track.thumbnailUrl,
                 lastAccessedAt = System.currentTimeMillis(),
                 webpageUrl = track.webpageUrl,
+                genre = track.genre,
             ),
         )
     }
@@ -246,6 +259,20 @@ class SearchViewModel @Inject constructor(
                 playlistRepository.addTrack(playlist.id, track)
             }
             _uiState.value = _uiState.value.copy(trackPendingPlaylistAdd = null)
+        }
+    }
+
+    fun onHistoryQueryTapped(query: String) {
+        _uiState.value = _uiState.value.copy(query = query)
+        // Automatically run the search for the tapped history query
+        viewModelScope.launch {
+            runSearch()
+        }
+    }
+
+    fun onHistoryQueryDeleted(query: String) {
+        viewModelScope.launch {
+            runCatching { searchHistoryRepository.deleteQuery(query) }
         }
     }
 }
