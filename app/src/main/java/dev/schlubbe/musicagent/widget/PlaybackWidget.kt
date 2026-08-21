@@ -60,6 +60,17 @@ private val WIDGET_ACCENT = Color(0xFF9184D9)
 private val WIDGET_BACKGROUND = Color(0xFF161826)
 private val WIDGET_SURFACE = Color(0xFF232532)
 
+// The design handoff's widget card (Music Agent Widget.dc.html) uses
+// `background: color-mix(in srgb, var(--color-surface) 88%, transparent)` -
+// a translucent surface-toned card, not the flat opaque --color-bg the
+// widget was using before. 0xE0 alpha is 88% of 0xFF.
+private val WIDGET_CARD_BG = Color(0xE0232532)
+
+// --radius-lg from nocturne-tokens.css (14px), the card's own corner radius
+// in the handoff. --radius-sm (4px) is AlbumArt's.
+private val WIDGET_CARD_RADIUS = 14.dp
+private val WIDGET_ART_RADIUS = 4.dp
+
 // Grid-cell size formula this project already established for the widget host's
 // own sizing quirks (see round-5 notes: minHeight per row is (rows*70)-30dp,
 // width follows the same per-column formula) - used here to pick the two
@@ -138,8 +149,8 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(WIDGET_BACKGROUND)
-            .cornerRadius(16.dp)
+            .background(WIDGET_CARD_BG)
+            .cornerRadius(WIDGET_CARD_RADIUS)
             .padding(10.dp),
     ) {
         val context = LocalContext.current
@@ -200,7 +211,7 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
             )
             Spacer(modifier = GlanceModifier.defaultWeight())
 
-            PlayPauseButton(isPlaying = state.isPlaying)
+            PlayPauseIcon(isPlaying = state.isPlaying, iconSize = 30.dp)
             Spacer(modifier = GlanceModifier.defaultWeight())
 
             WidgetControlButton(
@@ -233,8 +244,8 @@ private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
     Row(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(WIDGET_BACKGROUND)
-            .cornerRadius(16.dp)
+            .background(WIDGET_CARD_BG)
+            .cornerRadius(WIDGET_CARD_RADIUS)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.Vertical.CenterVertically,
     ) {
@@ -256,20 +267,7 @@ private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
                 fontWeight = FontWeight.Medium,
             ),
         )
-        Box(
-            modifier = GlanceModifier
-                .size(32.dp)
-                .clickable(actionRunCallback<TogglePlayPauseAction>()),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                provider = ImageProvider(
-                    if (state.isPlaying) R.drawable.ic_widget_pause_circle else R.drawable.ic_widget_play_circle,
-                ),
-                contentDescription = if (state.isPlaying) "Pause" else "Wiedergabe",
-                modifier = GlanceModifier.size(22.dp),
-            )
-        }
+        PlayPauseIcon(isPlaying = state.isPlaying, iconSize = 22.dp, touchTarget = 32.dp)
     }
 }
 
@@ -307,7 +305,7 @@ private fun AlbumArt(artwork: Bitmap?, onClick: Action, size: androidx.compose.u
     Box(
         modifier = GlanceModifier
             .size(size)
-            .cornerRadius(8.dp)
+            .cornerRadius(WIDGET_ART_RADIUS)
             .background(WIDGET_SURFACE)
             .clickable(onClick),
         contentAlignment = Alignment.Center,
@@ -355,22 +353,31 @@ private fun WidgetControlButton(
     }
 }
 
-/** The one primary action, styled the way SoundCloud reserves its brand orange for
- * exactly this: a filled circular button rather than a bare icon. */
+/** The design's own play/pause control (both the compact and large size specs in
+ * Music Agent Widget.dc.html): a plain `ph-fill ph-play-circle`/`ph-pause-circle`
+ * glyph at accent color - the icon itself already reads as a filled circle, no
+ * separate button background drawn behind it. [iconSize] differs between the
+ * compact (22dp) and large (30dp, since it's the standout control in a 5-icon
+ * row) call sites; [touchTarget] pads the tappable bounds out to the icon's own
+ * accessible minimum without changing what's drawn. */
 @Composable
-private fun PlayPauseButton(isPlaying: Boolean, size: androidx.compose.ui.unit.Dp = CONTROL_TOUCH_TARGET) {
+private fun PlayPauseIcon(
+    isPlaying: Boolean,
+    iconSize: androidx.compose.ui.unit.Dp,
+    touchTarget: androidx.compose.ui.unit.Dp = CONTROL_TOUCH_TARGET,
+) {
     Box(
         modifier = GlanceModifier
-            .size(size)
-            .cornerRadius(size / 2)
-            .background(WIDGET_ACCENT)
+            .size(touchTarget)
             .clickable(actionRunCallback<TogglePlayPauseAction>()),
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            provider = ImageProvider(if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play),
+            provider = ImageProvider(
+                if (isPlaying) R.drawable.ic_widget_pause_circle else R.drawable.ic_widget_play_circle,
+            ),
             contentDescription = if (isPlaying) "Pause" else "Wiedergabe",
-            modifier = GlanceModifier.size(size * 0.42f),
+            modifier = GlanceModifier.size(iconSize),
         )
     }
 }
