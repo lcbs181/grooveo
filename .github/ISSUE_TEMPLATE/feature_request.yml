@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea for this app
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For anything beyond a small tweak, opening an issue first (rather
+        than going straight to a PR) makes it much easier to agree on
+        direction before code gets written.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that the app doesn't support today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

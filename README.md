@@ -119,9 +119,16 @@ downloads, likes, or playlists), two things need configuring:
   — usually right for well-known artists, not guaranteed on SoundCloud where
   duplicate-named accounts are common.
 
-## License note
+## Contributing
 
-Depends on
+Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for
+setup, code style, and the PR process, and [`docs/`](docs/) for a deeper
+architecture/development/release writeup. Please also read the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+GPL-3.0-or-later — see [`LICENSE`](LICENSE). This is inherited from the
 [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor)
-(GPL-3.0-or-later) for YouTube Music extraction. Distributing a build of this
-app is therefore subject to GPL-3.0's copyleft terms.
+(GPL-3.0-or-later) dependency used for YouTube Music extraction: distributing
+a build of this app is subject to GPL-3.0's copyleft terms.
