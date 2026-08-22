@@ -40,16 +40,17 @@ private const val MOOD_MIX_SEARCH_LIMIT = 25
 private const val STATION_POOL_LIMIT = 25
 private const val GENRE_SHELF_LIMIT = 3
 
-/** Home's "Trends nach Genre" chips. Unlike [MoodFilter] (a keyword search,
- * since no mood metadata exists anywhere in the extraction), these map onto
- * SoundCloud's *real* genre chart identifiers, so each chip yields a genuine
- * per-genre trending chart. [slug] is what goes into `soundcloud:genres:<slug>`. */
-enum class GenreFilter(val label: String, val slug: String) {
-    HOUSE("House", "house"),
-    DUB_TECHNO("Dub Techno", "dubtechno"),
-    AMBIENT("Ambient", "ambient"),
-    BASS("Bass", "bass"),
-    LO_FI("Lo-Fi", "lofi"),
+/** Home's "Trends nach Genre" chips. Unlike [MoodFilter] (a pure keyword search,
+ * since no mood metadata exists anywhere), these are matched against
+ * SoundCloud's real per-track `genre` field -- see
+ * SearchRepository.getTrendingByGenre for why this is a filtered search rather
+ * than a chart call. */
+enum class GenreFilter(val label: String) {
+    HOUSE("House"),
+    DUB_TECHNO("Dub Techno"),
+    AMBIENT("Ambient"),
+    BASS("Bass"),
+    LO_FI("Lo-Fi"),
 }
 
 /** Mood filter chips on the Mix row -- each (besides "Alle") maps to a plain
@@ -453,7 +454,7 @@ class HomeViewModel @Inject constructor(
     private fun loadGenreTracks(genre: GenreFilter) {
         _uiState.value = _uiState.value.copy(isGenreLoading = true)
         viewModelScope.launch {
-            runCatching { searchRepository.getTrendingByGenre(genre.slug, limit = GENRE_SHELF_LIMIT) }
+            runCatching { searchRepository.getTrendingByGenre(genre.label, limit = GENRE_SHELF_LIMIT) }
                 .onSuccess { tracks ->
                     // Guard against a slow response for a genre the user has since
                     // switched away from overwriting the current one.
@@ -462,7 +463,7 @@ class HomeViewModel @Inject constructor(
                     }
                 }
                 .onFailure { e ->
-                    android.util.Log.w("HomeViewModel", "loadGenreTracks(${genre.slug}) failed", e)
+                    android.util.Log.w("HomeViewModel", "loadGenreTracks(${genre.label}) failed", e)
                     if (_uiState.value.selectedGenre == genre) {
                         _uiState.value = _uiState.value.copy(genreTracks = emptyList(), isGenreLoading = false)
                     }

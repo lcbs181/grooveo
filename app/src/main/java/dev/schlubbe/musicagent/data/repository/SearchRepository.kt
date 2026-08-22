@@ -100,14 +100,30 @@ class SearchRepository @Inject constructor(
         }
     }
 
-    /** Trending within one SoundCloud genre, for Home's "Trends nach Genre" shelf.
-     * SoundCloud-only on purpose: its charts endpoint takes a real genre
-     * identifier, whereas NewPipeExtractor exposes no genre-scoped kiosk for
-     * YouTube Music (see the README's known-limitations note on YT charts), so
-     * mixing YT in here would mean padding a genuine genre chart with results
-     * that aren't genre-filtered at all. */
-    suspend fun getTrendingByGenre(genreSlug: String, limit: Int = 12): List<TrackResultDto> =
-        soundCloud.getTrending(limit, genreSlug = genreSlug)
+    /** Tracks for one genre, backing Home's "Trends nach Genre" shelf.
+     *
+     * Not a chart: SoundCloud's `/charts` endpoint only accepts `all-music` now
+     * (every genre identifier 404s, verified against the live API), so there is
+     * no genre-scoped chart left to call. Instead this searches the genre term
+     * and then keeps the results whose *own* `genre` field actually matches, so
+     * what comes back is genuinely genre-tagged rather than just keyword-matched.
+     * Matching is normalised because SoundCloud's genre strings are free text
+     * ("Dub Techno", "Dubtechno" and "dub techno" all occur in one response).
+     *
+     * SoundCloud-only: NewPipeExtractor exposes no genre metadata at all for
+     * YouTube Music (TrackResultDto.genre is always null there), so YT results
+     * could never pass the filter and would only dilute the shelf. */
+    suspend fun getTrendingByGenre(genreTerm: String, limit: Int = 12): List<TrackResultDto> {
+        // Over-fetch: only a fraction of any result page carries a matching genre.
+        val pool = soundCloud.search(genreTerm, limit = limit * 8)
+        val wanted = normalizeGenre(genreTerm)
+        val tagged = pool.filter { it.genre?.let { g -> normalizeGenre(g).contains(wanted) } == true }
+        // Top up from the unfiltered pool rather than showing an empty shelf when
+        // a genre happens to be sparsely tagged.
+        return (tagged + pool.filterNot { it in tagged }).take(limit)
+    }
+
+    private fun normalizeGenre(raw: String) = raw.lowercase().filter { it.isLetterOrDigit() }
 
     suspend fun getArtist(source: String, sourceId: String): ArtistDetailDto = when (source) {
         "soundcloud" -> soundCloud.getArtist(sourceId)
