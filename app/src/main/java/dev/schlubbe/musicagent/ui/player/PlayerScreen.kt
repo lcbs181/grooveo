@@ -62,7 +62,8 @@ import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.playback.EqPreset
 import dev.schlubbe.musicagent.ui.components.EqualizerBadge
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopyTag
+import dev.schlubbe.musicagent.ui.components.CanopyBadge
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
@@ -185,7 +186,7 @@ fun PlayerScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 22.dp)
-            if (sourceLabel != null) CanopyTag(sourceLabel)
+            if (sourceLabel != null) CanopyBadge(sourceLabel, tone = CanopyBadgeTone.Neutral)
             Box {
                 CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showMoreMenu = true }, iconSize = 20.dp)
                 DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {

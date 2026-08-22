@@ -55,8 +55,9 @@ import dev.schlubbe.musicagent.ui.components.EqualizerBadge
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopyTag
-import dev.schlubbe.musicagent.ui.components.CanopyTagStyle
+import dev.schlubbe.musicagent.ui.components.CanopyBadge
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeVariant
 import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.components.canopyCard
@@ -711,9 +712,9 @@ private fun MixMoodCard(mix: MixCard, onClick: () -> Unit) {
                         ),
                     ),
             )
-            CanopyTag(
+            CanopyBadge(
                 text = mix.badge,
-                style = CanopyTagStyle.Accent,
+                tone = CanopyBadgeTone.Accent,
                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
             )
         }

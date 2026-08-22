@@ -46,8 +46,9 @@ import dev.schlubbe.musicagent.ui.components.DrmLockIcon
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopyTag
-import dev.schlubbe.musicagent.ui.components.CanopyTagStyle
+import dev.schlubbe.musicagent.ui.components.CanopyBadge
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeVariant
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -159,7 +160,7 @@ fun RemotePlaylistDetailScreen(
                             Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
                                 Text(detail.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                                    CanopyTag(if (detail.source == "soundcloud") "SoundCloud" else "YT Music")
+                                    CanopyBadge(if (detail.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
                                     val subtitle = listOfNotNull(detail.owner, detail.trackCount?.let { "$it Titel" })
                                         .joinToString(" · ")
                                     if (subtitle.isNotBlank()) {
@@ -186,7 +187,7 @@ fun RemotePlaylistDetailScreen(
                                     .horizontalScroll(rememberScrollState())
                                     .padding(horizontal = 20.dp, vertical = 4.dp),
                             ) {
-                                detail.tags.forEach { tag -> CanopyTag(tag, style = CanopyTagStyle.Outline) }
+                                detail.tags.forEach { tag -> CanopyBadge(tag, variant = CanopyBadgeVariant.Outline, tone = CanopyBadgeTone.Accent) }
                             }
                         }
                         Row(
