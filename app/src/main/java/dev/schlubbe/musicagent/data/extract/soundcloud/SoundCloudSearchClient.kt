@@ -27,14 +27,23 @@ class SoundCloudSearchClient @Inject constructor(
             .mapNotNull { it.asJsonObject.toSoundCloudArtistResultDto() }
     }
 
-    /** SoundCloud's own global trending chart (all genres) - the same api-v2 endpoint
-     * the real web/app clients use, called directly since it's not something yt-dlp
-     * (nor this app's other SoundCloud calls) exposes a dedicated wrapper for. Each
-     * item is `{"track": {...}, ...}`, not a flat track object like search results. */
-    suspend fun getTrending(limit: Int): List<TrackResultDto> {
+    /** SoundCloud's own trending chart - the same api-v2 endpoint the real web/app
+     * clients use, called directly since it's not something yt-dlp (nor this app's
+     * other SoundCloud calls) exposes a dedicated wrapper for. Each item is
+     * `{"track": {...}, ...}`, not a flat track object like search results.
+     *
+     * [genreSlug] is SoundCloud's own genre identifier *without* the
+     * "soundcloud:genres:" prefix (e.g. "house", "ambient", "dubtechno"); null
+     * means the all-music chart. This is a real per-genre chart from SoundCloud,
+     * not a keyword search filtered client-side. */
+    suspend fun getTrending(limit: Int, genreSlug: String? = null): List<TrackResultDto> {
         val data = api.get(
             "charts",
-            mapOf("kind" to "trending", "genre" to "soundcloud:genres:all-music", "limit" to limit.toString()),
+            mapOf(
+                "kind" to "trending",
+                "genre" to "soundcloud:genres:${genreSlug ?: "all-music"}",
+                "limit" to limit.toString(),
+            ),
         )
         return data.getAsJsonArray("collection")
             .mapNotNull { it.asJsonObject.getAsJsonObject("track")?.toSoundCloudTrackResultDto() }
