@@ -100,6 +100,15 @@ class SearchRepository @Inject constructor(
         }
     }
 
+    /** Trending within one SoundCloud genre, for Home's "Trends nach Genre" shelf.
+     * SoundCloud-only on purpose: its charts endpoint takes a real genre
+     * identifier, whereas NewPipeExtractor exposes no genre-scoped kiosk for
+     * YouTube Music (see the README's known-limitations note on YT charts), so
+     * mixing YT in here would mean padding a genuine genre chart with results
+     * that aren't genre-filtered at all. */
+    suspend fun getTrendingByGenre(genreSlug: String, limit: Int = 12): List<TrackResultDto> =
+        soundCloud.getTrending(limit, genreSlug = genreSlug)
+
     suspend fun getArtist(source: String, sourceId: String): ArtistDetailDto = when (source) {
         "soundcloud" -> soundCloud.getArtist(sourceId)
         "ytmusic" -> youTube.getArtist(sourceId)

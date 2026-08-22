@@ -38,6 +38,19 @@ private const val MIX_POOL_MINIMUM = 5
 private const val CONTINUE_GRID_LIMIT = 4
 private const val MOOD_MIX_SEARCH_LIMIT = 25
 private const val STATION_POOL_LIMIT = 25
+private const val GENRE_SHELF_LIMIT = 3
+
+/** Home's "Trends nach Genre" chips. Unlike [MoodFilter] (a keyword search,
+ * since no mood metadata exists anywhere in the extraction), these map onto
+ * SoundCloud's *real* genre chart identifiers, so each chip yields a genuine
+ * per-genre trending chart. [slug] is what goes into `soundcloud:genres:<slug>`. */
+enum class GenreFilter(val label: String, val slug: String) {
+    HOUSE("House", "house"),
+    DUB_TECHNO("Dub Techno", "dubtechno"),
+    AMBIENT("Ambient", "ambient"),
+    BASS("Bass", "bass"),
+    LO_FI("Lo-Fi", "lofi"),
+}
 
 /** Mood filter chips on the Mix row -- each (besides "Alle") maps to a plain
  * on-device search keyword rather than real mood/genre metadata (SoundCloud/
@@ -233,6 +246,12 @@ data class HomeUiState(
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
     val downloadMessage: String? = null,
+    // "Trends nach Genre": the selected chip and that genre's real SoundCloud
+    // trending chart. Loaded lazily on first Home composition and again whenever
+    // the chip changes, rather than fetching all five genres up front.
+    val selectedGenre: GenreFilter = GenreFilter.HOUSE,
+    val genreTracks: List<TrackResultDto> = emptyList(),
+    val isGenreLoading: Boolean = false,
 )
 
 /** Converts a locally-cached [TrackEntity] back into a [TrackResultDto] for playback
@@ -400,6 +419,36 @@ class HomeViewModel @Inject constructor(
         loadPlaylists()
         loadLikes()
         loadMixCards()
+        loadGenreTracks(_uiState.value.selectedGenre)
+    }
+
+    /** "Trends nach Genre" chip tap. Reloads only that shelf; the chip genuinely
+     * reselects the list rather than filtering an already-fetched set, since each
+     * genre is a separate SoundCloud chart. */
+    fun onGenreSelected(genre: GenreFilter) {
+        if (genre == _uiState.value.selectedGenre && _uiState.value.genreTracks.isNotEmpty()) return
+        _uiState.value = _uiState.value.copy(selectedGenre = genre)
+        loadGenreTracks(genre)
+    }
+
+    private fun loadGenreTracks(genre: GenreFilter) {
+        _uiState.value = _uiState.value.copy(isGenreLoading = true)
+        viewModelScope.launch {
+            runCatching { searchRepository.getTrendingByGenre(genre.slug, limit = GENRE_SHELF_LIMIT) }
+                .onSuccess { tracks ->
+                    // Guard against a slow response for a genre the user has since
+                    // switched away from overwriting the current one.
+                    if (_uiState.value.selectedGenre == genre) {
+                        _uiState.value = _uiState.value.copy(genreTracks = tracks, isGenreLoading = false)
+                    }
+                }
+                .onFailure { e ->
+                    android.util.Log.w("HomeViewModel", "loadGenreTracks(${genre.slug}) failed", e)
+                    if (_uiState.value.selectedGenre == genre) {
+                        _uiState.value = _uiState.value.copy(genreTracks = emptyList(), isGenreLoading = false)
+                    }
+                }
+        }
     }
 
     // Global trending charts, not tied to any local history - what a freshly

@@ -2,12 +2,8 @@ package dev.schlubbe.musicagent.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,37 +12,39 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import dev.schlubbe.musicagent.ui.theme.Canopy
+import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 
-/** A rounded thumbnail used for every track row across Search, Feed, Library,
- * and Playlist screens — falls back to a plain note glyph when a track has no
- * artwork or it hasn't loaded yet, so rows never jump size once images arrive. */
+/** Canopy `TrackThumbnail`: a radius-md rounded cover used for every track row,
+ * tile and shelf card.
+ *
+ * When there's no artwork this draws the generated Canopy cover rather than an
+ * empty music-note tile -- the handoff calls that generator production intent,
+ * not a mockup placeholder. [seed] is what the tile is derived from (normally
+ * the track title), so the same track keeps a stable cover everywhere. Callers
+ * that genuinely have nothing to seed with fall back to a plain surface block. */
 @Composable
 fun TrackThumbnail(
     url: String?,
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
+    seed: String? = null,
 ) {
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .clip(CanopyShapes.medium)
+            .background(Canopy.neutral200),
         contentAlignment = Alignment.Center,
     ) {
-        if (url != null) {
-            AsyncImage(
+        when {
+            url != null -> AsyncImage(
                 model = url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size),
             )
-        } else {
-            Icon(
-                Icons.Filled.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(size / 2),
-            )
+            seed != null -> GeneratedArtwork(seed = seed, modifier = Modifier.fillMaxSize())
         }
     }
 }
