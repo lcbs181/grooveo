@@ -58,9 +58,16 @@ import com.adamglin.phosphoricons.regular.ArrowRight
 import com.adamglin.phosphoricons.regular.CellSignalSlash
 import com.adamglin.phosphoricons.regular.Cloud
 import com.adamglin.phosphoricons.regular.YoutubeLogo
+import com.adamglin.phosphoricons.regular.UserPlus
 import com.adamglin.phosphoricons.fill.Cloud
 import com.adamglin.phosphoricons.fill.YoutubeLogo
 import com.adamglin.phosphoricons.fill.Heart
+import com.adamglin.phosphoricons.fill.User
+import com.adamglin.phosphoricons.fill.UserPlus
+import com.adamglin.phosphoricons.fill.House
+import com.adamglin.phosphoricons.fill.MagnifyingGlass
+import com.adamglin.phosphoricons.fill.Stack
+import com.adamglin.phosphoricons.fill.DownloadSimple
 import com.adamglin.phosphoricons.fill.CheckCircle
 import com.adamglin.phosphoricons.fill.PlayCircle
 import com.adamglin.phosphoricons.fill.PauseCircle
@@ -86,12 +93,19 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "play" -> PhosphorIcons.Fill.Play
         "cloud" -> PhosphorIcons.Fill.Cloud
         "youtube-logo" -> PhosphorIcons.Fill.YoutubeLogo
+        "user" -> PhosphorIcons.Fill.User
+        "user-plus" -> PhosphorIcons.Fill.UserPlus
+        "house" -> PhosphorIcons.Fill.House
+        "magnifying-glass" -> PhosphorIcons.Fill.MagnifyingGlass
+        "stack" -> PhosphorIcons.Fill.Stack
+        "download-simple" -> PhosphorIcons.Fill.DownloadSimple
         else -> phosphorIcon(name, filled = false)
     }
 } else {
     when (name) {
         "arrow-right" -> PhosphorIcons.Regular.ArrowRight
         "cell-signal-slash" -> PhosphorIcons.Regular.CellSignalSlash
+        "user-plus" -> PhosphorIcons.Regular.UserPlus
         "cloud" -> PhosphorIcons.Regular.Cloud
         "youtube-logo" -> PhosphorIcons.Regular.YoutubeLogo
         "magnifying-glass" -> PhosphorIcons.Regular.MagnifyingGlass
