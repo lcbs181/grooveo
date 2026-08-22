@@ -44,6 +44,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyChip
+import dev.schlubbe.musicagent.ui.components.GeneratedArtwork
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
@@ -658,10 +659,10 @@ private fun StationsShelf(artists: List<TopArtist>, onClick: (TopArtist) -> Unit
                             size = 44.dp,
                             ring = true,
                             modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
-                        )
+                        ) { GeneratedArtwork(seed = artist.name, modifier = Modifier.fillMaxSize()) }
                     }
                     Text(
-                        artist.name,
+                        "Sender: ${artist.name}",
                         style = MaterialTheme.typography.labelLarge,
                         color = Canopy.text,
                         maxLines = 1,
@@ -708,7 +709,9 @@ private fun FollowedArtistsRail(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    CanopyAvatar(initials = artist.name, size = 68.dp, ring = true)
+                    CanopyAvatar(initials = artist.name, size = 68.dp, ring = true) {
+                        GeneratedArtwork(seed = artist.name, modifier = Modifier.fillMaxSize())
+                    }
                     Text(
                         artist.name,
                         style = MaterialTheme.typography.labelMedium,
