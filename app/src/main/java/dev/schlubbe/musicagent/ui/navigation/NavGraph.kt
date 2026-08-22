@@ -107,8 +107,16 @@ private val BOTTOM_NAV_ITEMS = listOf(
 
 // The bottom mini-player + nav bar never appears on the full Player screen itself --
 // its own controls already fill the screen, so a duplicate mini-player would be
-// redundant.
-private val BOTTOM_BAR_HIDDEN_ROUTES = setOf(Routes.PLAYER, Routes.WHATS_NEW, Routes.ONBOARDING)
+// redundant. Settings and its sub-screens are excluded too: the design shows them
+// as full-screen destinations reached by drilling in, with no tab bar.
+private val BOTTOM_BAR_HIDDEN_ROUTES = setOf(
+    Routes.PLAYER,
+    Routes.WHATS_NEW,
+    Routes.ONBOARDING,
+    Routes.SETTINGS,
+    Routes.EQUALIZER,
+    Routes.CONNECT,
+)
 
 @Composable
 fun MusicAgentNavGraph(
