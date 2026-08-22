@@ -11,13 +11,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -103,14 +106,28 @@ fun rememberHeartPopScale(trigger: Int): Float {
 
 private data class Particle(val dx: Float, val dy: Float, val rot: Float, val color: Color)
 
-/** `ds-confetti` (8 particles on a like) and `ds-confetti-spray` (44 on a
- * follow). Drawn on a Canvas overlay so it never affects layout.
+/** `ds-confetti`: the small 8-particle burst on a like. CSS `position:absolute`
+ * lets particles overflow the button freely, so this must NOT be sized to the
+ * parent -- Compose clips drawing to the Canvas bounds, and matching a ~36dp
+ * icon box traps the whole burst in a little square behind the glyph.
+ * [Modifier.wrapContentSize] with `unbounded = true` is what allows the overlay
+ * to exceed its parent without affecting layout.
  *
- * The particle offsets are deterministic per index rather than random: the
- * handoff's own generator randomises them, but a stable spread reads the same
- * and keeps recomposition from reshuffling mid-flight. */
+ * For the big follow spray, which is `position:fixed` (viewport-centred), use
+ * [CanopyOverlayHost] instead -- a burst anchored to the button can't cover the
+ * screen no matter how it's sized.
+ *
+ * Particle offsets are deterministic per index rather than random: the handoff's
+ * generator randomises them, but a stable spread reads the same and keeps
+ * recomposition from reshuffling mid-flight. */
 @Composable
-fun BoxScope.Confetti(trigger: Int, count: Int = 8, spread: Float = 90f, durationMs: Int = 700) {
+fun BoxScope.Confetti(
+    trigger: Int,
+    count: Int = 8,
+    spread: Float = 90f,
+    durationMs: Int = 700,
+    canvasSize: androidx.compose.ui.unit.Dp = 160.dp,
+) {
     if (trigger <= 0) return
     val accent = Canopy.accent
     val accent2 = Canopy.accent2
@@ -141,19 +158,80 @@ fun BoxScope.Confetti(trigger: Int, count: Int = 8, spread: Float = 90f, duratio
             tween(durationMs, easing = if (count > 8) SPRAY_EASING else CONFETTI_EASING),
         )
     }
-    Canvas(modifier = Modifier.matchParentSize()) {
-        val p = progress.value
-        // Opacity holds then fades over the last stretch, as the keyframes do.
-        val alpha = if (p < 0.7f) 1f else 1f - (p - 0.7f) / 0.3f
-        if (alpha <= 0f) return@Canvas
-        val centre = Offset(size.width / 2f, size.height / 2f)
-        particles.forEach { particle ->
-            val scale = 0.4f + 0.6f * p
-            val w = (if (count > 8) 9f else 6f) * scale
-            val h = (if (count > 8) 14f else 6f) * scale
-            val pos = Offset(centre.x + particle.dx * p, centre.y + particle.dy * p)
-            rotateRect(pos, w, h, particle.rot * p, particle.color.copy(alpha = alpha))
+    Canvas(
+        modifier = Modifier
+            .align(Alignment.Center)
+            // Escape the parent's bounds: without unbounded wrapping the Canvas is
+            // constrained to the icon and every particle is clipped away.
+            .wrapContentSize(align = Alignment.Center, unbounded = true)
+            .size(canvasSize),
+    ) {
+        drawConfetti(particles, progress.value, count)
+    }
+}
+
+private fun DrawScope.drawConfetti(particles: List<Particle>, p: Float, count: Int) {
+    // Opacity holds then fades over the last stretch, as the keyframes do.
+    val alpha = if (p < 0.7f) 1f else 1f - (p - 0.7f) / 0.3f
+    if (alpha <= 0f) return
+    val centre = Offset(size.width / 2f, size.height / 2f)
+    particles.forEach { particle ->
+        val scale = 0.4f + 0.6f * p
+        val w = (if (count > 8) 9f else 6f) * scale
+        val h = (if (count > 8) 14f else 6f) * scale
+        val pos = Offset(centre.x + particle.dx * p, centre.y + particle.dy * p)
+        rotateRect(pos, w, h, particle.rot * p, particle.color.copy(alpha = alpha))
+    }
+}
+
+/** State for the full-screen confetti spray. The design's `.ds-confetti-spray`
+ * is `position: fixed`, so it belongs to the window rather than to whichever
+ * button triggered it -- hoisting it here is what lets a follow tap in the mini
+ * player cover the whole screen. */
+class CanopyOverlayState {
+    internal var trigger by mutableIntStateOf(0)
+        private set
+
+    fun spray() {
+        trigger++
+    }
+}
+
+val LocalCanopyOverlay = staticCompositionLocalOf { CanopyOverlayState() }
+
+/** Renders the window-level confetti spray. Place once, at the app root, on top
+ * of the content. Particles are sized against the actual window so the spread
+ * reaches the edges on any screen. */
+@Composable
+fun CanopyOverlayHost(state: CanopyOverlayState) {
+    val trigger = state.trigger
+    if (trigger <= 0) return
+    val accent = Canopy.accent
+    val accent2 = Canopy.accent2
+    val accent600 = Canopy.accent600
+    // 44 particles, +/-230px x +/-350px per the handoff's follow spray.
+    val particles = remember(trigger) {
+        List(44) { i ->
+            val angle = (i.toFloat() / 44f) * 2f * Math.PI.toFloat()
+            Particle(
+                dx = cos(angle) * 230f * (0.5f + 0.5f * ((i % 4) / 3f)),
+                dy = sin(angle) * 350f * (0.5f + 0.5f * ((i % 3) / 2f)),
+                rot = (i * 53f) % 360f,
+                color = when (i % 3) {
+                    0 -> accent2
+                    1 -> accent
+                    else -> accent600
+                },
+            )
         }
+    }
+    val progress = remember(trigger) { Animatable(0f) }
+    LaunchedEffect(trigger) {
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(1200, easing = SPRAY_EASING))
+    }
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        drawConfetti(particles, progress.value, count = 44)
     }
 }
 

@@ -58,9 +58,9 @@ fun MiniPlayerBar(
     // until resolution finished.
     if (playbackState.currentTrackId == null && !playbackState.isLoading) return
 
+    val overlay = LocalCanopyOverlay.current
     var waveTrigger by remember { mutableIntStateOf(0) }
     var likeTrigger by remember { mutableIntStateOf(0) }
-    var followTrigger by remember { mutableIntStateOf(0) }
 
     Box(
         modifier = Modifier
@@ -142,22 +142,21 @@ fun MiniPlayerBar(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        phosphorIcon(if (isFollowing) "user" else "user-plus", filled = true),
-                        contentDescription = if (isFollowing) "Nicht mehr folgen" else "Folgen",
-                        tint = if (isFollowing) Canopy.accent else Canopy.neutral400,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(20.dp)
-                            .clickable {
-                                if (!isFollowing) followTrigger++
-                                viewModel.toggleFollowCurrentArtist()
-                            },
-                    )
-                    // 44 particles is the design's follow spray, vs 8 for a like.
-                    Confetti(trigger = followTrigger, count = 44, spread = 190f, durationMs = 1200)
-                }
+                Icon(
+                    phosphorIcon(if (isFollowing) "user" else "user-plus", filled = true),
+                    contentDescription = if (isFollowing) "Nicht mehr folgen" else "Folgen",
+                    tint = if (isFollowing) Canopy.accent else Canopy.neutral400,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(20.dp)
+                        .clickable {
+                            // The follow spray is window-level (position:fixed in the
+                            // design), so it goes through the root overlay rather than
+                            // being anchored to this button.
+                            if (!isFollowing) overlay.spray()
+                            viewModel.toggleFollowCurrentArtist()
+                        },
+                )
 
                 Box(contentAlignment = Alignment.Center) {
                     val popScale = rememberHeartPopScale(likeTrigger)

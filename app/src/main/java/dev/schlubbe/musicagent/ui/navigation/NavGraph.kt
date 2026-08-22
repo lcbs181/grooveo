@@ -4,9 +4,11 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,9 +20,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +44,9 @@ import androidx.navigation.navArgument
 import dev.schlubbe.musicagent.ui.account.AccountScreen
 import dev.schlubbe.musicagent.ui.artist.ArtistFollowersScreen
 import dev.schlubbe.musicagent.ui.artist.ArtistScreen
+import dev.schlubbe.musicagent.ui.components.CanopyOverlayHost
+import dev.schlubbe.musicagent.ui.components.CanopyOverlayState
+import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
 import dev.schlubbe.musicagent.ui.components.MiniPlayerBar
 import dev.schlubbe.musicagent.ui.downloads.DownloadsScreen
 import dev.schlubbe.musicagent.ui.home.HomeScreen
@@ -128,6 +135,9 @@ fun MusicAgentNavGraph(
         }
     }
 
+    val overlayState = remember { CanopyOverlayState() }
+    CompositionLocalProvider(LocalCanopyOverlay provides overlayState) {
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = Canopy.bg,
         bottomBar = {
@@ -337,5 +347,10 @@ fun MusicAgentNavGraph(
                 )
             }
         }
+    }
+        // Window-level, above every screen and the bottom bar, so a follow spray
+        // covers the whole display rather than being clipped to its button.
+        CanopyOverlayHost(overlayState)
+    }
     }
 }
