@@ -158,24 +158,27 @@ fun MiniPlayerBar(
                         },
                 )
 
-                Box(contentAlignment = Alignment.Center) {
-                    val popScale = rememberHeartPopScale(likeTrigger)
-                    Icon(
-                        phosphorIcon("heart", filled = true),
-                        contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
-                        tint = if (isLiked) Canopy.accent2 else Canopy.neutral400,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(20.dp)
-                            .graphicsLayer { scaleX = popScale; scaleY = popScale }
-                            .clickable {
-                                if (!isLiked) likeTrigger++
-                                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                viewModel.toggleLike()
-                            },
-                    )
-                    Confetti(trigger = likeTrigger, count = 8, spread = 60f)
-                }
+                // The heart pop is a graphicsLayer scale, so it costs no layout.
+                // The burst itself goes through the window overlay -- anything
+                // drawn in here is clipped away by the pill's own clip().
+                val popScale = rememberHeartPopScale(likeTrigger)
+                Icon(
+                    phosphorIcon("heart", filled = true),
+                    contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
+                    tint = if (isLiked) Canopy.accent2 else Canopy.neutral400,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(20.dp)
+                        .graphicsLayer { scaleX = popScale; scaleY = popScale }
+                        .clickable {
+                            if (!isLiked) {
+                                likeTrigger++
+                                overlay.spray(count = 8)
+                            }
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                            viewModel.toggleLike()
+                        },
+                )
             }
         }
     }

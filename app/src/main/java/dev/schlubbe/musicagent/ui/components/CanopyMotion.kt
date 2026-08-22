@@ -184,15 +184,26 @@ private fun DrawScope.drawConfetti(particles: List<Particle>, p: Float, count: I
     }
 }
 
-/** State for the full-screen confetti spray. The design's `.ds-confetti-spray`
- * is `position: fixed`, so it belongs to the window rather than to whichever
- * button triggered it -- hoisting it here is what lets a follow tap in the mini
- * player cover the whole screen. */
+/** State for the window-level confetti. The design's `.ds-confetti-spray` is
+ * `position: fixed`, so it belongs to the window rather than to whichever button
+ * triggered it.
+ *
+ * The smaller like burst goes through here too, even though the design anchors
+ * that one to its button: inside the mini player the burst's ancestor is a
+ * `.clip(CanopyPillShape)` surface, and a clipped parent clips its children's
+ * drawing no matter how the child is sized. Trying to size around that inflated
+ * the pill's layout instead. Window-level is the only place either burst can
+ * actually be seen. */
 class CanopyOverlayState {
     internal var trigger by mutableIntStateOf(0)
         private set
+    internal var particleCount by mutableIntStateOf(44)
+        private set
 
-    fun spray() {
+    /** [count] is the design's own particle budget: 44 for a follow spray, 8 for
+     * a like. */
+    fun spray(count: Int = 44) {
+        particleCount = count
         trigger++
     }
 }
@@ -206,16 +217,19 @@ val LocalCanopyOverlay = staticCompositionLocalOf { CanopyOverlayState() }
 fun CanopyOverlayHost(state: CanopyOverlayState) {
     val trigger = state.trigger
     if (trigger <= 0) return
+    val count = state.particleCount
     val accent = Canopy.accent
     val accent2 = Canopy.accent2
     val accent600 = Canopy.accent600
-    // 44 particles, +/-230px x +/-350px per the handoff's follow spray.
-    val particles = remember(trigger) {
-        List(44) { i ->
-            val angle = (i.toFloat() / 44f) * 2f * Math.PI.toFloat()
+    // +/-230px x +/-350px per the handoff's follow spray; the like burst reuses
+    // the same fan at a smaller radius.
+    val reach = if (count > 8) 1f else 0.45f
+    val particles = remember(trigger, count) {
+        List(count) { i ->
+            val angle = (i.toFloat() / count) * 2f * Math.PI.toFloat()
             Particle(
-                dx = cos(angle) * 230f * (0.5f + 0.5f * ((i % 4) / 3f)),
-                dy = sin(angle) * 350f * (0.5f + 0.5f * ((i % 3) / 2f)),
+                dx = cos(angle) * 230f * reach * (0.5f + 0.5f * ((i % 4) / 3f)),
+                dy = sin(angle) * 350f * reach * (0.5f + 0.5f * ((i % 3) / 2f)),
                 rot = (i * 53f) % 360f,
                 color = when (i % 3) {
                     0 -> accent2
@@ -228,10 +242,13 @@ fun CanopyOverlayHost(state: CanopyOverlayState) {
     val progress = remember(trigger) { Animatable(0f) }
     LaunchedEffect(trigger) {
         progress.snapTo(0f)
-        progress.animateTo(1f, tween(1200, easing = SPRAY_EASING))
+        progress.animateTo(
+            1f,
+            tween(if (count > 8) 1200 else 700, easing = if (count > 8) SPRAY_EASING else CONFETTI_EASING),
+        )
     }
     Canvas(modifier = Modifier.fillMaxSize()) {
-        drawConfetti(particles, progress.value, count = 44)
+        drawConfetti(particles, progress.value, count)
     }
 }
 

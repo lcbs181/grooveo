@@ -59,6 +59,32 @@ import com.adamglin.phosphoricons.regular.CellSignalSlash
 import com.adamglin.phosphoricons.regular.Cloud
 import com.adamglin.phosphoricons.regular.YoutubeLogo
 import com.adamglin.phosphoricons.regular.UserPlus
+import com.adamglin.phosphoricons.regular.DotsThreeVertical
+import com.adamglin.phosphoricons.regular.DotsSixVertical
+import com.adamglin.phosphoricons.regular.SealCheck
+import com.adamglin.phosphoricons.regular.Info
+import com.adamglin.phosphoricons.regular.Globe
+import com.adamglin.phosphoricons.regular.Key
+import com.adamglin.phosphoricons.regular.SquaresFour
+import com.adamglin.phosphoricons.regular.DesktopTower
+import com.adamglin.phosphoricons.regular.Desktop
+import com.adamglin.phosphoricons.regular.Backspace
+import com.adamglin.phosphoricons.regular.ArrowCounterClockwise
+import com.adamglin.phosphoricons.regular.Queue
+import com.adamglin.phosphoricons.regular.Timer
+import com.adamglin.phosphoricons.regular.Equals
+import com.adamglin.phosphoricons.regular.CirclesThree
+import com.adamglin.phosphoricons.regular.ChartBar
+import com.adamglin.phosphoricons.regular.Pulse
+import com.adamglin.phosphoricons.regular.Sphere
+import com.adamglin.phosphoricons.regular.Sparkle
+import com.adamglin.phosphoricons.regular.ArrowLeft
+import com.adamglin.phosphoricons.regular.Link
+import com.adamglin.phosphoricons.regular.WifiHigh
+import com.adamglin.phosphoricons.regular.HardDrives
+import com.adamglin.phosphoricons.regular.ShuffleAngular
+import com.adamglin.phosphoricons.regular.SpeakerHigh
+import com.adamglin.phosphoricons.regular.Broadcast
 import com.adamglin.phosphoricons.fill.Cloud
 import com.adamglin.phosphoricons.fill.YoutubeLogo
 import com.adamglin.phosphoricons.fill.Heart
@@ -106,6 +132,32 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "arrow-right" -> PhosphorIcons.Regular.ArrowRight
         "cell-signal-slash" -> PhosphorIcons.Regular.CellSignalSlash
         "user-plus" -> PhosphorIcons.Regular.UserPlus
+        "dots-three-vertical" -> PhosphorIcons.Regular.DotsThreeVertical
+        "dots-six-vertical" -> PhosphorIcons.Regular.DotsSixVertical
+        "seal-check" -> PhosphorIcons.Regular.SealCheck
+        "info" -> PhosphorIcons.Regular.Info
+        "globe" -> PhosphorIcons.Regular.Globe
+        "key" -> PhosphorIcons.Regular.Key
+        "squares-four" -> PhosphorIcons.Regular.SquaresFour
+        "desktop-tower" -> PhosphorIcons.Regular.DesktopTower
+        "desktop" -> PhosphorIcons.Regular.Desktop
+        "backspace" -> PhosphorIcons.Regular.Backspace
+        "arrow-counter-clockwise" -> PhosphorIcons.Regular.ArrowCounterClockwise
+        "queue" -> PhosphorIcons.Regular.Queue
+        "timer" -> PhosphorIcons.Regular.Timer
+        "equals" -> PhosphorIcons.Regular.Equals
+        "circles-three" -> PhosphorIcons.Regular.CirclesThree
+        "chart-bar" -> PhosphorIcons.Regular.ChartBar
+        "pulse" -> PhosphorIcons.Regular.Pulse
+        "sphere" -> PhosphorIcons.Regular.Sphere
+        "sparkle" -> PhosphorIcons.Regular.Sparkle
+        "arrow-left" -> PhosphorIcons.Regular.ArrowLeft
+        "link" -> PhosphorIcons.Regular.Link
+        "wifi-high" -> PhosphorIcons.Regular.WifiHigh
+        "hard-drives" -> PhosphorIcons.Regular.HardDrives
+        "shuffle-angular" -> PhosphorIcons.Regular.ShuffleAngular
+        "speaker-high" -> PhosphorIcons.Regular.SpeakerHigh
+        "broadcast" -> PhosphorIcons.Regular.Broadcast
         "cloud" -> PhosphorIcons.Regular.Cloud
         "youtube-logo" -> PhosphorIcons.Regular.YoutubeLogo
         "magnifying-glass" -> PhosphorIcons.Regular.MagnifyingGlass
