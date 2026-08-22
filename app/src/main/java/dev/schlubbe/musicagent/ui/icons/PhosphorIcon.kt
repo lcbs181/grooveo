@@ -59,6 +59,11 @@ import com.adamglin.phosphoricons.regular.CellSignalSlash
 import com.adamglin.phosphoricons.regular.Cloud
 import com.adamglin.phosphoricons.regular.YoutubeLogo
 import com.adamglin.phosphoricons.regular.UserPlus
+import com.adamglin.phosphoricons.regular.CircleHalf
+import com.adamglin.phosphoricons.regular.PlugsConnected
+import com.adamglin.phosphoricons.regular.Plugs
+import com.adamglin.phosphoricons.regular.Books
+import com.adamglin.phosphoricons.regular.GameController
 import com.adamglin.phosphoricons.regular.DotsThreeVertical
 import com.adamglin.phosphoricons.regular.DotsSixVertical
 import com.adamglin.phosphoricons.regular.SealCheck
@@ -132,6 +137,11 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "arrow-right" -> PhosphorIcons.Regular.ArrowRight
         "cell-signal-slash" -> PhosphorIcons.Regular.CellSignalSlash
         "user-plus" -> PhosphorIcons.Regular.UserPlus
+        "circle-half" -> PhosphorIcons.Regular.CircleHalf
+        "plugs-connected" -> PhosphorIcons.Regular.PlugsConnected
+        "plugs" -> PhosphorIcons.Regular.Plugs
+        "books" -> PhosphorIcons.Regular.Books
+        "game-controller" -> PhosphorIcons.Regular.GameController
         "dots-three-vertical" -> PhosphorIcons.Regular.DotsThreeVertical
         "dots-six-vertical" -> PhosphorIcons.Regular.DotsSixVertical
         "seal-check" -> PhosphorIcons.Regular.SealCheck

@@ -1,16 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 13+ themed-icon variant: same 5-bar mark as ic_launcher_foreground,
-     but as a single flat color - the system re-tints this to match the user's
-     wallpaper-derived palette, so the actual fillColor here is a neutral
-     placeholder rather than a brand color. -->
+<!-- Android 13+ themed-icon variant: geometry identical to
+     ic_launcher_foreground (baseline-aligned "Pegel" bars at the handoff's
+     0.43/0.73/1/0.63/0.33 ratios), but a single flat colour - the system
+     re-tints this from the user's wallpaper palette, so the colour here is a
+     placeholder and the coral centre bar deliberately isn't distinguished. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#FFFFFF" android:pathData="M17,42 L27,42 L27,66 L17,66 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M33,36 L43,36 L43,72 L33,72 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M49,30 L59,30 L59,78 L49,78 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M65,36 L75,36 L75,72 L65,72 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M81,42 L91,42 L91,66 L81,66 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M26,61 L26,74" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M40,47 L40,74" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M54,34 L54,74" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M68,52 L68,74" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M82,66 L82,74" />
 </vector>

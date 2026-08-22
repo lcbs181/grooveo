@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Nocturne tokens (see ui/theme/Color.kt's Nocturne object) -->
-    <color name="launcher_background">#161826</color>
-    <color name="nocturne_accent">#9184D9</color>
-    <color name="nocturne_accent_300">#D2CEFD</color>
+    <!-- Canopy tokens (see ui/theme/Color.kt's CanopyDark). The launcher icon is
+         pinned to the dark palette: it sits on the user's wallpaper, not on an
+         app surface, so it doesn't follow the in-app light/dark choice.
+         (CSS token names are written without their leading dashes here, since
+         XML comments can't contain a double hyphen.) -->
+    <color name="launcher_background">#10201A</color>
+    <!-- color-bg is above; this is color-accent -->
+    <color name="canopy_accent">#4A8F76</color>
+    <!-- color-accent-2: the centre bar only, per logo direction "A (Pegel)" -->
+    <color name="canopy_accent_2">#FF7A5C</color>
 </resources>

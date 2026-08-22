@@ -3,14 +3,20 @@
      windowSplashScreenAnimatedIcon (themes.xml) can only point at a single
      drawable (unlike the adaptive launcher icon's separate background +
      foreground layers), so this bakes the rounded-rect gradient badge and the
-     five waveform bars into one vector, matching "Music Agent Splash & Logo
-     .dc.html"'s `.logo-mark` spec (104x104, 28dp corner radius,
-     linear-gradient(160deg, neutral-800 -> bg)). Scaled onto the same
+     five bars into one vector.
+
+     Matches the Canopy handoff's badge: a 64px box with a 17px radius and
+     linear-gradient(160deg, accent-300 -> bg 70%), scaled onto the same
      108-unit viewport ic_launcher_foreground.xml uses so the bars keep that
-     file's exact proportions/positions; radius scaled 28/104*108 ≈ 29.
+     file's exact geometry (radius 17/64*108 ≈ 29).
+
+     Bars follow logo direction "A (Pegel)": standing on a y=74 baseline at the
+     handoff's 0.43/0.73/1/0.63/0.33 height ratios, with the tallest centre bar
+     in coral accent-2. Round-capped strokes give the design's fully-rounded
+     bar ends without hand-authoring arc path data.
+
      Gradient fill on a vector path (via aapt:attr) requires API 24+, safely
-     below this project's minSdk 30, so this uses a real gradient rather than
-     a flat-color fallback. -->
+     below this project's minSdk 30. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -26,15 +32,36 @@
                 android:endX="80"
                 android:endY="126"
                 android:tileMode="clamp">
-                <item android:offset="0" android:color="#3F424D" />
+                <!-- accent-300 in the dark palette -->
+                <item android:offset="0" android:color="#254C40" />
                 <item android:offset="0.7" android:color="@color/launcher_background" />
                 <item android:offset="1" android:color="@color/launcher_background" />
             </gradient>
         </aapt:attr>
     </path>
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M17,42 L27,42 L27,66 L17,66 Z" />
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M33,36 L43,36 L43,72 L33,72 Z" />
-    <path android:fillColor="@color/nocturne_accent_300" android:pathData="M49,30 L59,30 L59,78 L49,78 Z" />
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M65,36 L75,36 L75,72 L65,72 Z" />
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M81,42 L91,42 L91,66 L81,66 Z" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M26,61 L26,74" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M40,47 L40,74" />
+    <path
+        android:strokeColor="@color/canopy_accent_2"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M54,34 L54,74" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M68,52 L68,74" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M82,66 L82,74" />
 </vector>

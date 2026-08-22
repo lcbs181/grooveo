@@ -48,6 +48,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyOverlayHost
 import dev.schlubbe.musicagent.ui.components.CanopyOverlayState
 import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
 import dev.schlubbe.musicagent.ui.components.MiniPlayerBar
+import dev.schlubbe.musicagent.ui.connect.ConnectScreen
 import dev.schlubbe.musicagent.ui.downloads.DownloadsScreen
 import dev.schlubbe.musicagent.ui.home.HomeScreen
 import dev.schlubbe.musicagent.ui.library.LibraryScreen
@@ -58,6 +59,7 @@ import dev.schlubbe.musicagent.ui.search.SearchScreen
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingScreen
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingViewModel
+import dev.schlubbe.musicagent.ui.settings.EqualizerScreen
 import dev.schlubbe.musicagent.ui.settings.SettingsScreen
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.update.UpdateDialog
@@ -77,6 +79,8 @@ object Routes {
     const val LIBRARY = "library"
     const val ACCOUNT = "account"
     const val DOWNLOADS = "downloads"
+    const val CONNECT = "connect_pc"
+    const val EQUALIZER = "equalizer"
     const val WHATS_NEW = "whats_new"
     const val PLAYLIST_DETAIL = "playlist/{playlistId}"
     const val ARTIST_DETAIL = "artist/{source}/{sourceId}"
@@ -256,6 +260,8 @@ fun MusicAgentNavGraph(
                 SettingsScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
+                    onNavigateToEqualizer = { navController.navigate(Routes.EQUALIZER) },
+                    onConnectPcClick = { navController.navigate(Routes.CONNECT) },
                 )
             }
             composable(Routes.WHATS_NEW) {
@@ -271,6 +277,12 @@ fun MusicAgentNavGraph(
             }
             composable(Routes.DOWNLOADS) {
                 DownloadsScreen()
+            }
+            composable(Routes.CONNECT) {
+                ConnectScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(Routes.EQUALIZER) {
+                EqualizerScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(
