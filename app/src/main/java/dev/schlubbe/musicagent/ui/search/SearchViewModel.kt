@@ -3,7 +3,9 @@ package dev.schlubbe.musicagent.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
+import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
@@ -46,12 +48,16 @@ data class SearchUiState(
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
     val searchHistory: List<String> = emptyList(), // Recent query strings
+    // Backs the per-result state pill the redesign puts on every row. Keyed by
+    // "source:sourceId", matching DownloadRepository's own trackId format.
+    val downloadStates: Map<String, DownloadState> = emptyMap(),
 )
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
     private val trackDao: TrackDao,
+    private val downloadDao: DownloadDao,
     private val playerController: PlayerController,
     private val downloadRepository: DownloadRepository,
     private val likesRepository: LikesRepository,
@@ -72,6 +78,13 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             searchHistoryRepository.history.collect { historyEntities ->
                 _uiState.value = _uiState.value.copy(searchHistory = historyEntities.map { it.query })
+            }
+        }
+        viewModelScope.launch {
+            downloadDao.observeAll().collect { downloads ->
+                _uiState.value = _uiState.value.copy(
+                    downloadStates = downloads.associate { it.trackId to it.state },
+                )
             }
         }
         viewModelScope.launch { runCatching { likesRepository.refresh() } }
