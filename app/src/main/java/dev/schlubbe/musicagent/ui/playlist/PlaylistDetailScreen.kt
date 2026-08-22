@@ -49,8 +49,9 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistDetailOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistTrackOutDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopyTag
-import dev.schlubbe.musicagent.ui.components.CanopyTagStyle
+import dev.schlubbe.musicagent.ui.components.CanopyBadge
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeVariant
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -351,7 +352,7 @@ private fun PlaylistHeader(playlist: PlaylistDetailOutDto, onEditClick: () -> Un
                 ) {
                     playlist.moodTags.forEach { key ->
                         val label = MoodTag.entries.firstOrNull { it.key == key }?.label ?: key
-                        CanopyTag(label, style = CanopyTagStyle.Outline)
+                        CanopyBadge(label, variant = CanopyBadgeVariant.Outline, tone = CanopyBadgeTone.Accent)
                     }
                 }
             }

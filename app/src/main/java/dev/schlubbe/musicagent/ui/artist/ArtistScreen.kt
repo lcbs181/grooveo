@@ -49,7 +49,8 @@ import dev.schlubbe.musicagent.ui.components.DrmLockIcon
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopyTag
+import dev.schlubbe.musicagent.ui.components.CanopyBadge
+import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
@@ -155,7 +156,7 @@ fun ArtistScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.padding(top = 5.dp),
                                     ) {
-                                        CanopyTag(if (artist.source == "soundcloud") "SoundCloud" else "YT Music")
+                                        CanopyBadge(if (artist.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
                                         artist.subscriberCount?.let { count ->
                                             val followersClickable = artist.source == "soundcloud"
                                             Row(
