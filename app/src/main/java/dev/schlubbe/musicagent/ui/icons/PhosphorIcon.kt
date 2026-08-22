@@ -59,6 +59,9 @@ import com.adamglin.phosphoricons.regular.CellSignalSlash
 import com.adamglin.phosphoricons.regular.Cloud
 import com.adamglin.phosphoricons.regular.YoutubeLogo
 import com.adamglin.phosphoricons.regular.UserPlus
+import com.adamglin.phosphoricons.regular.ArrowUp
+import com.adamglin.phosphoricons.regular.ArrowDown
+import com.adamglin.phosphoricons.regular.MinusCircle
 import com.adamglin.phosphoricons.regular.CircleHalf
 import com.adamglin.phosphoricons.regular.PlugsConnected
 import com.adamglin.phosphoricons.regular.Plugs
@@ -93,6 +96,7 @@ import com.adamglin.phosphoricons.regular.Broadcast
 import com.adamglin.phosphoricons.fill.Cloud
 import com.adamglin.phosphoricons.fill.YoutubeLogo
 import com.adamglin.phosphoricons.fill.Heart
+import com.adamglin.phosphoricons.fill.X
 import com.adamglin.phosphoricons.fill.User
 import com.adamglin.phosphoricons.fill.UserPlus
 import com.adamglin.phosphoricons.fill.House
@@ -124,6 +128,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "play" -> PhosphorIcons.Fill.Play
         "cloud" -> PhosphorIcons.Fill.Cloud
         "youtube-logo" -> PhosphorIcons.Fill.YoutubeLogo
+        "x" -> PhosphorIcons.Fill.X
         "user" -> PhosphorIcons.Fill.User
         "user-plus" -> PhosphorIcons.Fill.UserPlus
         "house" -> PhosphorIcons.Fill.House
@@ -137,6 +142,9 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "arrow-right" -> PhosphorIcons.Regular.ArrowRight
         "cell-signal-slash" -> PhosphorIcons.Regular.CellSignalSlash
         "user-plus" -> PhosphorIcons.Regular.UserPlus
+        "arrow-up" -> PhosphorIcons.Regular.ArrowUp
+        "arrow-down" -> PhosphorIcons.Regular.ArrowDown
+        "minus-circle" -> PhosphorIcons.Regular.MinusCircle
         "circle-half" -> PhosphorIcons.Regular.CircleHalf
         "plugs-connected" -> PhosphorIcons.Regular.PlugsConnected
         "plugs" -> PhosphorIcons.Regular.Plugs
