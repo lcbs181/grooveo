@@ -309,7 +309,17 @@ fun EqualizerScreen(
 }
 
 @Composable
-private fun EqCurveCanvas(gains: List<Float>, enabled: Boolean, modifier: Modifier = Modifier) {
+private fun EqCurveCanvas(
+    gains: List<Float>,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    // Settings shows this at 44x34dp. At that size the full treatment collapses:
+    // a 10dp inset leaves ~14dp of vertical travel, and five 10dp control-point
+    // circles span the whole width, so it reads as a row of coral dots on a grey
+    // rule rather than a curve. Compact mode drops the dots and scales the inset
+    // and stroke down so the *line* is the legible part.
+    compact: Boolean = false,
+) {
     val lineColor = Canopy.accent
     val ringColor = Canopy.accent2
     val dotFill = Canopy.surface
@@ -321,7 +331,7 @@ private fun EqCurveCanvas(gains: List<Float>, enabled: Boolean, modifier: Modifi
         val h = size.height
         val n = gains.size
         if (n == 0 || w <= 0f || h <= 0f) return@Canvas
-        val inset = 10.dp.toPx()
+        val inset = if (compact) 3.dp.toPx() else 10.dp.toPx()
         val xs = FloatArray(n) { i -> if (n == 1) w / 2f else w * i / (n - 1) }
         fun gainToY(g: Float) = h / 2f - (g / EQ_MAX_DB) * (h / 2f - inset)
         val ys = FloatArray(n) { gainToY(gains[it]) }
@@ -348,8 +358,13 @@ private fun EqCurveCanvas(gains: List<Float>, enabled: Boolean, modifier: Modifi
             close()
         }
         drawPath(fillPath, color = lineColor.copy(alpha = 0.16f * alphaMul))
-        drawPath(path, color = lineColor.copy(alpha = alphaMul), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        drawPath(
+            path,
+            color = lineColor.copy(alpha = alphaMul),
+            style = Stroke(width = (if (compact) 1.5.dp else 2.dp).toPx(), cap = StrokeCap.Round),
+        )
 
+        if (compact) return@Canvas
         for (i in 0 until n) {
             drawCircle(dotFill.copy(alpha = alphaMul), radius = 5.dp.toPx(), center = Offset(xs[i], ys[i]))
             drawCircle(
@@ -481,5 +496,5 @@ private fun PreampSlider(value: Float, enabled: Boolean, onChange: (Float) -> Un
  * "Bänder einstellen" row so it doesn't duplicate the drawing logic above. */
 @Composable
 internal fun EqCurvePreview(gains: List<Float>, modifier: Modifier = Modifier) {
-    EqCurveCanvas(gains = gains, enabled = true, modifier = modifier)
+    EqCurveCanvas(gains = gains, enabled = true, modifier = modifier, compact = true)
 }
