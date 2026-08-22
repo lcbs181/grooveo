@@ -14,7 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dagger.hilt.android.AndroidEntryPoint
 import dev.schlubbe.musicagent.ui.navigation.MusicAgentNavGraph
-import dev.schlubbe.musicagent.ui.theme.MusicAgentTheme
+import dev.schlubbe.musicagent.ui.theme.GrooveoTheme
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
         setContent {
-            MusicAgentTheme {
+            GrooveoTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MusicAgentNavGraph()
                 }

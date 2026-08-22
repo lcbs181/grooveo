@@ -52,17 +52,17 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
 import dev.schlubbe.musicagent.ui.components.EqualizerBadge
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
-import dev.schlubbe.musicagent.ui.components.NocturneTag
-import dev.schlubbe.musicagent.ui.components.NocturneTagStyle
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyTag
+import dev.schlubbe.musicagent.ui.components.CanopyTagStyle
 import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
-import dev.schlubbe.musicagent.ui.components.nocturneCard
+import dev.schlubbe.musicagent.ui.components.canopyCard
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.util.shareText
@@ -146,7 +146,7 @@ fun HomeScreen(
         )
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         LazyColumn(
             modifier = Modifier
                 .padding(padding)
@@ -166,16 +166,16 @@ fun HomeScreen(
                             Text(
                                 uiState.statLine,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Nocturne.neutral500,
+                                color = Canopy.neutral500,
                                 modifier = Modifier.padding(top = 4.dp),
                             )
                         }
                     }
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon("magnifying-glass"),
                         onClick = onSearchClick,
                         shape = CircleShape,
-                        variant = NocturneButtonVariant.Secondary,
+                        variant = CanopyButtonVariant.Secondary,
                     )
                 }
             }
@@ -514,8 +514,8 @@ private fun WhatsNewBanner(versionLabel: String, onOpen: () -> Unit, onDismiss: 
             .padding(horizontal = dimens.horizontalPadding)
             .padding(top = 14.dp)
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, Nocturne.accent.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-            .background(Nocturne.surface)
+            .border(1.dp, Canopy.accent.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .background(Canopy.surface)
             .clickable(onClick = onOpen)
             .padding(13.dp),
         verticalAlignment = Alignment.Top,
@@ -524,13 +524,13 @@ private fun WhatsNewBanner(versionLabel: String, onOpen: () -> Unit, onDismiss: 
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(Nocturne.accent800),
+                .background(Canopy.accent800),
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.material3.Icon(
                 phosphorIcon("sparkle"),
                 contentDescription = null,
-                tint = Nocturne.accent300,
+                tint = Canopy.accent300,
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -539,11 +539,11 @@ private fun WhatsNewBanner(versionLabel: String, onOpen: () -> Unit, onDismiss: 
             Text(
                 "3D-Sound-Vorlagen, automatische Sicherungen und persönlichere Playlists.",
                 style = MaterialTheme.typography.labelSmall,
-                color = Nocturne.neutral500,
+                color = Canopy.neutral500,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
-        NocturneIconButton(icon = phosphorIcon("x"), onClick = onDismiss, size = 26.dp, iconSize = 14.dp)
+        CanopyIconButton(icon = phosphorIcon("x"), onClick = onDismiss, size = 26.dp, iconSize = 14.dp)
     }
 }
 
@@ -555,7 +555,7 @@ private fun ResumeCard(resume: ResumeTrack, onClick: () -> Unit, onPlayPauseClic
             .fillMaxWidth()
             .padding(horizontal = dimens.horizontalPadding)
             .padding(top = 14.dp)
-            .nocturneCard(padding = 10.dp)
+            .canopyCard(padding = 10.dp)
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -571,7 +571,7 @@ private fun ResumeCard(resume: ResumeTrack, onClick: () -> Unit, onPlayPauseClic
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(resume.statusLabel, style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+            Text(resume.statusLabel, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
             Text(
                 resume.title,
                 maxLines = 1,
@@ -589,18 +589,18 @@ private fun ResumeCard(resume: ResumeTrack, onClick: () -> Unit, onPlayPauseClic
                     .fillMaxWidth()
                     .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Nocturne.neutral800),
+                    .background(Canopy.neutral800),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(progress)
                         .height(3.dp)
-                        .background(Nocturne.accent),
+                        .background(Canopy.accent),
                 )
             }
         }
         Spacer(modifier = Modifier.width(8.dp))
-        NocturneIconButton(
+        CanopyIconButton(
             icon = phosphorIcon(if (resume.isPlaying) "pause" else "play"),
             onClick = onPlayPauseClick,
         )
@@ -611,7 +611,7 @@ private fun ResumeCard(resume: ResumeTrack, onClick: () -> Unit, onPlayPauseClic
 private fun MixRow(isLoading: Boolean, onMoodClicked: (MoodFilter) -> Unit) {
     val dimens = rememberResponsiveDimens()
     Column(modifier = Modifier.padding(top = 16.dp)) {
-        NocturneButton(
+        CanopyButton(
             text = "Mix starten",
             onClick = { onMoodClicked(MoodFilter.ALL) },
             leadingIcon = phosphorIcon("shuffle"),
@@ -665,7 +665,7 @@ private fun ContinueGridTile(track: TrackEntity, onClick: () -> Unit, modifier: 
     val dimens = rememberResponsiveDimens()
     Row(
         modifier = modifier
-            .nocturneCard(padding = 8.dp)
+            .canopyCard(padding = 8.dp)
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -683,7 +683,7 @@ private fun ContinueGridTile(track: TrackEntity, onClick: () -> Unit, modifier: 
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall,
-                color = Nocturne.neutral500,
+                color = Canopy.neutral500,
             )
         }
     }
@@ -707,13 +707,13 @@ private fun MixMoodCard(mix: MixCard, onClick: () -> Unit) {
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Nocturne.bg.copy(alpha = 0.55f)),
+                            colors = listOf(Color.Transparent, Canopy.bg.copy(alpha = 0.55f)),
                         ),
                     ),
             )
-            NocturneTag(
+            CanopyTag(
                 text = mix.badge,
-                style = NocturneTagStyle.Accent,
+                style = CanopyTagStyle.Accent,
                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
             )
         }
@@ -729,7 +729,7 @@ private fun MixMoodCard(mix: MixCard, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.neutral500,
+            color = Canopy.neutral500,
         )
     }
 }
@@ -744,7 +744,7 @@ private fun DailyPickCard(track: TrackResultDto, onClick: () -> Unit) {
         Text(
             "EMPFEHLUNG DES TAGES",
             style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.accent300,
+            color = Canopy.accent300,
             modifier = Modifier.padding(horizontal = dimens.horizontalPadding),
         )
         Row(
@@ -752,7 +752,7 @@ private fun DailyPickCard(track: TrackResultDto, onClick: () -> Unit) {
                 .fillMaxWidth()
                 .padding(horizontal = dimens.horizontalPadding)
                 .padding(top = 10.dp)
-                .nocturneCard(padding = 10.dp)
+                .canopyCard(padding = 10.dp)
                 .clickable(onClick = onClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -771,14 +771,14 @@ private fun DailyPickCard(track: TrackResultDto, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
-            NocturneIconButton(
+            CanopyIconButton(
                 icon = phosphorIcon("play", filled = true),
                 onClick = onClick,
-                variant = NocturneButtonVariant.Primary,
+                variant = CanopyButtonVariant.Primary,
                 shape = CircleShape,
                 size = 34.dp,
                 iconSize = 15.dp,
@@ -801,18 +801,18 @@ private fun StationItem(artist: TopArtist, onClick: () -> Unit) {
             modifier = Modifier
                 .size(66.dp)
                 .clip(CircleShape)
-                .background(Nocturne.surface),
+                .background(Canopy.surface),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 phosphorIcon("waveform"),
                 contentDescription = null,
-                tint = Nocturne.neutral300,
+                tint = Canopy.neutral300,
                 modifier = Modifier.size(20.dp),
             )
         }
         Spacer(modifier = Modifier.height(6.dp))
-        Text("Sender", style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+        Text("Sender", style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
         Text(
             artist.name,
             maxLines = 1,
@@ -841,7 +841,7 @@ private fun FeaturedCard(title: String, subtitle: String, thumbnailUrl: String?,
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Nocturne.bg.copy(alpha = 0.75f)),
+                        colors = listOf(Color.Transparent, Canopy.bg.copy(alpha = 0.75f)),
                         startY = 0f,
                     ),
                 ),
@@ -855,7 +855,7 @@ private fun FeaturedCard(title: String, subtitle: String, thumbnailUrl: String?,
             )
             Text(
                 subtitle,
-                color = Nocturne.neutral300,
+                color = Canopy.neutral300,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall,
@@ -878,7 +878,7 @@ private fun ShelfHeader(title: String, onSeeAll: (() -> Unit)?) {
         if (onSeeAll != null) {
             Text(
                 "Alle anzeigen",
-                color = Nocturne.accent,
+                color = Canopy.accent,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable(onClick = onSeeAll),
             )
@@ -891,7 +891,7 @@ private fun EmptyShelfHint(text: String) {
     val dimens = rememberResponsiveDimens()
     Text(
         text,
-        color = Nocturne.neutral500,
+        color = Canopy.neutral500,
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier.padding(horizontal = dimens.horizontalPadding, vertical = 8.dp),
     )
@@ -918,47 +918,47 @@ private fun TrackOverflowMenu(
         modifier = Modifier
             .size(24.dp)
             .clip(CircleShape)
-            .background(Nocturne.bg.copy(alpha = 0.55f))
+            .background(Canopy.bg.copy(alpha = 0.55f))
             .clickable { expanded = true },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             phosphorIcon("dots-three"),
             contentDescription = "Mehr",
-            tint = Nocturne.text,
+            tint = Canopy.text,
             modifier = Modifier.size(14.dp),
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text("Zu Playlist hinzufügen") },
-                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                 onClick = { expanded = false; onAddToPlaylistClick() },
             )
             DropdownMenuItem(
                 text = { Text("Zur Warteschlange hinzufügen") },
-                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                 onClick = { expanded = false; onAddToQueueClick() },
             )
             DropdownMenuItem(
                 text = { Text("Herunterladen") },
-                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                 onClick = { expanded = false; onDownloadClick() },
             )
             if (onUnlikeClick != null) {
                 DropdownMenuItem(
                     text = { Text("Nicht mehr gefällt mir") },
-                    leadingIcon = { Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Nocturne.accent) },
+                    leadingIcon = { Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Canopy.accent) },
                     onClick = { expanded = false; onUnlikeClick() },
                 )
             }
             DropdownMenuItem(
                 text = { Text("Zum Künstler") },
-                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                 onClick = { expanded = false; onArtistClick() },
             )
             DropdownMenuItem(
                 text = { Text("Teilen") },
-                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                 onClick = { expanded = false; context.shareText(track.webpageUrl) },
             )
         }
@@ -1000,7 +1000,7 @@ private fun TrackShelfItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall,
-                color = Nocturne.neutral500,
+                color = Canopy.neutral500,
             )
         }
     }
@@ -1017,7 +1017,7 @@ private fun PlaylistShelfItem(
     Column(
         modifier = Modifier
             .width(148.dp)
-            .nocturneCard()
+            .canopyCard()
             .clickable(onClick = onClick),
     ) {
         Box(
@@ -1031,7 +1031,7 @@ private fun PlaylistShelfItem(
         Text(
             "PLAYLIST",
             style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.accent,
+            color = Canopy.accent,
         )
         Text(
             playlist.name,
@@ -1042,14 +1042,14 @@ private fun PlaylistShelfItem(
         Text(
             "${playlist.trackCount} Titel",
             style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.neutral500,
+            color = Canopy.neutral500,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
         ) {
-            NocturneIconButton(
+            CanopyIconButton(
                 icon = phosphorIcon("download-simple"),
                 onClick = onDownloadClick,
                 size = 28.dp,
@@ -1057,7 +1057,7 @@ private fun PlaylistShelfItem(
             )
             var menuExpanded by remember { mutableStateOf(false) }
             Box {
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("dots-three"),
                     onClick = { menuExpanded = true },
                     size = 28.dp,
@@ -1066,12 +1066,12 @@ private fun PlaylistShelfItem(
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
                         text = { Text("Zur Warteschlange hinzufügen") },
-                        leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; onAddToQueueClick() },
                     )
                     DropdownMenuItem(
                         text = { Text("Löschen") },
-                        leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; onDeleteClick() },
                     )
                 }
@@ -1093,10 +1093,10 @@ private fun ArtistAvatarItem(artist: TopArtist, onClick: () -> Unit) {
             modifier = Modifier
                 .size(58.dp)
                 .clip(CircleShape)
-                .border(2.dp, Nocturne.accent, CircleShape)
+                .border(2.dp, Canopy.accent, CircleShape)
                 .padding(2.dp)
                 .clip(CircleShape)
-                .background(Nocturne.accent800),
+                .background(Canopy.accent800),
             contentAlignment = Alignment.Center,
         ) {
             if (artist.thumbnailUrl != null) {
@@ -1110,7 +1110,7 @@ private fun ArtistAvatarItem(artist: TopArtist, onClick: () -> Unit) {
                 Text(
                     artist.name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Nocturne.accent300,
+                    color = Canopy.accent300,
                 )
             }
         }

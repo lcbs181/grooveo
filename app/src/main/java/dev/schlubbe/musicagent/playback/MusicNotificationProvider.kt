@@ -28,7 +28,7 @@ private const val DRM_UNAVAILABLE_TITLE = "Titel nicht verfügbar"
  *   about, hence reading it from the injected [PlayerController] singleton rather
  *   than from [mediaMetadata] itself.
  * - [getNotificationContentText]: appended with "· SoundCloud"/"· YouTube Music" the
- *   same way PlayerScreen's NocturneTag derives a source label, so the notification
+ *   same way PlayerScreen's CanopyTag derives a source label, so the notification
  *   shows "Artist · Source" instead of a bare artist name. Deliberately reads
  *   [PlayerController.nowPlayingTrack] for the source rather than writing the source
  *   into the MediaItem's own MediaMetadata.artist field, which every other screen

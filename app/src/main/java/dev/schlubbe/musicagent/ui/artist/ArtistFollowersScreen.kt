@@ -31,10 +31,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.util.shareText
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,18 +61,18 @@ fun ArtistFollowersScreen(
         if (shouldLoadMore) viewModel.loadMore()
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
                 Text("Follower", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
             }
             when {
                 uiState.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Nocturne.accent)
+                    CircularProgressIndicator(color = Canopy.accent)
                 }
                 uiState.error != null && uiState.followers.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(),
@@ -90,14 +90,14 @@ fun ArtistFollowersScreen(
                 ) {
                     items(uiState.followers, key = { it.sourceId }) { follower ->
                         ListItem(
-                            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+                            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
                             leadingContent = { TrackThumbnail(follower.thumbnailUrl) },
                             headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             supportingContent = follower.subscriberCount?.let { count ->
-                                { Text("$count Follower", color = Nocturne.neutral500) }
+                                { Text("$count Follower", color = Canopy.neutral500) }
                             },
                             trailingContent = {
-                                NocturneIconButton(
+                                CanopyIconButton(
                                     icon = phosphorIcon("share-network"),
                                     onClick = { context.shareText(follower.webpageUrl) },
                                 )
@@ -113,7 +113,7 @@ fun ArtistFollowersScreen(
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                                 horizontalArrangement = Arrangement.Center,
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Nocturne.accent)
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Canopy.accent)
                             }
                         }
                     }

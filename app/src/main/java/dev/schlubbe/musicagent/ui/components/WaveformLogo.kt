@@ -16,7 +16,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 
 /** The app's brand mark: five vertical bars of varying height, an abstracted
  * waveform rather than a letterform (see
@@ -29,7 +29,7 @@ fun WaveformLogo(modifier: Modifier = Modifier, barWidth: Dp = 8.dp, maxBarHeigh
     val heights = listOf(0.43f, 0.73f, 1f, 0.63f, 0.33f)
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(gap)) {
         heights.forEachIndexed { index, fraction ->
-            val color = if (index == 2) Nocturne.accent300 else Nocturne.accent
+            val color = if (index == 2) Canopy.accent300 else Canopy.accent
             androidx.compose.foundation.layout.Box(
                 modifier = Modifier
                     .width(barWidth)
@@ -61,7 +61,7 @@ fun WaveformLogoBadge(modifier: Modifier = Modifier, size: Dp = 104.dp) {
             .clip(RoundedCornerShape(cornerRadius))
             .background(
                 Brush.linearGradient(
-                    colorStops = arrayOf(0f to Nocturne.neutral800, 0.7f to Nocturne.bg, 1f to Nocturne.bg),
+                    colorStops = arrayOf(0f to Canopy.neutral800, 0.7f to Canopy.bg, 1f to Canopy.bg),
                 ),
             ),
         contentAlignment = Alignment.Center,

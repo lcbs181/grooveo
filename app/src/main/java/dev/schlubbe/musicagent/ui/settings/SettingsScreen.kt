@@ -38,12 +38,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.playback.EqPreset
 import dev.schlubbe.musicagent.playback.Sound3dPreset
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.update.UpdateDialog
 import dev.schlubbe.musicagent.ui.update.UpdateViewModel
 
@@ -68,13 +68,13 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showSound3dSheet by remember { mutableStateOf(false) }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
                 Text("Einstellungen", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
             }
 
@@ -120,7 +120,7 @@ fun SettingsScreen(
                     onCheckedChange = viewModel::onAutoplayRadioChanged,
                 )
 
-                HorizontalDivider(color = Nocturne.divider)
+                HorizontalDivider(color = Canopy.divider)
 
                 // — 3D-Sound —
                 SectionHeader("3D-Sound")
@@ -131,20 +131,20 @@ fun SettingsScreen(
                 ) {
                     Column {
                         Text("Raumklang-Vorlage", style = MaterialTheme.typography.bodyMedium)
-                        Text(uiState.sound3dPreset.description, style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+                        Text(uiState.sound3dPreset.description, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(uiState.sound3dPreset.label, color = Nocturne.accent300, style = MaterialTheme.typography.labelMedium)
+                        Text(uiState.sound3dPreset.label, color = Canopy.accent300, style = MaterialTheme.typography.labelMedium)
                         Icon(
                             phosphorIcon("caret-right"),
                             contentDescription = null,
-                            tint = Nocturne.neutral500,
+                            tint = Canopy.neutral500,
                             modifier = Modifier.padding(start = 6.dp).size(15.dp),
                         )
                     }
                 }
 
-                HorizontalDivider(color = Nocturne.divider)
+                HorizontalDivider(color = Canopy.divider)
 
                 // — Downloads —
                 SectionHeader("Downloads")
@@ -167,12 +167,12 @@ fun SettingsScreen(
                 ) {
                     Column {
                         Text("Zwischenspeicher", style = MaterialTheme.typography.bodyMedium)
-                        Text("${uiState.cacheSizeMb} MB", style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+                        Text("${uiState.cacheSizeMb} MB", style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
                     }
-                    NocturneButton(text = "Leeren", onClick = viewModel::clearCache, variant = NocturneButtonVariant.Secondary)
+                    CanopyButton(text = "Leeren", onClick = viewModel::clearCache, variant = CanopyButtonVariant.Secondary)
                 }
 
-                HorizontalDivider(color = Nocturne.divider)
+                HorizontalDivider(color = Canopy.divider)
 
                 // — Benachrichtigungen —
                 SectionHeader("Benachrichtigungen")
@@ -183,7 +183,7 @@ fun SettingsScreen(
                     onCheckedChange = viewModel::onNotifyNewUploadsChanged,
                 )
 
-                HorizontalDivider(color = Nocturne.divider)
+                HorizontalDivider(color = Canopy.divider)
 
                 // — Startseite personalisieren —
                 SectionHeader("Startseite personalisieren")
@@ -206,7 +206,7 @@ fun SettingsScreen(
                     onCheckedChange = viewModel::onShowNewUploadsChanged,
                 )
 
-                HorizontalDivider(color = Nocturne.divider)
+                HorizontalDivider(color = Canopy.divider)
 
                 // — Updates & Sicherungen —
                 SectionHeader("Updates & Sicherungen")
@@ -220,14 +220,14 @@ fun SettingsScreen(
                         Text(
                             "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Nocturne.neutral500,
+                            color = Canopy.neutral500,
                         )
                     }
-                    NocturneButton(text = "Nach Updates suchen", onClick = updateViewModel::checkForUpdate, variant = NocturneButtonVariant.Secondary)
+                    CanopyButton(text = "Nach Updates suchen", onClick = updateViewModel::checkForUpdate, variant = CanopyButtonVariant.Secondary)
                 }
                 Text(
                     "Was ist neu?",
-                    color = Nocturne.accent,
+                    color = Canopy.accent,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.clickable(onClick = onWhatsNewClick),
                 )
@@ -247,15 +247,15 @@ fun SettingsScreen(
                         Text(
                             uiState.lastBackupText ?: "Noch keine Sicherung",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Nocturne.neutral500,
+                            color = Canopy.neutral500,
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        NocturneIconButton(icon = phosphorIcon("share-network"), onClick = viewModel::shareBackup, iconSize = 16.dp)
-                        NocturneButton(
+                        CanopyIconButton(icon = phosphorIcon("share-network"), onClick = viewModel::shareBackup, iconSize = 16.dp)
+                        CanopyButton(
                             text = if (uiState.backupState == BackupState.Running) "…" else "Jetzt sichern",
                             onClick = viewModel::backupNow,
-                            variant = NocturneButtonVariant.Secondary,
+                            variant = CanopyButtonVariant.Secondary,
                             enabled = uiState.backupState != BackupState.Running,
                         )
                     }
@@ -268,15 +268,15 @@ fun SettingsScreen(
                     )
                     else -> Unit
                 }
-                NocturneButton(
+                CanopyButton(
                     text = "Aus Sicherung wiederherstellen",
                     onClick = viewModel::onRestoreClicked,
-                    variant = NocturneButtonVariant.Secondary,
+                    variant = CanopyButtonVariant.Secondary,
                     leadingIcon = phosphorIcon("clock-counter-clockwise"),
                     block = true,
                 )
 
-                HorizontalDivider(color = Nocturne.divider)
+                HorizontalDivider(color = Canopy.divider)
 
                 // — Über —
                 SectionHeader("Über")
@@ -284,33 +284,33 @@ fun SettingsScreen(
                 Text(
                     "Grooveo · ${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                 )
                 Text("Backend verbinden", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
                 Text(
                     "Optional – nicht konfiguriert",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                 )
-                NocturneTextField(
+                CanopyTextField(
                     value = uiState.backendBaseUrl,
                     onValueChange = viewModel::onBackendBaseUrlChanged,
                     label = "Backend-URL (z. B. http://192.168.1.10:8000)",
                 )
-                NocturneTextField(
+                CanopyTextField(
                     value = uiState.apiKey,
                     onValueChange = viewModel::onApiKeyChanged,
                     label = "API-Key",
                 )
-                NocturneButton(
+                CanopyButton(
                     text = "Test Connection",
                     onClick = viewModel::testConnection,
                     enabled = uiState.connectionTestState != ConnectionTestState.Testing,
                 )
                 when (val state = uiState.connectionTestState) {
                     is ConnectionTestState.Idle -> Unit
-                    is ConnectionTestState.Testing -> CircularProgressIndicator(color = Nocturne.accent)
-                    is ConnectionTestState.Success -> Text("Verbindung erfolgreich", color = Nocturne.accent)
+                    is ConnectionTestState.Testing -> CircularProgressIndicator(color = Canopy.accent)
+                    is ConnectionTestState.Success -> Text("Verbindung erfolgreich", color = Canopy.accent)
                     is ConnectionTestState.Error -> Text("Fehler: ${state.message}", color = MaterialTheme.colorScheme.error)
                 }
 
@@ -358,7 +358,7 @@ private fun SectionHeader(title: String) {
     Text(
         title.uppercase(),
         style = MaterialTheme.typography.titleSmall,
-        color = Nocturne.accent,
+        color = Canopy.accent,
     )
 }
 
@@ -377,7 +377,7 @@ private fun ToggleRow(title: String, subtitle: String?, checked: Boolean, onChec
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
             if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
             }
         }
         SegmentedControl(
@@ -390,9 +390,9 @@ private fun ToggleRow(title: String, subtitle: String?, checked: Boolean, onChec
 }
 
 @Composable
-private fun NocturneTextField(value: String, onValueChange: (String) -> Unit, label: String) {
+private fun CanopyTextField(value: String, onValueChange: (String) -> Unit, label: String) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral400)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral400)
         Spacer(modifier = Modifier.padding(top = 4.dp))
         TextField(
             value = value,
@@ -400,10 +400,10 @@ private fun NocturneTextField(value: String, onValueChange: (String) -> Unit, la
             singleLine = true,
             shape = RoundedCornerShape(8.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Nocturne.surface,
-                unfocusedContainerColor = Nocturne.surface,
-                focusedIndicatorColor = Nocturne.divider,
-                unfocusedIndicatorColor = Nocturne.divider,
+                focusedContainerColor = Canopy.surface,
+                unfocusedContainerColor = Canopy.surface,
+                focusedIndicatorColor = Canopy.divider,
+                unfocusedIndicatorColor = Canopy.divider,
             ),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -417,7 +417,7 @@ private fun Sound3dPresetSheet(
     onDismiss: () -> Unit,
     onSelect: (Sound3dPreset) -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Nocturne.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
         Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
             Text(
                 "Raumklang-Vorlage",
@@ -427,15 +427,15 @@ private fun Sound3dPresetSheet(
             Sound3dPreset.entries.forEach { preset ->
                 val isSelected = preset == selected
                 ListItem(
-                    colors = ListItemDefaults.colors(containerColor = Nocturne.surface),
+                    colors = ListItemDefaults.colors(containerColor = Canopy.surface),
                     leadingContent = {
-                        Icon(phosphorIcon(sound3dIcon(preset)), contentDescription = null, tint = Nocturne.accent)
+                        Icon(phosphorIcon(sound3dIcon(preset)), contentDescription = null, tint = Canopy.accent)
                     },
                     headlineContent = { Text(preset.label) },
-                    supportingContent = { Text(preset.description, color = Nocturne.neutral500) },
+                    supportingContent = { Text(preset.description, color = Canopy.neutral500) },
                     trailingContent = {
                         if (isSelected) {
-                            Icon(phosphorIcon("check-circle", filled = true), contentDescription = null, tint = Nocturne.accent)
+                            Icon(phosphorIcon("check-circle", filled = true), contentDescription = null, tint = Canopy.accent)
                         }
                     },
                     modifier = Modifier.clickable { onSelect(preset) },

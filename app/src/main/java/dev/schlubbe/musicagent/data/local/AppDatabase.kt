@@ -97,7 +97,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-// Playlist redesign (Nocturne): a description, a chosen accent color, and mood
+// Playlist redesign (Canopy): a description, a chosen accent color, and mood
 // tags, editable via the playlist edit sheet -- see PlaylistEntity for the
 // column semantics. All three are nullable with no default, which SQLite's
 // ALTER TABLE ADD COLUMN allows without a full table rebuild.
@@ -109,7 +109,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-// Artist page's new follow/unfollow button (Nocturne redesign) - also backs
+// Artist page's new follow/unfollow button (Canopy redesign) - also backs
 // Home's "Neu von Künstlern" shelf.
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {

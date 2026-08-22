@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 
 /** Small inline marker for a SoundCloud track whose only transcodings are
  * DRM-encrypted (see TrackResultDto.isDrmProtected / SoundCloudMappers.isDrmOnly) -
@@ -19,7 +19,7 @@ fun DrmLockIcon(modifier: Modifier = Modifier) {
     Icon(
         phosphorIcon("lock-simple"),
         contentDescription = "DRM-geschützt",
-        tint = Nocturne.neutral500,
+        tint = Canopy.neutral500,
         modifier = modifier.padding(start = 5.dp).size(13.dp),
     )
 }

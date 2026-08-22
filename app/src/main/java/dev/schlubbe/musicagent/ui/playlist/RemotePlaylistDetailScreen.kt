@@ -43,14 +43,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.ui.components.DrmLockIcon
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
-import dev.schlubbe.musicagent.ui.components.NocturneTag
-import dev.schlubbe.musicagent.ui.components.NocturneTagStyle
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyTag
+import dev.schlubbe.musicagent.ui.components.CanopyTagStyle
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.util.shareText
 
 /** A public SoundCloud/YouTube playlist or album, reached by tapping a search
@@ -96,20 +96,20 @@ fun RemotePlaylistDetailScreen(
         }
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
                 if (detail != null) {
                     Box {
-                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
                         DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
-                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = {
                                     showTopMenu = false
                                     haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -118,7 +118,7 @@ fun RemotePlaylistDetailScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Alle zur Warteschlange hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = {
                                     showTopMenu = false
                                     haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -127,7 +127,7 @@ fun RemotePlaylistDetailScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Teilen") },
-                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = {
                                     showTopMenu = false
                                     context.shareText(detail.webpageUrl)
@@ -141,7 +141,7 @@ fun RemotePlaylistDetailScreen(
             when {
                 uiState.isLoading -> CircularProgressIndicator(
                     modifier = Modifier.padding(16.dp),
-                    color = Nocturne.accent,
+                    color = Canopy.accent,
                 )
                 uiState.error != null -> Text(
                     "Fehler: ${uiState.error}",
@@ -159,14 +159,14 @@ fun RemotePlaylistDetailScreen(
                             Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
                                 Text(detail.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                                    NocturneTag(if (detail.source == "soundcloud") "SoundCloud" else "YT Music")
+                                    CanopyTag(if (detail.source == "soundcloud") "SoundCloud" else "YT Music")
                                     val subtitle = listOfNotNull(detail.owner, detail.trackCount?.let { "$it Titel" })
                                         .joinToString(" · ")
                                     if (subtitle.isNotBlank()) {
                                         Text(
                                             subtitle,
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = Nocturne.neutral500,
+                                            color = Canopy.neutral500,
                                             modifier = Modifier.padding(start = 8.dp),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -186,23 +186,23 @@ fun RemotePlaylistDetailScreen(
                                     .horizontalScroll(rememberScrollState())
                                     .padding(horizontal = 20.dp, vertical = 4.dp),
                             ) {
-                                detail.tags.forEach { tag -> NocturneTag(tag, style = NocturneTagStyle.Outline) }
+                                detail.tags.forEach { tag -> CanopyTag(tag, style = CanopyTagStyle.Outline) }
                             }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            NocturneButton(
+                            CanopyButton(
                                 text = "Alle abspielen",
                                 onClick = viewModel::playAll,
                                 leadingIcon = phosphorIcon("play"),
-                                variant = NocturneButtonVariant.Primary,
+                                variant = CanopyButtonVariant.Primary,
                                 enabled = detail.tracks.isNotEmpty(),
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            NocturneIconButton(
+                            CanopyIconButton(
                                 icon = phosphorIcon("heart", filled = uiState.isSaved),
                                 onClick = {
                                     haptic.performHapticFeedback(
@@ -210,7 +210,7 @@ fun RemotePlaylistDetailScreen(
                                     )
                                     viewModel.toggleSaved()
                                 },
-                                variant = if (uiState.isSaved) NocturneButtonVariant.Secondary else NocturneButtonVariant.Primary,
+                                variant = if (uiState.isSaved) CanopyButtonVariant.Secondary else CanopyButtonVariant.Primary,
                                 size = 44.dp,
                                 iconSize = 19.dp,
                             )
@@ -220,7 +220,7 @@ fun RemotePlaylistDetailScreen(
                         item {
                             Text(
                                 "Keine Titel gefunden",
-                                color = Nocturne.neutral500,
+                                color = Canopy.neutral500,
                                 modifier = Modifier.padding(20.dp),
                             )
                         }
@@ -273,7 +273,7 @@ private fun RemotePlaylistTrackRow(
     val haptic = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(track.thumbnailUrl) },
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -282,11 +282,11 @@ private fun RemotePlaylistTrackRow(
             }
         },
         supportingContent = {
-            Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+            Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
         },
         trailingContent = {
             Row {
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("heart", filled = isLiked),
                     onClick = {
                         haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
@@ -294,31 +294,31 @@ private fun RemotePlaylistTrackRow(
                     },
                 )
                 Box {
-                    NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                    CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
                             text = { Text("Zu Playlist hinzufügen") },
-                            leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                            leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                             onClick = { menuExpanded = false; onAddToPlaylistClick() },
                         )
                         DropdownMenuItem(
                             text = { Text("Zur Warteschlange hinzufügen") },
-                            leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                            leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                             onClick = { menuExpanded = false; onAddToQueueClick() },
                         )
                         DropdownMenuItem(
                             text = { Text("Herunterladen") },
-                            leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                            leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                             onClick = { menuExpanded = false; onDownloadClick() },
                         )
                         DropdownMenuItem(
                             text = { Text("Zum Künstler") },
-                            leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                            leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                             onClick = { menuExpanded = false; onArtistClick() },
                         )
                         DropdownMenuItem(
                             text = { Text("Teilen") },
-                            leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                            leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                             onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
                         )
                     }
@@ -345,7 +345,7 @@ private fun RemotePlaylistBio(description: String) {
         Text(
             description,
             style = MaterialTheme.typography.bodySmall,
-            color = Nocturne.neutral500,
+            color = Canopy.neutral500,
             maxLines = if (expanded) Int.MAX_VALUE else REMOTE_PLAYLIST_BIO_COLLAPSED_LINES,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { result ->
@@ -355,7 +355,7 @@ private fun RemotePlaylistBio(description: String) {
         if (isOverflowing || expanded) {
             Text(
                 if (expanded) "Weniger anzeigen" else "Mehr anzeigen",
-                color = Nocturne.accent,
+                color = Canopy.accent,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
                     .padding(top = 4.dp)

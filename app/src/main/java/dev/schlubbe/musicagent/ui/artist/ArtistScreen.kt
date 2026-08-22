@@ -46,14 +46,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.ui.components.DrmLockIcon
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
-import dev.schlubbe.musicagent.ui.components.NocturneTag
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyTag
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.util.shareText
 
 private const val SHELF_PREVIEW_COUNT = 5
@@ -90,20 +90,20 @@ fun ArtistScreen(
         }
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
                 uiState.artist?.let { artist ->
                     Box {
-                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
                         DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
                             DropdownMenuItem(
                                 text = { Text("Teilen") },
-                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = {
                                     showTopMenu = false
                                     context.shareText(artist.webpageUrl)
@@ -114,7 +114,7 @@ fun ArtistScreen(
                 }
             }
             when {
-                uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Nocturne.accent)
+                uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Canopy.accent)
                 uiState.error != null -> Text(
                     "Fehler: ${uiState.error}",
                     color = MaterialTheme.colorScheme.error,
@@ -155,7 +155,7 @@ fun ArtistScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.padding(top = 5.dp),
                                     ) {
-                                        NocturneTag(if (artist.source == "soundcloud") "SoundCloud" else "YT Music")
+                                        CanopyTag(if (artist.source == "soundcloud") "SoundCloud" else "YT Music")
                                         artist.subscriberCount?.let { count ->
                                             val followersClickable = artist.source == "soundcloud"
                                             Row(
@@ -169,7 +169,7 @@ fun ArtistScreen(
                                                 Text(
                                                     "$count Follower",
                                                     style = MaterialTheme.typography.labelMedium,
-                                                    color = Nocturne.neutral500,
+                                                    color = Canopy.neutral500,
                                                 )
                                             }
                                         }
@@ -177,10 +177,10 @@ fun ArtistScreen(
                                 }
                             }
                             Row(modifier = Modifier.padding(horizontal = 20.dp)) {
-                                NocturneButton(
+                                CanopyButton(
                                     text = if (uiState.isFollowing) "Gefolgt" else "Folgen",
                                     onClick = { viewModel.toggleFollow() },
-                                    variant = if (uiState.isFollowing) NocturneButtonVariant.Secondary else NocturneButtonVariant.Primary,
+                                    variant = if (uiState.isFollowing) CanopyButtonVariant.Secondary else CanopyButtonVariant.Primary,
                                     block = true,
                                 )
                             }
@@ -268,7 +268,7 @@ private fun ArtistBio(description: String) {
         Text(
             description,
             style = MaterialTheme.typography.bodyMedium,
-            color = Nocturne.text.copy(alpha = 0.85f),
+            color = Canopy.text.copy(alpha = 0.85f),
             maxLines = if (expanded) Int.MAX_VALUE else BIO_COLLAPSED_LINES,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { result ->
@@ -278,7 +278,7 @@ private fun ArtistBio(description: String) {
         if (isOverflowing || expanded) {
             Text(
                 if (expanded) "Weniger anzeigen" else "Mehr anzeigen",
-                color = Nocturne.accent,
+                color = Canopy.accent,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
                     .padding(top = 4.dp)
@@ -301,7 +301,7 @@ private fun ShelfHeader(title: String, expanded: Boolean, total: Int, onToggle: 
         if (total > SHELF_PREVIEW_COUNT) {
             Text(
                 if (expanded) "Weniger anzeigen" else "Alle anzeigen",
-                color = Nocturne.accent,
+                color = Canopy.accent,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable(onClick = onToggle),
             )
@@ -340,17 +340,17 @@ private fun ArtistTrackRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Nocturne.accent800)
+                    .background(Canopy.accent800)
                     .padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Nocturne.accent100)
+                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Canopy.accent100)
             }
         },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         ListItem(
-            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
             leadingContent = { TrackThumbnail(track.thumbnailUrl) },
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -359,11 +359,11 @@ private fun ArtistTrackRow(
                 }
             },
             supportingContent = {
-                Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+                Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
             },
             trailingContent = {
                 Row {
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon("heart", filled = isLiked),
                         onClick = {
                             haptic.performHapticFeedback(
@@ -373,26 +373,26 @@ private fun ArtistTrackRow(
                         },
                     )
                     Box {
-                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToQueueClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
-                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onDownloadClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Teilen") },
-                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
                             )
                         }
