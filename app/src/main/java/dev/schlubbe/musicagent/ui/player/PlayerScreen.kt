@@ -1,25 +1,33 @@
 package dev.schlubbe.musicagent.ui.player
 
 import android.widget.Toast
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -37,22 +45,29 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,19 +75,28 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.playback.EqPreset
-import dev.schlubbe.musicagent.ui.components.EqualizerBadge
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopyBadge
-import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
+import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
+import dev.schlubbe.musicagent.ui.components.CanopyToggle
+import dev.schlubbe.musicagent.ui.components.Confetti
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
+import dev.schlubbe.musicagent.ui.components.rememberBreathingScale
+import dev.schlubbe.musicagent.ui.components.rememberEqBarHeights
+import dev.schlubbe.musicagent.ui.components.rememberGlowAlpha
+import dev.schlubbe.musicagent.ui.components.rememberHeartPopScale
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Canopy
+import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.util.shareText
-import androidx.compose.foundation.layout.widthIn
-import kotlinx.coroutines.delay
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 private fun formatMs(ms: Long): String {
@@ -86,6 +110,29 @@ private fun eqPresetLabel(preset: EqPreset): String = when (preset) {
     EqPreset.TREBLE_BOOST -> "Höhen-Boost"
     EqPreset.VOCAL -> "Vocal"
 }
+
+/** The Player's artwork is a fixed 232dp square per the handoff (GrooveoApp.dc.html
+ * line 293), not a fraction-of-screen-width like the previous Nocturne layout --
+ * the glow/scrim/visualizer stack underneath is all sized off this one constant. */
+private val PlayerArtSize = 232.dp
+
+/** The 5 decorative visualizer variants (`_ds_bundle.js`'s `VIZ` table) shown under
+ * the artwork's bottom scrim. This switch is local-only UI state: PlayerViewModel /
+ * SettingsRepository only persist the *seekbar* shape ("Wiedergabestil": waveform vs.
+ * bars -- see [Waveform]/[Bars] below), so there is no backing field to wire this
+ * purely-decorative choice to, and nothing is lost by not persisting it across
+ * process death. */
+private data class VizOption(val id: String, val icon: String)
+private val VizOptions = listOf(
+    VizOption("wave", "waveform"),
+    VizOption("bars", "chart-bar"),
+    // Design's icon here is "ph-circle-half", which isn't in PhosphorIcon.kt's map
+    // (its fallback would silently render a warning-circle glyph) -- "circles-three"
+    // is the closest mapped stand-in for a circular/orb concept.
+    VizOption("orb", "circles-three"),
+    VizOption("particles", "sphere"),
+    VizOption("pulse", "broadcast"),
+)
 
 @Composable
 fun PlayerScreen(
@@ -103,6 +150,8 @@ fun PlayerScreen(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val dimens = rememberResponsiveDimens()
+    val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
     var positionMs by remember { mutableLongStateOf(0L) }
     var polledDurationMs by remember { mutableLongStateOf(0L) }
     var isSeeking by remember { mutableStateOf(false) }
@@ -111,6 +160,8 @@ fun PlayerScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showEqMenu by remember { mutableStateOf(false) }
     var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
+    var vizVariant by remember { mutableStateOf("wave") }
+    var likeTrigger by remember { mutableIntStateOf(0) }
 
     if (showSleepTimerDialog) {
         SleepTimerDialog(
@@ -179,16 +230,48 @@ fun PlayerScreen(
         else -> null
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Canopy.bg)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // GrooveoApp.dc.html line 282: linear-gradient(180deg, accent-200 0%, bg 55%).
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(0f to Canopy.accent200, 0.55f to Canopy.bg, 1f to Canopy.bg),
+                ),
+            ),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 22.dp)
-            if (sourceLabel != null) CanopyBadge(sourceLabel, tone = CanopyBadgeTone.Neutral)
+            CanopyIconButton(
+                icon = phosphorIcon("caret-down"),
+                onClick = onNavigateBack,
+                contentDescription = "Schließen",
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Läuft aus".uppercase(),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Canopy.neutral600,
+                )
+                // Design's second line is the *queue's* source (e.g. a chart or playlist
+                // name, "Charts · SoundCloud") - PlaybackUiState has no such concept, only
+                // the now-playing track's own source, so that real value is shown instead
+                // of inventing a queue title.
+                Text(
+                    sourceLabel ?: "Wiedergabe",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
             Box {
-                CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showMoreMenu = true }, iconSize = 20.dp)
+                CanopyIconButton(
+                    icon = phosphorIcon("dots-three-vertical"),
+                    onClick = { showMoreMenu = true },
+                    contentDescription = "Mehr",
+                )
                 DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
                     DropdownMenuItem(
                         text = { Text("Zu Playlist hinzufügen") },
@@ -234,114 +317,191 @@ fun PlayerScreen(
             }
         }
 
+        // Everything below the top bar scrolls as one column in the design (`gv-scroll`
+        // wraps art through the chip row) - the top bar itself is kept pinned outside the
+        // scroll here, which is the more standard player pattern and matches how this
+        // screen already behaved before this pass.
         Column(
-            modifier = if (upNext.isEmpty()) {
-                Modifier.weight(1f).fillMaxWidth().padding(horizontal = dimens.playerContentPadding)
-            } else {
-                Modifier.fillMaxWidth().padding(horizontal = dimens.playerContentPadding, vertical = 8.dp)
-            },
-            verticalArrangement = if (upNext.isEmpty()) Arrangement.Center else Arrangement.Top,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(horizontal = dimens.playerContentPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                AlbumArt(
-                    url = playbackState.artworkUrl,
+            Box(modifier = Modifier.padding(top = 10.dp), contentAlignment = Alignment.Center) {
+                val breatheScale = rememberBreathingScale(playbackState.isPlaying)
+                val glowAlpha = rememberGlowAlpha(playbackState.isPlaying)
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .fillMaxWidth(if (upNext.isEmpty()) 0.72f else 0.5f)
-                        // Caps the absolute size on tablet/foldable-width screens, where a
-                        // flat fraction-of-screen-width would otherwise blow the cover art
-                        // up far beyond what a "cover art" element should ever be.
-                        .widthIn(max = dimens.playerAlbumArtMaxWidth)
-                        .aspectRatio(1f)
-                        // Swipe left/right (or a trackpad's two-finger horizontal
-                        // scroll, which Compose also surfaces as a horizontal drag)
-                        // to skip - matches the design's cover-art gesture rather
-                        // than a full ViewPager2-style pager, since this is a single
-                        // in-place swap, not a continuously scrollable strip.
-                        .pointerInput(hasNext, hasPrevious) {
-                            detectHorizontalDragGestures(
-                                onDragStart = { dragAccumulatedPx = 0f },
-                                onDragEnd = {
-                                    val thresholdPx = 40.dp.toPx()
-                                    if (dragAccumulatedPx <= -thresholdPx && hasNext) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                                        viewModel.skipToNext()
-                                    } else if (dragAccumulatedPx >= thresholdPx && hasPrevious) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                                        viewModel.skipToPrevious()
-                                    }
-                                    dragAccumulatedPx = 0f
-                                },
-                            ) { _, dragAmount -> dragAccumulatedPx += dragAmount }
-                        },
-                )
-                // Resolving a track's stream on-device is a real network round trip
-                // (unlike the old backend's near-instant proxy) - without this, tapping
-                // a track just kept showing whatever played before with no visible
-                // change, which read as "my tap didn't register" and prompted a second,
-                // duplicate tap (see PlayerController.pendingTrackKey for the other half
-                // of this fix).
-                if (playbackState.isLoading) {
+                        .size(PlayerArtSize)
+                        .graphicsLayer { scaleX = breatheScale; scaleY = breatheScale },
+                ) {
+                    // The glow's `inset:-18px` in CSS -> a child 36dp larger than the art,
+                    // centered; Box doesn't clip its children by default, so the overflow
+                    // paints outside the 232dp footprint without disturbing layout.
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(if (upNext.isEmpty()) 0.72f else 0.5f)
-                            .widthIn(max = dimens.playerAlbumArtMaxWidth)
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color.Black.copy(alpha = 0.45f)),
-                        contentAlignment = Alignment.Center,
+                            .size(PlayerArtSize + 36.dp)
+                            .blur(18.dp)
+                            .background(
+                                brush = Brush.radialGradient(listOf(Canopy.accent.copy(alpha = glowAlpha), Color.Transparent)),
+                                shape = RoundedCornerShape(34.dp),
+                            ),
+                    )
+                    AlbumArt(
+                        url = playbackState.artworkUrl,
+                        modifier = Modifier
+                            .size(PlayerArtSize)
+                            // Swipe left/right (or a trackpad's two-finger horizontal
+                            // scroll, which Compose also surfaces as a horizontal drag)
+                            // to skip - matches the design's cover-art gesture rather
+                            // than a full ViewPager2-style pager, since this is a single
+                            // in-place swap, not a continuously scrollable strip.
+                            .pointerInput(hasNext, hasPrevious) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = { dragAccumulatedPx = 0f },
+                                    onDragEnd = {
+                                        val thresholdPx = 40.dp.toPx()
+                                        if (dragAccumulatedPx <= -thresholdPx && hasNext) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                            viewModel.skipToNext()
+                                        } else if (dragAccumulatedPx >= thresholdPx && hasPrevious) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                            viewModel.skipToPrevious()
+                                        }
+                                        dragAccumulatedPx = 0f
+                                    },
+                                ) { _, dragAmount -> dragAccumulatedPx += dragAmount }
+                            },
+                    )
+                    // Resolving a track's stream on-device is a real network round trip
+                    // (unlike the old backend's near-instant proxy) - without this, tapping
+                    // a track just kept showing whatever played before with no visible
+                    // change, which read as "my tap didn't register" and prompted a second,
+                    // duplicate tap (see PlayerController.pendingTrackKey for the other half
+                    // of this fix).
+                    if (playbackState.isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .size(PlayerArtSize)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.Black.copy(alpha = 0.45f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = Color.White)
+                        }
+                    }
+                    // Bottom scrim + Visualizer overlay (GrooveoApp.dc.html lines 296-298):
+                    // 104/232 of the art's height, rounded only on the bottom corners.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .size(PlayerArtSize, PlayerArtSize * (104f / 232f))
+                            .clip(RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp))
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))),
+                        contentAlignment = Alignment.BottomCenter,
                     ) {
-                        CircularProgressIndicator(color = Color.White)
+                        Visualizer(
+                            variant = vizVariant,
+                            isPlaying = playbackState.isPlaying,
+                            modifier = Modifier
+                                .padding(bottom = 14.dp)
+                                .width(200.dp)
+                                .height(64.dp),
+                        )
                     }
                 }
-                EqualizerBadge(
-                    isPlaying = playbackState.isPlaying,
-                    size = 30.dp,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(12.dp),
-                )
             }
 
-            Column(
-                modifier = Modifier.padding(top = 24.dp, bottom = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(
-                    if (playbackState.isLoading) "Wird geladen…" else playbackState.title ?: "Kein Titel ausgewählt",
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    if (playbackState.isLoading) "" else playbackState.artist ?: "",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Canopy.neutral500,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(top = 4.dp)
-                        .clickable(enabled = !playbackState.artist.isNullOrBlank() && !playbackState.isLoading) {
-                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                            viewModel.onArtistClicked()
-                        },
-                )
-                // DRM-only SoundCloud track (see PlayerController's isUnavailable kdoc) -
-                // cover/title/artist above still show, but playback is paused here and
-                // won't auto-advance; only a manual skip moves on, matching the disabled
-                // play/pause button below.
-                if (playbackState.isUnavailable) {
-                    Text(
-                        playbackState.unavailableMessage ?: "Titel nicht verfügbar",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Canopy.accent,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 10.dp),
+                VizOptions.forEach { option ->
+                    CanopyIconButton(
+                        icon = phosphorIcon(option.icon),
+                        onClick = { vizVariant = option.id },
+                        variant = if (vizVariant == option.id) CanopyButtonVariant.Primary else CanopyButtonVariant.Ghost,
+                        size = 34.dp,
+                        contentDescription = option.id,
                     )
                 }
             }
 
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (playbackState.isLoading) "Wird geladen…" else playbackState.title ?: "Kein Titel ausgewählt",
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (playbackState.isLoading) "" else playbackState.artist ?: "",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Canopy.neutral600,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(top = 5.dp)
+                            .clickable(enabled = !playbackState.artist.isNullOrBlank() && !playbackState.isLoading) {
+                                haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                viewModel.onArtistClicked()
+                            },
+                    )
+                    // DRM-only SoundCloud track (see PlayerController's isUnavailable kdoc) -
+                    // cover/title/artist above still show, but playback is paused here and
+                    // won't auto-advance; only a manual skip moves on, matching the disabled
+                    // play/pause button below. Not part of the design (a purely local edge
+                    // case), styled to match its existing accent-caption treatment.
+                    if (playbackState.isUnavailable) {
+                        Text(
+                            playbackState.unavailableMessage ?: "Titel nicht verfügbar",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Canopy.accent,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+                // A manual "surface" IconButton rather than [CanopyIconButton]: the design's
+                // like control carries its own pop/burst motion (rememberHeartPopScale +
+                // Confetti), which needs a custom Modifier on the inner icon that
+                // CanopyIconButton's fixed icon slot doesn't expose.
+                Box(
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Canopy.surface)
+                        .border(1.dp, Canopy.divider, CircleShape)
+                        .clickable {
+                            haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                            if (!isLiked) likeTrigger++
+                            viewModel.toggleLike()
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val popScale = rememberHeartPopScale(likeTrigger)
+                    Icon(
+                        phosphorIcon("heart", filled = isLiked),
+                        contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
+                        tint = if (isLiked) Canopy.accent2 else Canopy.text,
+                        modifier = Modifier
+                            .size(21.dp)
+                            .graphicsLayer { scaleX = popScale; scaleY = popScale },
+                    )
+                    Confetti(trigger = likeTrigger, count = 8)
+                }
+            }
+
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 10.dp).fillMaxWidth()) {
                 if (playerStyle == "bars") {
                     Bars(
                         progress = progress,
@@ -377,17 +537,17 @@ fun PlayerScreen(
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(formatMs(positionMs), style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
-                Text(formatMs(durationMs), style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                Text(formatMs(positionMs), style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500)
+                Text(formatMs(durationMs), style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500)
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 20.dp),
+                    .padding(top = 18.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -399,57 +559,8 @@ fun PlayerScreen(
                         )
                         viewModel.toggleShuffle()
                     },
-                    iconSize = 18.dp,
-                )
-                CanopyIconButton(
-                    icon = phosphorIcon(if (playbackState.repeatMode == Player.REPEAT_MODE_ONE) "repeat-once" else "repeat"),
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        viewModel.cycleRepeatMode()
-                    },
-                    iconSize = 18.dp,
-                )
-                SleepEqPill(
-                    icon = phosphorIcon("moon"),
-                    label = "Sleep",
-                    highlighted = sleepTimerEndAtMs != null,
-                    onClick = { showSleepTimerDialog = true },
-                )
-                Box {
-                    SleepEqPill(
-                        icon = phosphorIcon("sliders-horizontal"),
-                        label = eqPresetLabel(eqPreset),
-                        highlighted = true,
-                        onClick = { showEqMenu = true },
-                    )
-                    DropdownMenu(expanded = showEqMenu, onDismissRequest = { showEqMenu = false }) {
-                        EqPresetMenuItem("Flach", EqPreset.FLAT, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        EqPresetMenuItem("Bass-Boost", EqPreset.BASS_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        EqPresetMenuItem("Höhen-Boost", EqPreset.TREBLE_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        EqPresetMenuItem("Vocal", EqPreset.VOCAL, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                    }
-                }
-            }
-            if (sleepTimerEndAtMs != null) {
-                Text(
-                    "Schlaf-Timer: noch ${(sleepTimerRemainingMs / 60_000L) + 1} Min",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Canopy.accent,
-                    modifier = Modifier.padding(top = 9.dp),
-                )
-            }
-
-            Row(
-                modifier = Modifier.padding(top = 22.dp).fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CanopyIconButton(
-                    icon = phosphorIcon("heart", filled = isLiked),
-                    onClick = {
-                        haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
-                        viewModel.toggleLike()
-                    },
+                    variant = if (playbackState.shuffleEnabled) CanopyButtonVariant.Primary else CanopyButtonVariant.Ghost,
+                    size = 44.dp,
                 )
                 CanopyIconButton(
                     icon = phosphorIcon("skip-back"),
@@ -458,7 +569,7 @@ fun PlayerScreen(
                         viewModel.skipToPrevious()
                     },
                     enabled = hasPrevious,
-                    iconSize = 22.dp,
+                    size = 52.dp,
                 )
                 // Disabled (skip-only) while isUnavailable - see PlayerController's kdoc
                 // on that flag: there is nothing loaded to play/pause for a DRM-blocked
@@ -467,9 +578,10 @@ fun PlayerScreen(
                 val transportEnabled = !playbackState.isUnavailable
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(76.dp)
                         .clip(CircleShape)
-                        .border(1.5.dp, if (transportEnabled) Canopy.accent else Canopy.neutral600, CircleShape)
+                        .background(Canopy.accent)
+                        .alpha(if (transportEnabled) 1f else 0.5f)
                         .clickable(enabled = transportEnabled) {
                             haptic.performHapticFeedback(
                                 if (playbackState.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
@@ -479,10 +591,13 @@ fun PlayerScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        phosphorIcon(if (playbackState.isPlaying) "pause" else "play"),
+                        phosphorIcon(if (playbackState.isPlaying) "pause" else "play", filled = true),
                         contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                        tint = if (transportEnabled) Canopy.accent else Canopy.neutral600,
-                        modifier = Modifier.size(26.dp),
+                        // The design's play/pause circle uses --accent-900 text on the accent
+                        // fill (not white, unlike every other "filled" IconButton), for extra
+                        // contrast on its own biggest control.
+                        tint = Canopy.accent900,
+                        modifier = Modifier.size(30.dp),
                     )
                 }
                 CanopyIconButton(
@@ -492,42 +607,141 @@ fun PlayerScreen(
                         viewModel.skipToNext()
                     },
                     enabled = hasNext,
-                    iconSize = 22.dp,
+                    size = 52.dp,
                 )
-                if (playbackState.hasLocalDownload) {
-                    CanopyIconButton(
-                        icon = phosphorIcon(if (playbackState.isLocalPlayback) "check-circle" else "cloud-arrow-up", filled = playbackState.isLocalPlayback),
-                        onClick = {
-                            haptic.performHapticFeedback(
-                                if (playbackState.isLocalPlayback) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
-                            )
-                            viewModel.toggleSource()
-                        },
-                        variant = dev.schlubbe.musicagent.ui.components.CanopyButtonVariant.Primary,
+                CanopyIconButton(
+                    icon = phosphorIcon(if (playbackState.repeatMode == Player.REPEAT_MODE_ONE) "repeat-once" else "repeat"),
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                        viewModel.cycleRepeatMode()
+                    },
+                    variant = if (playbackState.repeatMode != Player.REPEAT_MODE_OFF) CanopyButtonVariant.Primary else CanopyButtonVariant.Ghost,
+                    size = 44.dp,
+                )
+            }
+
+            // Stream/offline card (GrooveoApp.dc.html lines 335-342). The design's toggle
+            // assumes a track is always either fully offline or not; this app instead
+            // separates "download" (a one-way action, [PlayerViewModel.onDownloadClicked])
+            // from "switch source" ([PlayerViewModel.toggleSource], only meaningful once a
+            // local copy already exists) - so the trailing control swaps between the two
+            // depending on hasLocalDownload, keeping both existing actions reachable.
+            if (playbackState.currentTrackId != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp)
+                        .clip(CanopyShapes.medium)
+                        .background(Canopy.surface)
+                        .border(1.dp, Canopy.divider, CanopyShapes.medium)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        phosphorIcon(if (playbackState.isLocalPlayback) "check-circle" else "cloud", filled = playbackState.isLocalPlayback),
+                        contentDescription = null,
+                        tint = Canopy.accent,
+                        modifier = Modifier.size(20.dp),
                     )
-                } else if (playbackState.currentTrackId != null) {
-                    CanopyIconButton(
-                        icon = phosphorIcon("download-simple"),
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                            viewModel.onDownloadClicked()
-                        },
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            if (playbackState.isLocalPlayback) "Offline verfügbar" else "Wird gestreamt",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text(
+                            when {
+                                // The design's subtitle carries a hardcoded file size
+                                // ("Auf dem Gerät gespeichert · 7,4 MB") - PlaybackUiState
+                                // has no byte count for the current track, so that stat is
+                                // dropped rather than invented (same call made for Home's
+                                // like-count card during Phase 2).
+                                playbackState.isLocalPlayback -> "Auf dem Gerät gespeichert"
+                                playbackState.hasLocalDownload -> "Lokale Kopie verfügbar"
+                                else -> "Zum Offline-Hören herunterladen"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Canopy.neutral500,
+                        )
+                    }
+                    if (playbackState.hasLocalDownload) {
+                        CanopyToggle(
+                            checked = playbackState.isLocalPlayback,
+                            onCheckedChange = {
+                                haptic.performHapticFeedback(
+                                    if (playbackState.isLocalPlayback) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
+                                )
+                                viewModel.toggleSource()
+                            },
+                        )
+                    } else {
+                        CanopyIconButton(
+                            icon = phosphorIcon("download-simple"),
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                viewModel.onDownloadClicked()
+                            },
+                            size = 36.dp,
+                        )
+                    }
                 }
             }
-        }
 
-        if (upNext.isNotEmpty()) {
-            Text(
-                "Als Nächstes",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = dimens.playerContentPadding, vertical = 8.dp),
-            )
-            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                itemsIndexed(upNext, key = { _, track -> "${track.source}:${track.sourceId}" }) { i, track ->
-                    val queueIndex = playbackState.queueIndex + 1 + i
-                    UpNextRow(track = track, onClick = { viewModel.playQueueItem(queueIndex) })
+            val sleepChipLabel = if (sleepTimerEndAtMs != null) {
+                "Noch ${(sleepTimerRemainingMs / 60_000L) + 1} Min"
+            } else {
+                "Sleep-Timer"
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CanopyChip(
+                    label = sleepChipLabel,
+                    active = sleepTimerEndAtMs != null,
+                    onClick = { showSleepTimerDialog = true },
+                )
+                Box {
+                    CanopyChip(
+                        label = "Equalizer: ${eqPresetLabel(eqPreset)}",
+                        active = true,
+                        onClick = { showEqMenu = true },
+                    )
+                    DropdownMenu(expanded = showEqMenu, onDismissRequest = { showEqMenu = false }) {
+                        EqPresetMenuItem("Flach", EqPreset.FLAT, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
+                        EqPresetMenuItem("Bass-Boost", EqPreset.BASS_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
+                        EqPresetMenuItem("Höhen-Boost", EqPreset.TREBLE_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
+                        EqPresetMenuItem("Vocal", EqPreset.VOCAL, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
+                    }
                 }
+                // The design's "Zur Warteschlange" chip just flashes a toast in the mockup;
+                // there's no dedicated queue screen wired into this app's NavGraph (out of
+                // scope to add here), so instead it scrolls this same screen down to the
+                // "Als Nächstes" list below, which is real, already-working data.
+                CanopyChip(
+                    label = "Zur Warteschlange",
+                    active = false,
+                    onClick = {
+                        if (upNext.isNotEmpty()) {
+                            coroutineScope.launch { scrollState.animateScrollTo(scrollState.maxValue) }
+                        }
+                    },
+                )
+            }
+
+            if (upNext.isNotEmpty()) {
+                CanopySectionHeader(title = "Als Nächstes", modifier = Modifier.padding(top = 22.dp))
+                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    upNext.forEachIndexed { i, track ->
+                        val queueIndex = playbackState.queueIndex + 1 + i
+                        UpNextRow(track = track, onClick = { viewModel.playQueueItem(queueIndex) })
+                    }
+                }
+            } else {
+                Box(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -538,28 +752,6 @@ fun PlayerScreen(
             onDismiss = viewModel::dismissAddToPlaylist,
             onPlaylistPicked = viewModel::onPlaylistPicked,
             onCreatePlaylist = viewModel::onCreatePlaylistAndAdd,
-        )
-    }
-}
-
-/** ".tag" pill with icon+label used for the Sleep-timer and EQ-preset quick
- * actions next to shuffle/repeat -- a border-only pill, not a filled chip. */
-@Composable
-private fun SleepEqPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, highlighted: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, Canopy.divider, RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = if (highlighted) Canopy.accent else Canopy.neutral400, modifier = Modifier.size(13.dp))
-        Text(
-            label,
-            color = if (highlighted) Canopy.accent else Canopy.text,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(start = 5.dp),
         )
     }
 }
@@ -625,7 +817,7 @@ private fun SleepTimerDialog(
 private fun UpNextRow(track: TrackResultDto, onClick: () -> Unit) {
     val dimens = rememberResponsiveDimens()
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
@@ -686,16 +878,17 @@ private fun Bars(progress: Float, modifier: Modifier = Modifier) {
 
 /** A SoundCloud-style static waveform behind the (invisible-tracked) [Slider] —
  * bars are seeded per track so the shape stays stable across recompositions and
- * position updates, rather than re-randomizing every frame. */
+ * position updates, rather than re-randomizing every frame. 46 bars per the
+ * handoff's "Waveform seek: 46 bars" spec. */
 @Composable
 private fun Waveform(progress: Float, seed: Int, modifier: Modifier = Modifier) {
-    val barCount = 56
+    val barCount = 46
     val barHeights = remember(seed) {
         val random = Random(seed)
         List(barCount) { 0.2f + random.nextFloat() * 0.8f }
     }
     val activeColor = Canopy.accent
-    val inactiveColor = Canopy.neutral800
+    val inactiveColor = Canopy.neutral300
 
     Canvas(modifier = modifier) {
         val gap = 3.dp.toPx()
@@ -711,6 +904,150 @@ private fun Waveform(progress: Float, seed: Int, modifier: Modifier = Modifier) 
                 size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
             )
+        }
+    }
+}
+
+/** The Player's five-way "Visualizer" overlay drawn on the artwork's bottom scrim
+ * (design_handoff_grooveo's `Visualizer` component, `_ds_bundle.js` variants
+ * wave/bars/orb/particles/pulse). No existing CanopyMotion helper covers a
+ * multi-variant visualizer like this, so [rememberEqBarHeights] is reused for the
+ * two bar-shaped variants and the radial ones (orb/pulse/particles) get their own
+ * small animations here, all gated on [isPlaying] the same way the motion helpers
+ * gate their own loops (never feeding a zero-length duration into `tween`). */
+@Composable
+private fun Visualizer(
+    variant: String,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White.copy(alpha = 0.92f),
+) {
+    when (variant) {
+        "bars" -> {
+            val heights = rememberEqBarHeights(isPlaying, barCount = 10)
+            Row(
+                modifier = modifier,
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                heights.forEach { h ->
+                    Box(
+                        modifier = Modifier
+                            .width(8.dp)
+                            .fillMaxHeight(h)
+                            .clip(RoundedCornerShape(50))
+                            .background(color),
+                    )
+                }
+            }
+        }
+        "orb" -> {
+            val spin = if (isPlaying) {
+                val transition = rememberInfiniteTransition(label = "vizOrb")
+                val s by transition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing)),
+                    label = "vizOrbSpin",
+                )
+                s
+            } else {
+                0f
+            }
+            val accent200 = Canopy.accent200
+            Canvas(modifier = modifier) {
+                val r = size.minDimension / 2f
+                val centre = Offset(size.width / 2f, size.height / 2f)
+                val strokeWidth = r * 0.14f
+                rotate(spin, centre) {
+                    drawArc(
+                        color = color,
+                        startAngle = 0f,
+                        sweepAngle = 120f,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidth),
+                        topLeft = Offset(centre.x - r, centre.y - r),
+                        size = Size(r * 2, r * 2),
+                    )
+                    drawArc(
+                        color = accent200,
+                        startAngle = 170f,
+                        sweepAngle = 90f,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidth),
+                        topLeft = Offset(centre.x - r, centre.y - r),
+                        size = Size(r * 2, r * 2),
+                    )
+                }
+                drawCircle(color = Color.Black.copy(alpha = 0.7f), radius = r * 0.55f, center = centre)
+                drawCircle(color = color, radius = r * 0.55f, center = centre, style = Stroke(width = 1.dp.toPx()))
+            }
+        }
+        "particles" -> {
+            val phases = rememberEqBarHeights(isPlaying, barCount = 16)
+            Canvas(modifier = modifier) {
+                val centre = Offset(size.width / 2f, size.height / 2f)
+                val r = size.minDimension * 0.42f
+                phases.forEachIndexed { i, phase ->
+                    val angle = (i.toFloat() / phases.size) * 2f * Math.PI.toFloat()
+                    val pos = Offset(centre.x + cos(angle) * r, centre.y + sin(angle) * r * 0.5f)
+                    drawCircle(
+                        color = color.copy(alpha = 0.4f + 0.6f * phase),
+                        radius = 2.5.dp.toPx() * phase,
+                        center = pos,
+                    )
+                }
+            }
+        }
+        "pulse" -> {
+            val ringProgresses = if (isPlaying) {
+                val transition = rememberInfiniteTransition(label = "vizPulse")
+                (0 until 3).map { i ->
+                    val p by transition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(2100, easing = LinearEasing, delayMillis = i * 700),
+                            repeatMode = RepeatMode.Restart,
+                        ),
+                        label = "vizPulseRing$i",
+                    )
+                    p
+                }
+            } else {
+                listOf(0.3f, 0.3f, 0.3f)
+            }
+            Canvas(modifier = modifier) {
+                val centre = Offset(size.width / 2f, size.height / 2f)
+                val maxR = size.minDimension / 2f
+                ringProgresses.forEach { p ->
+                    drawCircle(
+                        color = color.copy(alpha = (1f - p) * 0.8f),
+                        radius = maxR * (0.3f + 0.7f * p),
+                        center = centre,
+                        style = Stroke(width = 1.5.dp.toPx()),
+                    )
+                }
+                drawCircle(color = color, radius = maxR * 0.18f, center = centre)
+            }
+        }
+        else -> { // "wave", the default variant
+            val heights = rememberEqBarHeights(isPlaying, barCount = 22)
+            Row(
+                modifier = modifier,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                heights.forEach { h ->
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .fillMaxHeight(0.35f + 0.65f * h)
+                            .clip(RoundedCornerShape(50))
+                            .background(color.copy(alpha = 0.35f + 0.65f * h)),
+                    )
+                }
+            }
         }
     }
 }

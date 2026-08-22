@@ -1,6 +1,12 @@
 package dev.schlubbe.musicagent.ui.settings
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -33,19 +38,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.BuildConfig
-import dev.schlubbe.musicagent.playback.EqPreset
 import dev.schlubbe.musicagent.playback.Sound3dPreset
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.SegmentedControl
+import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
+import dev.schlubbe.musicagent.ui.components.CanopyToggle
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
+import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 import dev.schlubbe.musicagent.ui.update.UpdateDialog
 import dev.schlubbe.musicagent.ui.update.UpdateViewModel
+import dev.schlubbe.musicagent.widget.PlaybackWidgetReceiver
+
+// Design source: design_handoff_grooveo/GrooveoApp.dc.html lines 691-762 ("SETTINGS")
+// and screenshots/08-android.png, rightmost phone ("09 - EINSTELLUNGEN"). Section order
+// (Wiedergabe / Equalizer / PC-Backend / Erweitert / footer) and the card/row styling
+// below follow that source. Everything the previous version of this screen exposed
+// (Wiedergabestil, Downloads, Benachrichtigungen, Startseite personalisieren, Hi-Res
+// Audio, What's New) is preserved under "Weitere Einstellungen" -- the mockup doesn't
+// depict those, so rather than delete working features they're kept in the same
+// card/row idiom as the rest of the screen. See the task report for details.
 
 private fun sound3dIcon(preset: Sound3dPreset): String = when (preset) {
     Sound3dPreset.DISABLED -> "prohibit"
@@ -62,11 +82,33 @@ private fun sound3dIcon(preset: Sound3dPreset): String = when (preset) {
 fun SettingsScreen(
     onNavigateBack: () -> Unit = {},
     onWhatsNewClick: () -> Unit = {},
+    onNavigateToEqualizer: () -> Unit = {},
+    onConnectPcClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var showSound3dSheet by remember { mutableStateOf(false) }
+    var showBackendUrlDialog by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var showBackupSheet by remember { mutableStateOf(false) }
+
+    val sound3dOn = uiState.sound3dPreset != Sound3dPreset.DISABLED
+
+    fun setupWidget() {
+        val manager = AppWidgetManager.getInstance(context)
+        val provider = ComponentName(context, PlaybackWidgetReceiver::class.java)
+        if (manager.isRequestPinAppWidgetSupported) {
+            manager.requestPinAppWidget(provider, null, null)
+        } else {
+            Toast.makeText(
+                context,
+                "Dein Homescreen unterstützt das direkte Anheften nicht — füge das Widget manuell über den Homescreen hinzu.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
 
     Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxWidth()) {
@@ -82,244 +124,227 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {
                 // — Wiedergabe —
-                SectionHeader("Wiedergabe")
-                SettingLabel("Wiedergabestil")
-                SegmentedControl(
-                    options = listOf("waveform" to "Waveform", "bars" to "Balken"),
-                    selected = listOf("waveform" to "Waveform", "bars" to "Balken").first { it.first == uiState.playerStyle },
-                    onSelect = { viewModel.onPlayerStyleChanged(it.first) },
-                    label = { it.second },
-                    fillWidth = true,
-                )
-                SettingLabel("Equalizer-Standard")
-                SegmentedControl(
-                    options = listOf(
-                        EqPreset.FLAT to "Flach",
-                        EqPreset.BASS_BOOST to "Bass",
-                        EqPreset.TREBLE_BOOST to "Höhen",
-                        EqPreset.VOCAL to "Vocal",
-                    ),
-                    selected = listOf(
-                        EqPreset.FLAT to "Flach",
-                        EqPreset.BASS_BOOST to "Bass",
-                        EqPreset.TREBLE_BOOST to "Höhen",
-                        EqPreset.VOCAL to "Vocal",
-                    ).first { it.first == uiState.eqPreset },
-                    onSelect = { viewModel.onEqPresetChanged(it.first) },
-                    label = { it.second },
-                    fillWidth = true,
-                )
-                ToggleRow(
-                    title = "Automatische Weiterempfehlung",
-                    subtitle = "Spielt ähnliche Titel, wenn die Warteschlange endet",
-                    checked = uiState.autoplayRadio,
-                    onCheckedChange = viewModel::onAutoplayRadioChanged,
-                )
-
-                HorizontalDivider(color = Canopy.divider)
-
-                // — 3D-Sound —
-                SectionHeader("3D-Sound")
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showSound3dSheet = true },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("Raumklang-Vorlage", style = MaterialTheme.typography.bodyMedium)
-                        Text(uiState.sound3dPreset.description, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(uiState.sound3dPreset.label, color = Canopy.accent300, style = MaterialTheme.typography.labelMedium)
-                        Icon(
-                            phosphorIcon("caret-right"),
-                            contentDescription = null,
-                            tint = Canopy.neutral500,
-                            modifier = Modifier.padding(start = 6.dp).size(15.dp),
+                Column {
+                    CanopySectionHeader(title = "Wiedergabe")
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsToggleCard(
+                            icon = phosphorIcon("cell-signal-slash"),
+                            title = "Datensparmodus",
+                            subtitle = "Spielt nur heruntergeladene Titel ab, es wird nie gestreamt.",
+                            checked = uiState.dataSaverMode,
+                            onCheckedChange = viewModel::onDataSaverModeChanged,
+                        )
+                        // "spiral" (ph-spiral) has no PhosphorIcon.kt mapping -- see task
+                        // report. "circles-three" is used as the closest already-mapped
+                        // stand-in rather than silently falling back to WarningCircle.
+                        SettingsToggleCard(
+                            icon = phosphorIcon("circles-three"),
+                            title = "3D-Sound",
+                            subtitle = if (sound3dOn) uiState.sound3dPreset.description else "Räumliche Wiedergabe über Kopfhörer",
+                            checked = sound3dOn,
+                            onCheckedChange = { on ->
+                                if (on) showSound3dSheet = true else viewModel.onSound3dPresetChanged(Sound3dPreset.DISABLED)
+                            },
+                            onClick = { showSound3dSheet = true },
                         )
                     }
                 }
 
-                HorizontalDivider(color = Canopy.divider)
-
-                // — Downloads —
-                SectionHeader("Downloads")
-                ToggleRow(
-                    title = "Datensparmodus",
-                    subtitle = "Spielt nur heruntergeladene Titel ab, es wird nie gestreamt.",
-                    checked = uiState.dataSaverMode,
-                    onCheckedChange = viewModel::onDataSaverModeChanged,
-                )
-                ToggleRow(
-                    title = "Nur über WLAN herunterladen",
-                    subtitle = null,
-                    checked = uiState.downloadsWifiOnly,
-                    onCheckedChange = viewModel::onDownloadsWifiOnlyChanged,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("Zwischenspeicher", style = MaterialTheme.typography.bodyMedium)
-                        Text("${uiState.cacheSizeMb} MB", style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                // — Equalizer —
+                Column {
+                    CanopySectionHeader(title = "Equalizer")
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        EQ_PRESET_ORDER.forEach { (preset, label) ->
+                            CanopyChip(
+                                label = label,
+                                active = uiState.eqPreset == preset,
+                                onClick = { viewModel.onEqPresetChanged(preset) },
+                            )
+                        }
                     }
-                    CanopyButton(text = "Leeren", onClick = viewModel::clearCache, variant = CanopyButtonVariant.Secondary)
+                    Spacer(modifier = Modifier.padding(top = 14.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(CanopyShapes.medium)
+                            .background(Canopy.surface)
+                            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+                            .clickable(onClick = onNavigateToEqualizer)
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EqCurvePreview(
+                            gains = EQ_PRESET_GAINS[uiState.eqPreset] ?: List(5) { 0f },
+                            modifier = Modifier.size(width = 44.dp, height = 34.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Bänder einstellen", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                eqPresetLabel(uiState.eqPreset),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Canopy.neutral500,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
+                        Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral400, modifier = Modifier.size(18.dp))
+                    }
                 }
 
-                HorizontalDivider(color = Canopy.divider)
-
-                // — Benachrichtigungen —
-                SectionHeader("Benachrichtigungen")
-                ToggleRow(
-                    title = "Neue Uploads von gefolgten Künstlern",
-                    subtitle = null,
-                    checked = uiState.notifyNewUploads,
-                    onCheckedChange = viewModel::onNotifyNewUploadsChanged,
-                )
-
-                HorizontalDivider(color = Canopy.divider)
-
-                // — Startseite personalisieren —
-                SectionHeader("Startseite personalisieren")
-                ToggleRow(
-                    title = "Mix & Stimmungen",
-                    subtitle = null,
-                    checked = uiState.showMixControls,
-                    onCheckedChange = viewModel::onShowMixControlsChanged,
-                )
-                ToggleRow(
-                    title = "Im Fokus",
-                    subtitle = null,
-                    checked = uiState.showFeatured,
-                    onCheckedChange = viewModel::onShowFeaturedChanged,
-                )
-                ToggleRow(
-                    title = "Neu von Künstlern",
-                    subtitle = null,
-                    checked = uiState.showNewUploads,
-                    onCheckedChange = viewModel::onShowNewUploadsChanged,
-                )
-
-                HorizontalDivider(color = Canopy.divider)
-
-                // — Updates & Sicherungen —
-                SectionHeader("Updates & Sicherungen")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("App-Version", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Canopy.neutral500,
-                        )
-                    }
-                    CanopyButton(text = "Nach Updates suchen", onClick = updateViewModel::checkForUpdate, variant = CanopyButtonVariant.Secondary)
-                }
-                Text(
-                    "Was ist neu?",
-                    color = Canopy.accent,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable(onClick = onWhatsNewClick),
-                )
-                ToggleRow(
-                    title = "Automatische Sicherung",
-                    subtitle = null,
-                    checked = uiState.autoBackup,
-                    onCheckedChange = viewModel::onAutoBackupChanged,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("Letzte Sicherung", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            uiState.lastBackupText ?: "Noch keine Sicherung",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Canopy.neutral500,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CanopyIconButton(icon = phosphorIcon("share-network"), onClick = viewModel::shareBackup, iconSize = 16.dp)
-                        CanopyButton(
-                            text = if (uiState.backupState == BackupState.Running) "…" else "Jetzt sichern",
-                            onClick = viewModel::backupNow,
-                            variant = CanopyButtonVariant.Secondary,
-                            enabled = uiState.backupState != BackupState.Running,
-                        )
-                    }
-                }
-                when (val state = uiState.backupState) {
-                    is BackupState.Error -> Text(
-                        state.message,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                // — PC-Backend —
+                Column {
+                    CanopySectionHeader(title = "PC-Backend")
+                    SettingsNavRow(
+                        icon = phosphorIcon("desktop-tower"),
+                        title = "Mit PC verbinden",
+                        subtitle = if (uiState.backendBaseUrl.isBlank()) "Kein PC verbunden" else "Konfiguriert: ${uiState.backendBaseUrl}",
+                        onClick = onConnectPcClick,
                     )
-                    else -> Unit
-                }
-                CanopyButton(
-                    text = "Aus Sicherung wiederherstellen",
-                    onClick = viewModel::onRestoreClicked,
-                    variant = CanopyButtonVariant.Secondary,
-                    leadingIcon = phosphorIcon("clock-counter-clockwise"),
-                    block = true,
-                )
-
-                HorizontalDivider(color = Canopy.divider)
-
-                // — Über —
-                SectionHeader("Über")
-                Text("Über die App", style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "Grooveo · ${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Canopy.neutral500,
-                )
-                Text("Backend verbinden", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
-                Text(
-                    "Optional – nicht konfiguriert",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Canopy.neutral500,
-                )
-                CanopyTextField(
-                    value = uiState.backendBaseUrl,
-                    onValueChange = viewModel::onBackendBaseUrlChanged,
-                    label = "Backend-URL (z. B. http://192.168.1.10:8000)",
-                )
-                CanopyTextField(
-                    value = uiState.apiKey,
-                    onValueChange = viewModel::onApiKeyChanged,
-                    label = "API-Key",
-                )
-                CanopyButton(
-                    text = "Test Connection",
-                    onClick = viewModel::testConnection,
-                    enabled = uiState.connectionTestState != ConnectionTestState.Testing,
-                )
-                when (val state = uiState.connectionTestState) {
-                    is ConnectionTestState.Idle -> Unit
-                    is ConnectionTestState.Testing -> CircularProgressIndicator(color = Canopy.accent)
-                    is ConnectionTestState.Success -> Text("Verbindung erfolgreich", color = Canopy.accent)
-                    is ConnectionTestState.Error -> Text("Fehler: ${state.message}", color = MaterialTheme.colorScheme.error)
                 }
 
-                ToggleRow(
-                    title = "Hochauflösendes Audio",
-                    subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert.",
-                    checked = uiState.hiResAudio,
-                    onCheckedChange = viewModel::onHiResAudioChanged,
-                )
+                // — Erweitert —
+                Column {
+                    CanopySectionHeader(title = "Erweitert")
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsNavRow(
+                            icon = phosphorIcon("globe"),
+                            title = "Backend-URL",
+                            subtitle = uiState.backendBaseUrl.ifBlank { "Nicht gesetzt" },
+                            onClick = { showBackendUrlDialog = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("key"),
+                            title = "API-Key",
+                            subtitle = if (uiState.apiKey.isBlank()) "Nicht gesetzt" else "•••• gesetzt",
+                            onClick = { showApiKeyDialog = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("cloud-arrow-up"),
+                            title = "Backup exportieren",
+                            subtitle = uiState.lastBackupText ?: "Noch keine Sicherung",
+                            onClick = { showBackupSheet = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("squares-four"),
+                            title = "Widget einrichten",
+                            subtitle = "Player-Widget zum Homescreen hinzufügen",
+                            onClick = ::setupWidget,
+                        )
+                    }
+                }
+
+                // — Weitere Einstellungen — (existing features the mockup doesn't depict)
+                Column {
+                    CanopySectionHeader(title = "Weitere Einstellungen")
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column {
+                            SettingLabel("Wiedergabestil")
+                            Spacer(modifier = Modifier.padding(top = 8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CanopyChip(
+                                    label = "Waveform",
+                                    active = uiState.playerStyle == "waveform",
+                                    onClick = { viewModel.onPlayerStyleChanged("waveform") },
+                                )
+                                CanopyChip(
+                                    label = "Balken",
+                                    active = uiState.playerStyle == "bars",
+                                    onClick = { viewModel.onPlayerStyleChanged("bars") },
+                                )
+                            }
+                        }
+                        ToggleRow(
+                            title = "Automatische Weiterempfehlung",
+                            subtitle = "Spielt ähnliche Titel, wenn die Warteschlange endet",
+                            checked = uiState.autoplayRadio,
+                            onCheckedChange = viewModel::onAutoplayRadioChanged,
+                        )
+                        ToggleRow(
+                            title = "Nur über WLAN herunterladen",
+                            subtitle = null,
+                            checked = uiState.downloadsWifiOnly,
+                            onCheckedChange = viewModel::onDownloadsWifiOnlyChanged,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text("Zwischenspeicher", style = MaterialTheme.typography.bodyMedium)
+                                Text("${uiState.cacheSizeMb} MB", style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                            }
+                            CanopyButton(text = "Leeren", onClick = viewModel::clearCache, variant = CanopyButtonVariant.Secondary)
+                        }
+                        ToggleRow(
+                            title = "Neue Uploads von gefolgten Künstlern",
+                            subtitle = null,
+                            checked = uiState.notifyNewUploads,
+                            onCheckedChange = viewModel::onNotifyNewUploadsChanged,
+                        )
+                        ToggleRow(
+                            title = "Mix & Stimmungen",
+                            subtitle = null,
+                            checked = uiState.showMixControls,
+                            onCheckedChange = viewModel::onShowMixControlsChanged,
+                        )
+                        ToggleRow(
+                            title = "Im Fokus",
+                            subtitle = null,
+                            checked = uiState.showFeatured,
+                            onCheckedChange = viewModel::onShowFeaturedChanged,
+                        )
+                        ToggleRow(
+                            title = "Neu von Künstlern",
+                            subtitle = null,
+                            checked = uiState.showNewUploads,
+                            onCheckedChange = viewModel::onShowNewUploadsChanged,
+                        )
+                        ToggleRow(
+                            title = "Hochauflösendes Audio",
+                            subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert.",
+                            checked = uiState.hiResAudio,
+                            onCheckedChange = viewModel::onHiResAudioChanged,
+                        )
+                    }
+                }
+
+                // — Footer —
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Grooveo ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                "Build ${BuildConfig.VERSION_CODE}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Canopy.neutral500,
+                            )
+                        }
+                        CanopyButton(
+                            text = "Prüfen",
+                            onClick = updateViewModel::checkForUpdate,
+                            variant = CanopyButtonVariant.Secondary,
+                            leadingIcon = phosphorIcon("arrow-clockwise"),
+                        )
+                    }
+                    Text(
+                        "Was ist neu?",
+                        color = Canopy.accent,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 12.dp).clickable(onClick = onWhatsNewClick),
+                    )
+                }
                 Spacer(modifier = Modifier.padding(bottom = 24.dp))
             }
         }
@@ -333,6 +358,35 @@ fun SettingsScreen(
                 viewModel.onSound3dPresetChanged(preset)
                 showSound3dSheet = false
             },
+        )
+    }
+
+    if (showBackendUrlDialog) {
+        BackendUrlDialog(
+            value = uiState.backendBaseUrl,
+            onValueChange = viewModel::onBackendBaseUrlChanged,
+            onDismiss = { showBackendUrlDialog = false },
+        )
+    }
+
+    if (showApiKeyDialog) {
+        ApiKeyDialog(
+            value = uiState.apiKey,
+            onValueChange = viewModel::onApiKeyChanged,
+            connectionTestState = uiState.connectionTestState,
+            onTest = viewModel::testConnection,
+            onDismiss = { showApiKeyDialog = false },
+        )
+    }
+
+    if (showBackupSheet) {
+        BackupSheet(
+            uiState = uiState,
+            onDismiss = { showBackupSheet = false },
+            onBackupNow = viewModel::backupNow,
+            onShare = viewModel::shareBackup,
+            onAutoBackupChanged = viewModel::onAutoBackupChanged,
+            onRestoreClick = viewModel::onRestoreClicked,
         )
     }
 
@@ -353,13 +407,65 @@ fun SettingsScreen(
     UpdateDialog(updateViewModel)
 }
 
+/** Canopy card row for a boolean setting with a leading icon (WIEDERGABE section):
+ * icon + title/subtitle + [CanopyToggle]. [onClick] additionally makes the whole row
+ * open a richer picker (used by 3D-Sound, which has more than an on/off state). */
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title.uppercase(),
-        style = MaterialTheme.typography.titleSmall,
-        color = Canopy.accent,
-    )
+private fun SettingsToggleCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CanopyShapes.medium)
+            .background(Canopy.surface)
+            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = Canopy.accent, modifier = Modifier.size(20.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.labelLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, modifier = Modifier.padding(top = 2.dp))
+        }
+        CanopyToggle(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** Canopy card row that navigates elsewhere (PC-BACKEND / ERWEITERT sections):
+ * icon + title/subtitle + a trailing caret. */
+@Composable
+private fun SettingsNavRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CanopyShapes.medium)
+            .background(Canopy.surface)
+            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = Canopy.accent, modifier = Modifier.size(20.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.labelLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, modifier = Modifier.padding(top = 2.dp))
+        }
+        Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral400, modifier = Modifier.size(18.dp))
+    }
 }
 
 @Composable
@@ -380,12 +486,7 @@ private fun ToggleRow(title: String, subtitle: String?, checked: Boolean, onChec
                 Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
             }
         }
-        SegmentedControl(
-            options = listOf(false, true),
-            selected = checked,
-            onSelect = onCheckedChange,
-            label = { if (it) "An" else "Aus" },
-        )
+        CanopyToggle(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -407,6 +508,122 @@ private fun CanopyTextField(value: String, onValueChange: (String) -> Unit, labe
             ),
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+@Composable
+private fun BackendUrlDialog(value: String, onValueChange: (String) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Backend-URL") },
+        text = {
+            Column {
+                Text(
+                    "Optionale Adresse eines eigenen FastAPI-Backends im selben Netz -- für Analytics und Update-Checks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Canopy.neutral500,
+                )
+                Spacer(modifier = Modifier.padding(top = 10.dp))
+                CanopyTextField(value = value, onValueChange = onValueChange, label = "z. B. http://192.168.1.10:8000")
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fertig") } },
+    )
+}
+
+@Composable
+private fun ApiKeyDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
+    connectionTestState: ConnectionTestState,
+    onTest: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("API-Key") },
+        text = {
+            Column {
+                CanopyTextField(value = value, onValueChange = onValueChange, label = "API-Key")
+                Spacer(modifier = Modifier.padding(top = 12.dp))
+                CanopyButton(
+                    text = "Verbindung testen",
+                    onClick = onTest,
+                    variant = CanopyButtonVariant.Secondary,
+                    enabled = connectionTestState != ConnectionTestState.Testing,
+                )
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+                when (connectionTestState) {
+                    is ConnectionTestState.Idle -> Unit
+                    is ConnectionTestState.Testing -> CircularProgressIndicator(color = Canopy.accent, modifier = Modifier.size(20.dp))
+                    is ConnectionTestState.Success -> Text("Verbindung erfolgreich", color = Canopy.accent)
+                    is ConnectionTestState.Error -> Text("Fehler: ${connectionTestState.message}", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fertig") } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackupSheet(
+    uiState: SettingsUiState,
+    onDismiss: () -> Unit,
+    onBackupNow: () -> Unit,
+    onShare: () -> Unit,
+    onAutoBackupChanged: (Boolean) -> Unit,
+    onRestoreClick: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Backup exportieren", style = MaterialTheme.typography.headlineSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Letzte Sicherung", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        uiState.lastBackupText ?: "Noch keine Sicherung",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Canopy.neutral500,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CanopyIconButton(icon = phosphorIcon("share-network"), onClick = onShare, iconSize = 16.dp)
+                    CanopyButton(
+                        text = if (uiState.backupState == BackupState.Running) "…" else "Jetzt sichern",
+                        onClick = onBackupNow,
+                        variant = CanopyButtonVariant.Secondary,
+                        enabled = uiState.backupState != BackupState.Running,
+                    )
+                }
+            }
+            when (val state = uiState.backupState) {
+                is BackupState.Error -> Text(state.message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                else -> Unit
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Automatische Sicherung", style = MaterialTheme.typography.bodyMedium)
+                CanopyToggle(checked = uiState.autoBackup, onCheckedChange = onAutoBackupChanged)
+            }
+            CanopyButton(
+                text = "Aus Sicherung wiederherstellen",
+                onClick = onRestoreClick,
+                variant = CanopyButtonVariant.Secondary,
+                leadingIcon = phosphorIcon("clock-counter-clockwise"),
+                block = true,
+            )
+        }
     }
 }
 

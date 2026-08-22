@@ -1,17 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Music Agent mark: five vertical bars of varying height, a stylized
-     waveform (see the design handoff's Splash & Logo spec) - the middle,
-     tallest bar in the brighter accent-300 tone, the other four in the base
-     accent color. Centered within the 108dp adaptive-icon canvas, staying
-     inside the ~66dp safe zone launchers don't crop. -->
+<!-- The Grooveo mark, logo direction "A (Pegel)" from the Canopy handoff's
+     Grooveo Logos.dc.html. Pegel means level meter, which is why the bars stand
+     on a common baseline rather than being centred, and why the tallest centre
+     bar carries the coral accent-2 while the other four use the base accent.
+
+     Bar height ratios are the handoff's own 0.43 / 0.73 / 1 / 0.63 / 0.33
+     against a 48-unit tallest bar, sitting on a y=78 baseline. Drawn as
+     round-capped strokes so the bars read as pills (the design's radius is
+     99px, i.e. fully rounded) without hand-authoring arc path data.
+
+     The whole mark spans x=22..86 and y=30..78, inside the ~66dp safe zone that
+     launchers never crop out of the 108dp adaptive canvas. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M17,42 L27,42 L27,66 L17,66 Z" />
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M33,36 L43,36 L43,72 L33,72 Z" />
-    <path android:fillColor="@color/nocturne_accent_300" android:pathData="M49,30 L59,30 L59,78 L49,78 Z" />
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M65,36 L75,36 L75,72 L65,72 Z" />
-    <path android:fillColor="@color/nocturne_accent" android:pathData="M81,42 L91,42 L91,66 L81,66 Z" />
+    <!-- Stroke width 8 with round caps extends each end by 4, so the drawn
+         geometry runs y=(top-4)..(74+4); the line endpoints are inset to match. -->
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M26,61 L26,74" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M40,47 L40,74" />
+    <path
+        android:strokeColor="@color/canopy_accent_2"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M54,34 L54,74" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M68,52 L68,74" />
+    <path
+        android:strokeColor="@color/canopy_accent"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:pathData="M82,66 L82,74" />
 </vector>
