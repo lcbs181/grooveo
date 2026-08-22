@@ -1,4 +1,4 @@
-# Contributing to Music Agent Standalone
+# Contributing to Grooveo
 
 Thanks for considering a contribution. This is a small, on-device Android app
 (no backend required to build or run it) — most changes only need Android

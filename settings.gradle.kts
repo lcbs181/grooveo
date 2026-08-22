@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MusicAgentStandalone"
+rootProject.name = "Grooveo"
 include(":app")

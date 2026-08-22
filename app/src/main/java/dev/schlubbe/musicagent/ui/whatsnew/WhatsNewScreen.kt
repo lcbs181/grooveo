@@ -32,6 +32,11 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "sparkle",
+        "Neuer Name: Grooveo",
+        "Music Agent heißt jetzt Grooveo - gleiche App, gleiche Bibliothek, nur ein Name, der sich bei Google nicht mehr mit tausend anderen Ergebnissen teilt.",
+    ),
+    WhatsNewItem(
         "waveform",
         "Player-Fehler behoben",
         "Der Visualizer stand auf dem Kopf, SoundCloud-Titel brachen vorzeitig ab, und DRM-geschützte Titel wurden stumm übersprungen - alles behoben. DRM-Titel zeigen jetzt \"Song nicht verfügbar\" direkt im Player.",

@@ -831,7 +831,7 @@ private fun PlaylistsTab(
                                 // summary instead of a link, unlike every other share action.
                                 NocturneIconButton(
                                     icon = phosphorIcon("share-network"),
-                                    onClick = { context.shareText("${playlist.name} (${playlist.trackCount} Titel) — geteilt aus Music Agent") },
+                                    onClick = { context.shareText("${playlist.name} (${playlist.trackCount} Titel) — geteilt aus Grooveo") },
                                 )
                                 NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
                             }

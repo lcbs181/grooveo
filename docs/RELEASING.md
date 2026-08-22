@@ -7,7 +7,7 @@ lived on a separate `lcbs181/music-agent-releases` repo back when the source
 repo was private.
 
 As of the source repo going public, releases are cut from **this repo**
-(`lcbs181/music-agent-standalone`) instead — one fewer repo to keep in sync,
+(`lcbs181/grooveo`) instead — one fewer repo to keep in sync,
 and the update-check code has been repointed accordingly
 (`RELEASES_OWNER`/`RELEASES_REPO` in `UpdateRepository.kt`).
 
@@ -34,19 +34,19 @@ and the update-check code has been repointed accordingly
    tag name, so this format is load-bearing:
    ```
    gh release create v<versionCode> app/build/outputs/apk/debug/app-debug.apk \
-     --repo lcbs181/music-agent-standalone \
+     --repo lcbs181/grooveo \
      --title "<versionName>" \
      --notes "<what changed, in German, matching the in-app What's New tone>"
    ```
 4. Verify it actually landed:
    ```
-   gh release view v<versionCode> --repo lcbs181/music-agent-standalone --json assets,isDraft,url
+   gh release view v<versionCode> --repo lcbs181/grooveo --json assets,isDraft,url
    ```
    Check `isDraft: false` and that the asset's `state` is `"uploaded"`.
    Large APKs can take a while to upload — if `gh release create` seems to
    hang, give it time rather than re-running it.
 5. On-device, the update check happens via `UpdateCheckWorker` (periodic) or
    whenever the update dialog is triggered manually — it hits
-   `https://api.github.com/repos/lcbs181/music-agent-standalone/releases/latest`
+   `https://api.github.com/repos/lcbs181/grooveo/releases/latest`
    unauthenticated, compares the tag's version code against the installed
    app's, and offers the newer APK's `browser_download_url` if there is one.
