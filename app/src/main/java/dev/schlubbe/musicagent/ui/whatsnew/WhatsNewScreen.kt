@@ -32,6 +32,26 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "waveform",
+        "Neuer Player",
+        "Der Player ist komplett neu: großes Cover, das im Takt atmet, fünf umschaltbare Visualizer, eine Wellenform zum Spulen und ein eigener Bereich für Offline-Wiedergabe.",
+    ),
+    WhatsNewItem(
+        "sliders-horizontal",
+        "Equalizer als eigener Bildschirm",
+        "Fünf Bänder, Vorverstärker und eine live gezeichnete Frequenzkurve. Die Voreinstellungen wirken sofort; die einzelnen Schieber sind noch Vorschau und werden nicht gespeichert.",
+    ),
+    WhatsNewItem(
+        "download-simple",
+        "Downloads als eigener Tab",
+        "Downloads sind aus der Bibliothek heraus in die untere Leiste gewandert - mit Warteschlange, Fortschritt pro Titel und Speicheranzeige. Der Konto-Tab ist dafür entfallen.",
+    ),
+    WhatsNewItem(
+        "desktop",
+        "Mit PC verbinden",
+        "Neuer Bildschirm, um Grooveo auf eine Adresse im eigenen Netz zu zeigen. Die Verbindung wird wirklich geprüft - Bibliothek und Streaming vom PC folgen später.",
+    ),
+    WhatsNewItem(
         "cloud",
         "Quellen selbst wählen",
         "Der neue Startbildschirm fragt beim ersten Öffnen, ob du SoundCloud, YouTube Music oder beides nutzen willst - und die Suche hält sich daran. Jederzeit änderbar.",
