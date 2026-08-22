@@ -6,7 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -38,6 +41,7 @@ import dev.schlubbe.musicagent.ui.account.AccountScreen
 import dev.schlubbe.musicagent.ui.artist.ArtistFollowersScreen
 import dev.schlubbe.musicagent.ui.artist.ArtistScreen
 import dev.schlubbe.musicagent.ui.components.MiniPlayerBar
+import dev.schlubbe.musicagent.ui.downloads.DownloadsScreen
 import dev.schlubbe.musicagent.ui.home.HomeScreen
 import dev.schlubbe.musicagent.ui.library.LibraryScreen
 import dev.schlubbe.musicagent.ui.player.PlayerScreen
@@ -65,6 +69,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val LIBRARY = "library"
     const val ACCOUNT = "account"
+    const val DOWNLOADS = "downloads"
     const val WHATS_NEW = "whats_new"
     const val PLAYLIST_DETAIL = "playlist/{playlistId}"
     const val ARTIST_DETAIL = "artist/{source}/{sourceId}"
@@ -79,11 +84,14 @@ object Routes {
 
 private data class BottomNavItem(val route: String, val label: String, val iconName: String)
 
+// Canopy's TabBar. The redesign drops the Konto tab entirely -- this is a
+// standalone player with no account -- and promotes Downloads to a top-level
+// destination in its place.
 private val BOTTOM_NAV_ITEMS = listOf(
     BottomNavItem(Routes.HOME, "Start", "house"),
     BottomNavItem(Routes.SEARCH, "Suche", "magnifying-glass"),
     BottomNavItem(Routes.LIBRARY, "Bibliothek", "stack"),
-    BottomNavItem(Routes.ACCOUNT, "Konto", "user"),
+    BottomNavItem(Routes.DOWNLOADS, "Downloads", "download-simple"),
 )
 
 // The bottom mini-player + nav bar never appears on the full Player screen itself --
@@ -125,16 +133,20 @@ fun MusicAgentNavGraph(
         bottomBar = {
             if (showBottomBar) {
                 Column {
+                    // The mini player floats *above* the bar as its own pill rather
+                    // than sitting flush against it, per the design.
                     MiniPlayerBar(onClick = { navController.navigate(Routes.PLAYER) })
+                    Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider(color = Canopy.divider, thickness = 1.dp)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Canopy.surface),
+                            .background(Canopy.surface)
+                            .padding(vertical = 8.dp),
                     ) {
                         BOTTOM_NAV_ITEMS.forEach { item ->
                             val selected = currentRoute == item.route
-                            val tint = if (selected) Canopy.accent else Canopy.neutral500
+                            val tint = if (selected) Canopy.accent else Canopy.neutral400
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -159,17 +171,23 @@ fun MusicAgentNavGraph(
                                             }
                                         }
                                     }
-                                    .padding(top = 8.dp, bottom = 12.dp),
+                                    .padding(vertical = 4.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 Icon(
-                                    phosphorIcon(item.iconName),
+                                    phosphorIcon(item.iconName, filled = selected),
                                     contentDescription = item.label,
                                     tint = tint,
-                                    modifier = Modifier.size(dimens.bottomNavIconSize),
+                                    modifier = Modifier.size(22.dp),
                                 )
-                                Text(item.label, color = tint, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    item.label,
+                                    color = tint,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    ),
+                                )
                             }
                         }
                     }
@@ -199,10 +217,7 @@ fun MusicAgentNavGraph(
                     onSearchClick = { navController.navigate(Routes.SEARCH) },
                     onSeeAllArtistsClick = { navController.navigate(Routes.LIBRARY) },
                     onSettingsClick = { navController.navigate(Routes.SETTINGS) },
-                    // TODO(canopy): the redesign promotes Downloads to a top-level
-                    // tab; until that TabBar lands, this goes to Library, where the
-                    // Downloads sub-view actually lives today.
-                    onDownloadsClick = { navController.navigate(Routes.LIBRARY) },
+                    onDownloadsClick = { navController.navigate(Routes.DOWNLOADS) },
                     onArtistClick = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
@@ -243,6 +258,9 @@ fun MusicAgentNavGraph(
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
                 )
+            }
+            composable(Routes.DOWNLOADS) {
+                DownloadsScreen()
             }
             composable(Routes.LIBRARY) {
                 LibraryScreen(

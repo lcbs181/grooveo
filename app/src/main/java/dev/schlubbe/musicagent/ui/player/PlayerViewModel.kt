@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
+import dev.schlubbe.musicagent.data.repository.FollowRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
@@ -43,6 +44,7 @@ class PlayerViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
     private val settingsRepository: SettingsRepository,
     private val playlistRepository: PlaylistRepository,
+    private val followRepository: FollowRepository,
 ) : ViewModel() {
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
@@ -63,6 +65,43 @@ class PlayerViewModel @Inject constructor(
         likesRepository.likedTrackIds,
     ) { playback, likedIds -> playback.currentTrackId != null && playback.currentTrackId in likedIds }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Whether the now-playing track's artist is followed. Matched by *name*,
+     * because playback state carries only an artist name -- TrackResultDto has no
+     * artist id -- and FollowedArtistEntity stores the name alongside the id. This
+     * is the same best-effort name resolution [onArtistClicked] already relies on,
+     * so a duplicate-named SoundCloud account can read as followed when it isn't;
+     * that's a known limitation of having no artist id on a track, not a new one. */
+    val isCurrentArtistFollowed: StateFlow<Boolean> = combine(
+        playerController.playbackState,
+        followRepository.followedArtists,
+    ) { playback, followed ->
+        val artist = playback.artist
+        !artist.isNullOrBlank() && followed.any { it.name.equals(artist, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Follows/unfollows the now-playing artist. Resolves the artist id with the
+     * same 1-result search [onArtistClicked] uses, since a track only knows the
+     * name. Silently no-ops when the name can't be resolved rather than surfacing
+     * an error for a secondary control. */
+    fun toggleFollowCurrentArtist() {
+        val track = playerController.nowPlayingTrack() ?: return
+        val name = track.artist
+        if (name.isNullOrBlank()) return
+        viewModelScope.launch {
+            runCatching { searchRepository.searchArtists(name, source = track.source, limit = 1) }
+                .getOrNull()
+                ?.firstOrNull()
+                ?.let { artist ->
+                    followRepository.toggle(artist.source, artist.sourceId, artist.name, artist.thumbnailUrl)
+                    followRepository.refresh()
+                }
+        }
+    }
+
+    init {
+        viewModelScope.launch { runCatching { followRepository.refresh() } }
+    }
 
     private val _artistNavState = MutableStateFlow(PlayerArtistNavState())
     val artistNavState: StateFlow<PlayerArtistNavState> = _artistNavState.asStateFlow()
