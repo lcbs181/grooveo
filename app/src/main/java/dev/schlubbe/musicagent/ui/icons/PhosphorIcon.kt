@@ -54,6 +54,12 @@ import com.adamglin.phosphoricons.regular.PauseCircle
 import com.adamglin.phosphoricons.regular.ShareNetwork
 import com.adamglin.phosphoricons.regular.ArrowClockwise
 import com.adamglin.phosphoricons.regular.LockSimple
+import com.adamglin.phosphoricons.regular.ArrowRight
+import com.adamglin.phosphoricons.regular.CellSignalSlash
+import com.adamglin.phosphoricons.regular.Cloud
+import com.adamglin.phosphoricons.regular.YoutubeLogo
+import com.adamglin.phosphoricons.fill.Cloud
+import com.adamglin.phosphoricons.fill.YoutubeLogo
 import com.adamglin.phosphoricons.fill.Heart
 import com.adamglin.phosphoricons.fill.CheckCircle
 import com.adamglin.phosphoricons.fill.PlayCircle
@@ -64,7 +70,7 @@ import com.adamglin.phosphoricons.fill.Play
 
 /**
  * Maps the kebab-case names used by the design's `ph`/`ph-fill` classes
- * (design_handoff_music_agent_redesign/Music Agent*.dc.html) straight onto
+ * (design_handoff_grooveo/Grooveo*.dc.html) straight onto
  * com.adamglin:phosphor-icon's generated ImageVectors, so a screen can be
  * checked directly against `class="ph[-fill] ph-<name>"` in the markup
  * instead of guessing a Material equivalent.
@@ -78,10 +84,16 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "waveform" -> PhosphorIcons.Fill.Waveform
         "pause" -> PhosphorIcons.Fill.Pause
         "play" -> PhosphorIcons.Fill.Play
+        "cloud" -> PhosphorIcons.Fill.Cloud
+        "youtube-logo" -> PhosphorIcons.Fill.YoutubeLogo
         else -> phosphorIcon(name, filled = false)
     }
 } else {
     when (name) {
+        "arrow-right" -> PhosphorIcons.Regular.ArrowRight
+        "cell-signal-slash" -> PhosphorIcons.Regular.CellSignalSlash
+        "cloud" -> PhosphorIcons.Regular.Cloud
+        "youtube-logo" -> PhosphorIcons.Regular.YoutubeLogo
         "magnifying-glass" -> PhosphorIcons.Regular.MagnifyingGlass
         "check" -> PhosphorIcons.Regular.Check
         "shuffle" -> PhosphorIcons.Regular.Shuffle

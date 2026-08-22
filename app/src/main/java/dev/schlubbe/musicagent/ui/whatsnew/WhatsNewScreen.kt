@@ -32,6 +32,16 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "cloud",
+        "Quellen selbst wählen",
+        "Der neue Startbildschirm fragt beim ersten Öffnen, ob du SoundCloud, YouTube Music oder beides nutzen willst - und die Suche hält sich daran. Jederzeit änderbar.",
+    ),
+    WhatsNewItem(
+        "sparkle",
+        "Neuer Look",
+        "Grooveo bekommt ein völlig neues Aussehen: Waldgrün statt Violett, neue Schrift, und erstmals auch ein helles Design. Die Umstellung läuft Bildschirm für Bildschirm.",
+    ),
+    WhatsNewItem(
         "sparkle",
         "Neuer Name: Grooveo",
         "Music Agent heißt jetzt Grooveo - gleiche App, gleiche Bibliothek, nur ein Name, der sich bei Google nicht mehr mit tausend anderen Ergebnissen teilt.",

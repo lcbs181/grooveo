@@ -184,6 +184,7 @@ fun MusicAgentNavGraph(
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(
+                    viewModel = onboardingViewModel,
                     onFinished = {
                         onboardingViewModel.onFinished()
                         navController.navigate(Routes.HOME) {
