@@ -282,7 +282,7 @@ fun SettingsScreen(
                 SectionHeader("Über")
                 Text("Über die App", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "Music Agent · ${BuildConfig.VERSION_NAME} (Standalone)",
+                    "Grooveo · ${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.labelSmall,
                     color = Nocturne.neutral500,
                 )

@@ -180,7 +180,7 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
                     ),
                 )
                 Text(
-                    text = state.artist ?: "Music Agent",
+                    text = state.artist ?: "Grooveo",
                     maxLines = 1,
                     style = TextStyle(color = ColorProvider(Color(0xFFAAAAAA)), fontSize = 11.sp),
                 )

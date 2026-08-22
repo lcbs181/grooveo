@@ -121,7 +121,7 @@ private fun IntroAnimation(onContinue: () -> Unit) {
             WaveformLogoBadge(modifier = Modifier.scale(logoScale).alpha(logoAlpha))
             Spacer(modifier = Modifier.padding(top = 22.dp))
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(textAlpha)) {
-                Text("Willkommen bei Music Agent", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                Text("Willkommen bei Grooveo", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                 Text(
                     "SoundCloud und YouTube Music, an einem Ort. Wir richten alles für dich ein.",
                     style = MaterialTheme.typography.labelMedium,

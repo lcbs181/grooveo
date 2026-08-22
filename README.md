@@ -1,4 +1,6 @@
-# Music Agent Standalone
+# Grooveo
+
+*(formerly "Music Agent Standalone")*
 
 An on-device SoundCloud + YouTube Music client for Android. No backend, no
 account, no login screen — search, streaming, downloads, likes, and playlists
