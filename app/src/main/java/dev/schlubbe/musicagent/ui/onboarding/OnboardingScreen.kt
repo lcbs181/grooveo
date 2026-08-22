@@ -1,235 +1,181 @@
 package dev.schlubbe.musicagent.ui.onboarding
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.ui.components.CanopyButton
-import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyToggle
 import dev.schlubbe.musicagent.ui.components.WaveformLogoBadge
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 
-private data class TutorialSlide(val iconName: String, val title: String, val description: String)
-
-private val SLIDES = listOf(
-    TutorialSlide(
-        "waveform",
-        "Alles an einem Ort",
-        "SoundCloud und YouTube Music gemeinsam durchsuchen und abspielen — ohne zwischen Apps zu wechseln.",
-    ),
-    TutorialSlide(
-        "download-simple",
-        "Nimm deine Musik mit",
-        "Lade Titel und Playlists herunter und höre sie auch offline oder im Datensparmodus.",
-    ),
-    TutorialSlide(
-        "pencil-simple",
-        "Mach es dir zu eigen",
-        "Eigene Cover, Beschreibungen, Farben und Tags für jede Playlist.",
-    ),
-    TutorialSlide(
-        "sliders-horizontal",
-        "Dein Klang, dein Raum",
-        "3D-Sound-Vorlagen von Kino bis Rave — passend zu jeder Hörsituation.",
-    ),
-)
-
-/** First-run flow: intro animation once, then a 4-slide tutorial -- combined
- * in one composable with an internal state switch, matching the design
- * handoff's own "Music Agent Onboarding.dc.html" (which prototypes all first-
- * impression moments on one frame rather than splitting them across files). */
+/** First-run screen, rebuilt on Canopy (see design_handoff_grooveo's
+ * GrooveoApp.dc.html, `isOnboarding` block). Replaces the previous multi-step
+ * intro animation + 4-slide tutorial with the single decision screen the new
+ * design specifies: pick your sources and data-saver preference, then in.
+ *
+ * The three toggles are real settings, not decoration -- they write through to
+ * DataStore as they're flipped and the source pair drives
+ * SettingsRepository.enabledSource, which the search/charts calls honor. */
 @Composable
-fun OnboardingScreen(onFinished: () -> Unit) {
-    var showTutorial by remember { mutableStateOf(false) }
-    if (showTutorial) {
-        TutorialPager(onFinished = onFinished)
-    } else {
-        IntroAnimation(onContinue = { showTutorial = true })
-    }
-}
+fun OnboardingScreen(viewModel: OnboardingViewModel, onFinished: () -> Unit) {
+    val soundCloud by viewModel.soundCloudEnabled.collectAsState()
+    val ytMusic by viewModel.ytMusicEnabled.collectAsState()
+    val dataSaver by viewModel.dataSaverEnabled.collectAsState()
 
-@Composable
-private fun IntroAnimation(onContinue: () -> Unit) {
-    var logoIn by remember { mutableStateOf(false) }
-    var textIn by remember { mutableStateOf(false) }
-    var trackIn by remember { mutableStateOf(false) }
-    var buttonIn by remember { mutableStateOf(false) }
-
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        logoIn = true
-        delay(500)
-        textIn = true
-        delay(400)
-        trackIn = true
-        delay(1800)
-        buttonIn = true
-    }
-
-    val logoScale by animateFloatAsState(if (logoIn) 1f else 0.7f, animationSpec = tween(900), label = "logoScale")
-    val logoAlpha by animateFloatAsState(if (logoIn) 1f else 0f, animationSpec = tween(900), label = "logoAlpha")
-    val textAlpha by animateFloatAsState(if (textIn) 1f else 0f, animationSpec = tween(800), label = "textAlpha")
-    val trackProgress by animateFloatAsState(if (trackIn) 1f else 0f, animationSpec = tween(1800), label = "trackProgress")
-    val buttonAlpha by animateFloatAsState(if (buttonIn) 1f else 0f, animationSpec = tween(800), label = "buttonAlpha")
-
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.radialGradient(
-                    colors = listOf(Canopy.accent.copy(alpha = 0.16f), Canopy.bg),
-                    radius = 900f,
+                // linear-gradient(180deg, accent-200 0%, bg 62%)
+                Brush.verticalGradient(
+                    colorStops = arrayOf(0f to Canopy.accent200, 0.62f to Canopy.bg, 1f to Canopy.bg),
                 ),
-            ),
-        contentAlignment = Alignment.Center,
+            )
+            .padding(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            WaveformLogoBadge(modifier = Modifier.scale(logoScale).alpha(logoAlpha))
-            Spacer(modifier = Modifier.padding(top = 22.dp))
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(textAlpha)) {
-                Text("Willkommen bei Grooveo", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                Text(
-                    "SoundCloud und YouTube Music, an einem Ort. Wir richten alles für dich ein.",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Canopy.neutral500,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp, start = 24.dp, end = 24.dp),
-                )
-            }
-            Spacer(modifier = Modifier.padding(top = 22.dp))
-            Box(
-                modifier = Modifier
-                    .width(140.dp)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Canopy.neutral800)
-                    .alpha(textAlpha),
-            ) {
-                Box(modifier = Modifier.fillMaxWidth(trackProgress).height(3.dp).background(Canopy.accent))
-            }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WaveformLogoBadge(size = 64.dp)
+            Text(
+                text = "Grooveo",
+                style = MaterialTheme.typography.headlineSmall,
+                color = Canopy.text,
+            )
         }
-        CanopyButton(
-            text = "Los geht's",
-            onClick = onContinue,
-            block = true,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 24.dp, vertical = 36.dp)
-                .alpha(buttonAlpha),
-        )
+
+        Column(
+            modifier = Modifier.padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Musik, die dir gehört.",
+                style = MaterialTheme.typography.displayLarge,
+                color = Canopy.text,
+                modifier = Modifier.widthIn(max = 280.dp),
+            )
+            Text(
+                text = "Kein Konto, kein Login, kein Backend. Suche, streame und lade direkt auf dem Gerät.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Canopy.neutral600,
+                modifier = Modifier.widthIn(max = 300.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier.padding(top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            SourceCard(
+                icon = phosphorIcon("cloud", filled = true),
+                iconTint = Canopy.accent,
+                title = "SoundCloud",
+                subtitle = "Suche, Streams, Künstler",
+                checked = soundCloud,
+                onCheckedChange = viewModel::setSoundCloudEnabled,
+            )
+            SourceCard(
+                icon = phosphorIcon("youtube-logo", filled = true),
+                iconTint = Canopy.accent2,
+                title = "YouTube Music",
+                subtitle = "Suche, Streams, Downloads",
+                checked = ytMusic,
+                onCheckedChange = viewModel::setYtMusicEnabled,
+            )
+            SourceCard(
+                icon = phosphorIcon("cell-signal-slash"),
+                iconTint = Canopy.neutral500,
+                title = "Datensparmodus",
+                subtitle = "Nur heruntergeladene Titel abspielen",
+                checked = dataSaver,
+                onCheckedChange = viewModel::setDataSaverEnabled,
+            )
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CanopyButton(
+                text = "Los geht's",
+                onClick = onFinished,
+                block = true,
+                trailingIcon = phosphorIcon("arrow-right"),
+            )
+            Text(
+                text = "Alles bleibt lokal auf deinem Telefon.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Canopy.neutral500,
+            )
+        }
     }
 }
 
 @Composable
-private fun TutorialPager(onFinished: () -> Unit) {
-    val pagerState = rememberPagerState(pageCount = { SLIDES.size })
-    val scope = rememberCoroutineScope()
-
-    Column(modifier = Modifier.fillMaxSize().background(Canopy.bg)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
+private fun SourceCard(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CanopyShapes.medium)
+            .background(Canopy.surface)
+            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                "Überspringen",
-                color = Canopy.accent,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable(onClick = onFinished),
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = Canopy.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Canopy.neutral500,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-
-        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
-            val slide = SLIDES[page]
-            Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 30.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Box(
-                    modifier = Modifier.size(88.dp).clip(CircleShape).background(Canopy.accent800),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(phosphorIcon(slide.iconName), contentDescription = null, tint = Canopy.accent300, modifier = Modifier.size(36.dp))
-                }
-                Spacer(modifier = Modifier.padding(top = 22.dp))
-                Text(slide.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                Text(
-                    slide.description,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Canopy.neutral500,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
-
-        // Dot-pager on its own reserved line, per the handoff's own implementation
-        // note: at this viewport width the prototype's dots overlapped the last
-        // slide's description text when they shared a flex line with it.
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            repeat(SLIDES.size) { index ->
-                val active = index == pagerState.currentPage
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 3.5.dp)
-                        .width(if (active) 20.dp else 6.dp)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(if (active) Canopy.accent else Canopy.neutral700),
-                )
-            }
-        }
-
-        val isLast = pagerState.currentPage == SLIDES.lastIndex
-        CanopyButton(
-            text = if (isLast) "Los geht's" else "Weiter",
-            onClick = {
-                if (isLast) {
-                    onFinished()
-                } else {
-                    scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                }
-            },
-            block = true,
-            variant = CanopyButtonVariant.Primary,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 30.dp),
-        )
+        CanopyToggle(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

@@ -54,6 +54,11 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // as one hasSeenVersion flag per app version, not two". 0 means "never run",
         // which is what gates the first-run onboarding flow vs. the What's-New banner.
         val LAST_SEEN_VERSION_CODE = intPreferencesKey("last_seen_version_code")
+        // Which extraction sources the user opted into on the onboarding screen.
+        // Both default to true so an upgrade from a build that predates these
+        // keys behaves exactly as before rather than silently losing a source.
+        val SOURCE_SOUNDCLOUD = booleanPreferencesKey("source_soundcloud")
+        val SOURCE_YTMUSIC = booleanPreferencesKey("source_ytmusic")
     }
 
     val backendBaseUrl: Flow<String> = dataStore.data.map { it[Keys.BACKEND_BASE_URL] ?: "" }
@@ -82,6 +87,24 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val lastSeenVersionCode: Flow<Int> = dataStore.data.map { it[Keys.LAST_SEEN_VERSION_CODE] ?: 0 }
     val libraryImportBannerDismissed: Flow<Boolean> =
         dataStore.data.map { it[Keys.LIBRARY_IMPORT_BANNER_DISMISSED] ?: false }
+    val sourceSoundCloudEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_SOUNDCLOUD] ?: true }
+    val sourceYtMusicEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_YTMUSIC] ?: true }
+
+    /** The two source toggles collapsed into the `source` string the repositories
+     * already speak ("all" / "soundcloud" / "ytmusic"). Turning both off would
+     * leave nothing to search, so that degenerate case resolves to "all" rather
+     * than an empty app -- the onboarding UI is what should stop the user getting
+     * there, not a silent no-results state everywhere. */
+    val enabledSource: Flow<String> = dataStore.data.map { prefs ->
+        val soundCloud = prefs[Keys.SOURCE_SOUNDCLOUD] ?: true
+        val ytMusic = prefs[Keys.SOURCE_YTMUSIC] ?: true
+        when {
+            soundCloud && ytMusic -> "all"
+            soundCloud -> "soundcloud"
+            ytMusic -> "ytmusic"
+            else -> "all"
+        }
+    }
 
     // OkHttp interceptors run synchronously, so they read these caches rather than
     // suspending on the DataStore Flow directly. PlayerController/PlaybackService reads
@@ -130,6 +153,14 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setDataSaverMode(enabled: Boolean) {
         dataStore.edit { it[Keys.DATA_SAVER_MODE] = enabled }
+    }
+
+    suspend fun setSourceSoundCloudEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.SOURCE_SOUNDCLOUD] = enabled }
+    }
+
+    suspend fun setSourceYtMusicEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.SOURCE_YTMUSIC] = enabled }
     }
 
     suspend fun setEqPreset(preset: EqPreset) {

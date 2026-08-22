@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,54 +19,73 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.ui.theme.Canopy
 
-/** The app's brand mark: five vertical bars of varying height, an abstracted
- * waveform rather than a letterform (see
- * "Music Agent Splash & Logo.dc.html"). Only the middle, tallest bar carries
- * the brighter accent-300 tone; the other four use the base accent. Shared by
- * the splash screen and the onboarding intro animation so both use the exact
- * same proportions. */
+// Logo direction "A (Pegel)" from Grooveo Logos.dc.html -- Pegel as in a level
+// meter, which is why the bars stand on a baseline rather than hanging from the
+// top, and why the centre (tallest) bar is the coral accent-2 while the other
+// four are the base accent.
+private val BAR_HEIGHT_RATIOS = listOf(0.43f, 0.73f, 1f, 0.63f, 0.33f)
+
+/** The brand mark: five bottom-aligned bars, an abstracted level meter rather
+ * than a letterform. Shared by the splash screen and onboarding so both keep
+ * identical proportions. */
 @Composable
 fun WaveformLogo(modifier: Modifier = Modifier, barWidth: Dp = 8.dp, maxBarHeight: Dp = 60.dp, gap: Dp = 6.dp) {
-    val heights = listOf(0.43f, 0.73f, 1f, 0.63f, 0.33f)
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(gap)) {
-        heights.forEachIndexed { index, fraction ->
-            val color = if (index == 2) Canopy.accent300 else Canopy.accent
-            androidx.compose.foundation.layout.Box(
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(gap),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        BAR_HEIGHT_RATIOS.forEachIndexed { index, fraction ->
+            Box(
                 modifier = Modifier
                     .width(barWidth)
                     .height(maxBarHeight * fraction)
                     .clip(RoundedCornerShape(barWidth / 2))
-                    .background(color),
+                    .background(if (index == 2) Canopy.accent2 else Canopy.accent),
             )
         }
     }
 }
 
-/** The waveform mark as it actually appears wherever it's shown standalone
- * (splash, onboarding intro): sitting inside a rounded gradient "badge", not
- * floating bare on whatever background is behind it (see "Music Agent Splash
- * & Logo.dc.html"'s `.logo-mark` -- 104x104, 28dp corner radius,
- * linear-gradient(160deg, neutral-800 -> bg), shadow-lg). [size] scales the
- * whole badge; corner radius and the inner [WaveformLogo]'s bar dimensions
- * scale with it at the same ratio the design uses for its 104dp and 96dp
- * variants, so this stays correct at any call size rather than just the
- * default. */
+// Proportions taken from the onboarding header's own 64px badge in
+// GrooveoApp.dc.html (radius 17, bar width 5, gap 4, tallest bar 37, bottom
+// padding 19) and expressed as ratios so the badge stays correct at any size
+// rather than only at one.
+private const val RADIUS_RATIO = 17f / 64f
+private const val BAR_WIDTH_RATIO = 5f / 64f
+private const val GAP_RATIO = 4f / 64f
+private const val MAX_BAR_RATIO = 37f / 64f
+private const val BOTTOM_PAD_RATIO = 19f / 64f
+
+/** The mark as it appears wherever it's shown standalone (splash, onboarding):
+ * inside a rounded gradient badge rather than floating bare on whatever is
+ * behind it. Gradient is Canopy's `linear-gradient(160deg, accent-300, bg 70%)`. */
 @Composable
 fun WaveformLogoBadge(modifier: Modifier = Modifier, size: Dp = 104.dp) {
-    val scale = size / 104.dp
-    val cornerRadius = 28.dp * scale
     Box(
         modifier = modifier
             .size(size)
-            .shadow(elevation = 16.dp * scale, shape = RoundedCornerShape(cornerRadius), clip = false)
-            .clip(RoundedCornerShape(cornerRadius))
+            .shadow(
+                elevation = size * (10f / 64f),
+                shape = RoundedCornerShape(size * RADIUS_RATIO),
+                clip = false,
+            )
+            .clip(RoundedCornerShape(size * RADIUS_RATIO))
             .background(
+                // 160deg in CSS runs top-ish to bottom-ish; linearGradient's
+                // default vertical sweep is the closest Compose equivalent
+                // without hand-computing offsets for a 20-degree tilt.
                 Brush.linearGradient(
-                    colorStops = arrayOf(0f to Canopy.neutral800, 0.7f to Canopy.bg, 1f to Canopy.bg),
+                    colorStops = arrayOf(0f to Canopy.accent300, 0.7f to Canopy.bg, 1f to Canopy.bg),
                 ),
-            ),
-        contentAlignment = Alignment.Center,
+            )
+            .padding(bottom = size * BOTTOM_PAD_RATIO),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        WaveformLogo(barWidth = 8.dp * scale, maxBarHeight = 60.dp * scale, gap = 6.dp * scale)
+        WaveformLogo(
+            barWidth = size * BAR_WIDTH_RATIO,
+            maxBarHeight = size * MAX_BAR_RATIO,
+            gap = size * GAP_RATIO,
+        )
     }
 }
