@@ -197,10 +197,12 @@ fun MusicAgentNavGraph(
                 HomeScreen(
                     onTrackSelected = { navController.navigate(Routes.PLAYER) },
                     onSearchClick = { navController.navigate(Routes.SEARCH) },
-                    onPlaylistClick = { playlistId -> navController.navigate(Routes.playlistDetail(playlistId)) },
-                    onSeeAllPlaylistsClick = { navController.navigate(Routes.LIBRARY) },
-                    onSeeAllLikesClick = { navController.navigate(Routes.LIBRARY) },
-                    onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
+                    onSeeAllArtistsClick = { navController.navigate(Routes.LIBRARY) },
+                    onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                    // TODO(canopy): the redesign promotes Downloads to a top-level
+                    // tab; until that TabBar lands, this goes to Library, where the
+                    // Downloads sub-view actually lives today.
+                    onDownloadsClick = { navController.navigate(Routes.LIBRARY) },
                     onArtistClick = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },

@@ -49,6 +49,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // Library landing menu's "Bringe deine Playlists mit" (Spotify import) banner -
         // sticks dismissed once closed, same small on/off flag pattern as AUTO_BACKUP.
         val LIBRARY_IMPORT_BANNER_DISMISSED = booleanPreferencesKey("library_import_banner_dismissed")
+        // Home's PromoCard explaining that SoundCloud tracks resolve to HLS and
+        // can't be downloaded yet - same sticks-once-dismissed flag pattern.
+        val HOME_SC_PROMO_DISMISSED = booleanPreferencesKey("home_sc_promo_dismissed")
         // One flag per the README's own state-management note: "the What's-New banner
         // and the first-run tutorial share the same 'latest version' concept -- track
         // as one hasSeenVersion flag per app version, not two". 0 means "never run",
@@ -87,6 +90,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val lastSeenVersionCode: Flow<Int> = dataStore.data.map { it[Keys.LAST_SEEN_VERSION_CODE] ?: 0 }
     val libraryImportBannerDismissed: Flow<Boolean> =
         dataStore.data.map { it[Keys.LIBRARY_IMPORT_BANNER_DISMISSED] ?: false }
+    val homeScPromoDismissed: Flow<Boolean> =
+        dataStore.data.map { it[Keys.HOME_SC_PROMO_DISMISSED] ?: false }
     val sourceSoundCloudEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_SOUNDCLOUD] ?: true }
     val sourceYtMusicEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_YTMUSIC] ?: true }
 
@@ -153,6 +158,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setDataSaverMode(enabled: Boolean) {
         dataStore.edit { it[Keys.DATA_SAVER_MODE] = enabled }
+    }
+
+    suspend fun setHomeScPromoDismissed(dismissed: Boolean) {
+        dataStore.edit { it[Keys.HOME_SC_PROMO_DISMISSED] = dismissed }
     }
 
     suspend fun setSourceSoundCloudEnabled(enabled: Boolean) {

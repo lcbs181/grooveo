@@ -252,6 +252,11 @@ data class HomeUiState(
     val selectedGenre: GenreFilter = GenreFilter.HOUSE,
     val genreTracks: List<TrackResultDto> = emptyList(),
     val isGenreLoading: Boolean = false,
+    // Drives the coral "Offline" badge in Home's app bar.
+    val dataSaverMode: Boolean = false,
+    // Home's PromoCard about the SoundCloud-HLS download limitation; sticks
+    // dismissed, same flag pattern as the Library import banner.
+    val scPromoDismissed: Boolean = false,
 )
 
 /** Converts a locally-cached [TrackEntity] back into a [TrackResultDto] for playback
@@ -320,6 +325,16 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.lastSeenVersionCode.collect { seen ->
                 _uiState.value = _uiState.value.copy(showWhatsNewBanner = seen in 1 until BuildConfig.VERSION_CODE)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.dataSaverMode.collect { on ->
+                _uiState.value = _uiState.value.copy(dataSaverMode = on)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.homeScPromoDismissed.collect { dismissed ->
+                _uiState.value = _uiState.value.copy(scPromoDismissed = dismissed)
             }
         }
         // Resume card: polls the shared player's live position while a track is
@@ -429,6 +444,10 @@ class HomeViewModel @Inject constructor(
         if (genre == _uiState.value.selectedGenre && _uiState.value.genreTracks.isNotEmpty()) return
         _uiState.value = _uiState.value.copy(selectedGenre = genre)
         loadGenreTracks(genre)
+    }
+
+    fun dismissScPromo() {
+        viewModelScope.launch { settingsRepository.setHomeScPromoDismissed(true) }
     }
 
     private fun loadGenreTracks(genre: GenreFilter) {
