@@ -48,7 +48,7 @@ import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingScreen
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingViewModel
 import dev.schlubbe.musicagent.ui.settings.SettingsScreen
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.update.UpdateDialog
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.update.UpdateViewModel
@@ -121,20 +121,20 @@ fun MusicAgentNavGraph(
     }
 
     Scaffold(
-        containerColor = Nocturne.bg,
+        containerColor = Canopy.bg,
         bottomBar = {
             if (showBottomBar) {
                 Column {
                     MiniPlayerBar(onClick = { navController.navigate(Routes.PLAYER) })
-                    HorizontalDivider(color = Nocturne.divider, thickness = 1.dp)
+                    HorizontalDivider(color = Canopy.divider, thickness = 1.dp)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Nocturne.surface),
+                            .background(Canopy.surface),
                     ) {
                         BOTTOM_NAV_ITEMS.forEach { item ->
                             val selected = currentRoute == item.route
-                            val tint = if (selected) Nocturne.accent else Nocturne.neutral500
+                            val tint = if (selected) Canopy.accent else Canopy.neutral500
                             Column(
                                 modifier = Modifier
                                     .weight(1f)

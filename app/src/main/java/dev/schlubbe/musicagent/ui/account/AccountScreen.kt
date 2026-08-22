@@ -41,12 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.shape.RoundedCornerShape
 import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
-import dev.schlubbe.musicagent.ui.components.nocturneCard
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.canopyCard
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
 
 private data class ProfileAccentOption(val key: String?, val label: String)
@@ -74,7 +74,7 @@ fun AccountScreen(
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier
@@ -84,11 +84,11 @@ fun AccountScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Konto", style = MaterialTheme.typography.headlineMedium)
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("gear-six"),
                     onClick = onSettingsClick,
                     shape = CircleShape,
-                    variant = NocturneButtonVariant.Secondary,
+                    variant = CanopyButtonVariant.Secondary,
                 )
             }
 
@@ -106,19 +106,19 @@ fun AccountScreen(
                         .background(accentColorFor(uiState.profileColorStyle.takeIf { it != "auto" }, uiState.profileName)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(phosphorIcon("user"), contentDescription = null, tint = Nocturne.neutral200, modifier = Modifier.size(26.dp))
+                    Icon(phosphorIcon("user"), contentDescription = null, tint = Canopy.neutral200, modifier = Modifier.size(26.dp))
                 }
                 Column(modifier = Modifier.padding(start = 14.dp)) {
                     Text(uiState.profileName.ifBlank { "Name festlegen" }, style = MaterialTheme.typography.labelLarge)
                     Text(
                         "Lokales Profil · kein Login erforderlich",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Nocturne.neutral500,
+                        color = Canopy.neutral500,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                Icon(phosphorIcon("pencil-simple"), contentDescription = "Bearbeiten", tint = Nocturne.neutral500, modifier = Modifier.size(15.dp))
+                Icon(phosphorIcon("pencil-simple"), contentDescription = "Bearbeiten", tint = Canopy.neutral500, modifier = Modifier.size(15.dp))
             }
 
             Row(
@@ -134,7 +134,7 @@ fun AccountScreen(
                 Text(
                     uiState.statLine,
                     style = MaterialTheme.typography.labelMedium,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
             }
@@ -145,7 +145,7 @@ fun AccountScreen(
             if (uiState.following.isEmpty()) {
                 Text(
                     "Du folgst noch niemandem",
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
@@ -179,10 +179,10 @@ fun AccountScreen(
 private fun StatItem(value: Int, label: String, modifier: Modifier = Modifier) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.nocturneCard().padding(vertical = 6.dp),
+        modifier = modifier.canopyCard().padding(vertical = 6.dp),
     ) {
         Text(value.toString(), style = MaterialTheme.typography.headlineSmall)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
     }
 }
 
@@ -214,11 +214,11 @@ private fun ProfileEditSheet(
     var name by remember { mutableStateOf(initialName) }
     var colorStyle by remember { mutableStateOf(initialColorStyle.takeIf { it != "auto" }) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Nocturne.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
         Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text("Profil bearbeiten", style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.padding(top = 12.dp))
-            Text("Name", style = MaterialTheme.typography.labelMedium, color = Nocturne.neutral400)
+            Text("Name", style = MaterialTheme.typography.labelMedium, color = Canopy.neutral400)
             Spacer(modifier = Modifier.padding(top = 4.dp))
             TextField(
                 value = name,
@@ -226,10 +226,10 @@ private fun ProfileEditSheet(
                 singleLine = true,
                 shape = RoundedCornerShape(8.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Nocturne.bg,
-                    unfocusedContainerColor = Nocturne.bg,
-                    focusedIndicatorColor = Nocturne.divider,
-                    unfocusedIndicatorColor = Nocturne.divider,
+                    focusedContainerColor = Canopy.bg,
+                    unfocusedContainerColor = Canopy.bg,
+                    focusedIndicatorColor = Canopy.divider,
+                    unfocusedIndicatorColor = Canopy.divider,
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -244,7 +244,7 @@ private fun ProfileEditSheet(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .border(2.dp, if (selected) Nocturne.text else Color.Transparent, CircleShape)
+                                .border(2.dp, if (selected) Canopy.text else Color.Transparent, CircleShape)
                                 .padding(3.dp)
                                 .clip(CircleShape)
                                 .background(accentColorFor(option.key, name))
@@ -261,9 +261,9 @@ private fun ProfileEditSheet(
             }
             Spacer(modifier = Modifier.padding(top = 20.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                NocturneButton(text = "Abbrechen", onClick = onDismiss, variant = NocturneButtonVariant.Secondary)
+                CanopyButton(text = "Abbrechen", onClick = onDismiss, variant = CanopyButtonVariant.Secondary)
                 Spacer(modifier = Modifier.padding(start = 10.dp))
-                NocturneButton(text = "Speichern", onClick = { onSave(name.trim(), colorStyle ?: "auto") })
+                CanopyButton(text = "Speichern", onClick = { onSave(name.trim(), colorStyle ?: "auto") })
             }
         }
     }

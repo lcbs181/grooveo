@@ -61,12 +61,12 @@ import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.playback.EqPreset
 import dev.schlubbe.musicagent.ui.components.EqualizerBadge
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
-import dev.schlubbe.musicagent.ui.components.NocturneTag
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyTag
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.util.shareText
 import androidx.compose.foundation.layout.widthIn
@@ -178,32 +178,32 @@ fun PlayerScreen(
         else -> null
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Nocturne.bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(Canopy.bg)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 22.dp)
-            if (sourceLabel != null) NocturneTag(sourceLabel)
+            CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 22.dp)
+            if (sourceLabel != null) CanopyTag(sourceLabel)
             Box {
-                NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { showMoreMenu = true }, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showMoreMenu = true }, iconSize = 20.dp)
                 DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
                     DropdownMenuItem(
                         text = { Text("Zu Playlist hinzufügen") },
-                        leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { showMoreMenu = false; viewModel.onAddToPlaylistClicked() },
                         enabled = playbackState.currentTrackId != null,
                     )
                     DropdownMenuItem(
                         text = { Text("Herunterladen") },
-                        leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { showMoreMenu = false; viewModel.onDownloadClicked() },
                         enabled = playbackState.currentTrackId != null,
                     )
                     DropdownMenuItem(
                         text = { Text("Zum Künstler") },
-                        leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                         onClick = {
                             showMoreMenu = false
                             haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -213,7 +213,7 @@ fun PlayerScreen(
                     )
                     DropdownMenuItem(
                         text = { Text(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir") },
-                        leadingIcon = { Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = Canopy.accent) },
                         onClick = {
                             showMoreMenu = false
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
@@ -222,7 +222,7 @@ fun PlayerScreen(
                     )
                     DropdownMenuItem(
                         text = { Text("Teilen") },
-                        leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                         onClick = {
                             showMoreMenu = false
                             viewModel.currentTrackWebpageUrl()?.let { context.shareText(it) }
@@ -316,7 +316,7 @@ fun PlayerScreen(
                 Text(
                     if (playbackState.isLoading) "" else playbackState.artist ?: "",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .padding(top = 4.dp)
@@ -333,7 +333,7 @@ fun PlayerScreen(
                     Text(
                         playbackState.unavailableMessage ?: "Titel nicht verfügbar",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Nocturne.accent,
+                        color = Canopy.accent,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 10.dp),
                     )
@@ -379,8 +379,8 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(formatMs(positionMs), style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
-                Text(formatMs(durationMs), style = MaterialTheme.typography.labelSmall, color = Nocturne.neutral500)
+                Text(formatMs(positionMs), style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                Text(formatMs(durationMs), style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
             }
 
             Row(
@@ -390,7 +390,7 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("shuffle"),
                     onClick = {
                         haptic.performHapticFeedback(
@@ -400,7 +400,7 @@ fun PlayerScreen(
                     },
                     iconSize = 18.dp,
                 )
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon(if (playbackState.repeatMode == Player.REPEAT_MODE_ONE) "repeat-once" else "repeat"),
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
@@ -433,7 +433,7 @@ fun PlayerScreen(
                 Text(
                     "Schlaf-Timer: noch ${(sleepTimerRemainingMs / 60_000L) + 1} Min",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.accent,
+                    color = Canopy.accent,
                     modifier = Modifier.padding(top = 9.dp),
                 )
             }
@@ -443,14 +443,14 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("heart", filled = isLiked),
                     onClick = {
                         haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                         viewModel.toggleLike()
                     },
                 )
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("skip-back"),
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -468,7 +468,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .size(64.dp)
                         .clip(CircleShape)
-                        .border(1.5.dp, if (transportEnabled) Nocturne.accent else Nocturne.neutral600, CircleShape)
+                        .border(1.5.dp, if (transportEnabled) Canopy.accent else Canopy.neutral600, CircleShape)
                         .clickable(enabled = transportEnabled) {
                             haptic.performHapticFeedback(
                                 if (playbackState.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
@@ -480,11 +480,11 @@ fun PlayerScreen(
                     Icon(
                         phosphorIcon(if (playbackState.isPlaying) "pause" else "play"),
                         contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                        tint = if (transportEnabled) Nocturne.accent else Nocturne.neutral600,
+                        tint = if (transportEnabled) Canopy.accent else Canopy.neutral600,
                         modifier = Modifier.size(26.dp),
                     )
                 }
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("skip-forward"),
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -494,7 +494,7 @@ fun PlayerScreen(
                     iconSize = 22.dp,
                 )
                 if (playbackState.hasLocalDownload) {
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon(if (playbackState.isLocalPlayback) "check-circle" else "cloud-arrow-up", filled = playbackState.isLocalPlayback),
                         onClick = {
                             haptic.performHapticFeedback(
@@ -502,10 +502,10 @@ fun PlayerScreen(
                             )
                             viewModel.toggleSource()
                         },
-                        variant = dev.schlubbe.musicagent.ui.components.NocturneButtonVariant.Primary,
+                        variant = dev.schlubbe.musicagent.ui.components.CanopyButtonVariant.Primary,
                     )
                 } else if (playbackState.currentTrackId != null) {
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon("download-simple"),
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -548,15 +548,15 @@ private fun SleepEqPill(icon: androidx.compose.ui.graphics.vector.ImageVector, l
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, Nocturne.divider, RoundedCornerShape(6.dp))
+            .border(1.dp, Canopy.divider, RoundedCornerShape(6.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = if (highlighted) Nocturne.accent else Nocturne.neutral400, modifier = Modifier.size(13.dp))
+        Icon(icon, contentDescription = null, tint = if (highlighted) Canopy.accent else Canopy.neutral400, modifier = Modifier.size(13.dp))
         Text(
             label,
-            color = if (highlighted) Nocturne.accent else Nocturne.text,
+            color = if (highlighted) Canopy.accent else Canopy.text,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(start = 5.dp),
         )
@@ -572,10 +572,10 @@ private fun EqPresetMenuItem(
 ) {
     DropdownMenuItem(
         text = { Text(label) },
-        leadingIcon = { Icon(phosphorIcon("sliders-horizontal"), contentDescription = null, tint = Nocturne.accent) },
+        leadingIcon = { Icon(phosphorIcon("sliders-horizontal"), contentDescription = null, tint = Canopy.accent) },
         trailingIcon = {
             if (preset == selected) {
-                Icon(phosphorIcon("check-circle", filled = true), contentDescription = null, tint = Nocturne.accent)
+                Icon(phosphorIcon("check-circle", filled = true), contentDescription = null, tint = Canopy.accent)
             }
         },
         onClick = { onSelect(preset) },
@@ -602,7 +602,7 @@ private fun SleepTimerDialog(
                         headlineContent = { Text("$minutes Minuten") },
                         trailingContent = {
                             if (minutes == SLEEP_TIMER_DEFAULT_MIN) {
-                                Text("Empfohlen", style = MaterialTheme.typography.labelSmall, color = Nocturne.accent)
+                                Text("Empfohlen", style = MaterialTheme.typography.labelSmall, color = Canopy.accent)
                             }
                         },
                         modifier = Modifier.clickable { onSelect(minutes) },
@@ -624,11 +624,11 @@ private fun SleepTimerDialog(
 private fun UpNextRow(track: TrackResultDto, onClick: () -> Unit) {
     val dimens = rememberResponsiveDimens()
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
-            Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+            Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -642,7 +642,7 @@ private fun AlbumArt(url: String?, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Nocturne.surface),
+            .background(Canopy.surface),
         contentAlignment = Alignment.Center,
     ) {
         if (url != null) {
@@ -651,7 +651,7 @@ private fun AlbumArt(url: String?, modifier: Modifier = Modifier) {
             Icon(
                 phosphorIcon("waveform"),
                 contentDescription = null,
-                tint = Nocturne.neutral600,
+                tint = Canopy.neutral600,
                 modifier = Modifier.fillMaxSize(0.35f),
             )
         }
@@ -664,8 +664,8 @@ private fun AlbumArt(url: String?, modifier: Modifier = Modifier) {
 @Composable
 private fun Bars(progress: Float, modifier: Modifier = Modifier) {
     val barCount = 32
-    val activeColor = Nocturne.accent
-    val inactiveColor = Nocturne.neutral800
+    val activeColor = Canopy.accent
+    val inactiveColor = Canopy.neutral800
 
     Canvas(modifier = modifier) {
         val gap = 5.dp.toPx()
@@ -693,8 +693,8 @@ private fun Waveform(progress: Float, seed: Int, modifier: Modifier = Modifier) 
         val random = Random(seed)
         List(barCount) { 0.2f + random.nextFloat() * 0.8f }
     }
-    val activeColor = Nocturne.accent
-    val inactiveColor = Nocturne.neutral800
+    val activeColor = Canopy.accent
+    val inactiveColor = Canopy.neutral800
 
     Canvas(modifier = modifier) {
         val gap = 3.dp.toPx()

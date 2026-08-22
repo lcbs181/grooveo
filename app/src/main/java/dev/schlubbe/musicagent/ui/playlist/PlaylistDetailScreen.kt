@@ -48,12 +48,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistDetailOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistTrackOutDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
-import dev.schlubbe.musicagent.ui.components.NocturneTag
-import dev.schlubbe.musicagent.ui.components.NocturneTagStyle
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyTag
+import dev.schlubbe.musicagent.ui.components.CanopyTagStyle
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
 import dev.schlubbe.musicagent.ui.util.shareText
 
@@ -92,11 +92,11 @@ fun PlaylistDetailScreen(
         }
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         when {
             uiState.isLoading -> CircularProgressIndicator(
                 modifier = Modifier.padding(padding).padding(16.dp),
-                color = Nocturne.accent,
+                color = Canopy.accent,
             )
             playlist == null -> Text(
                 "Playlist nicht gefunden",
@@ -108,13 +108,13 @@ fun PlaylistDetailScreen(
                         modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                        CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
                         Box {
-                            NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
+                            CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
                             DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
                                 DropdownMenuItem(
                                     text = { Text("Herunterladen") },
-                                    leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                    leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                                     onClick = {
                                         showTopMenu = false
                                         haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -123,7 +123,7 @@ fun PlaylistDetailScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Löschen") },
-                                    leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Nocturne.accent) },
+                                    leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
                                     onClick = {
                                         showTopMenu = false
                                         viewModel.delete(onDeleted)
@@ -131,7 +131,7 @@ fun PlaylistDetailScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Teilen") },
-                                    leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                    leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                     onClick = {
                                         showTopMenu = false
                                         // Local playlists have no remote URL - shares a
@@ -149,7 +149,7 @@ fun PlaylistDetailScreen(
                     item {
                         Text(
                             "Noch keine Titel",
-                            color = Nocturne.neutral500,
+                            color = Canopy.neutral500,
                             modifier = Modifier.padding(20.dp),
                         )
                     }
@@ -238,27 +238,27 @@ private fun PlaylistTrackRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Nocturne.accent800)
+                    .background(Canopy.accent800)
                     .padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Nocturne.accent100)
+                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Canopy.accent100)
             }
         },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         ListItem(
-            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
             leadingContent = { TrackThumbnail(item.track.thumbnailUrl) },
             headlineContent = {
                 Text(item.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
             supportingContent = {
-                Text(item.track.artist ?: item.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+                Text(item.track.artist ?: item.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
             },
             trailingContent = {
                 Row {
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon("heart", filled = isLiked),
                         onClick = {
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
@@ -266,46 +266,46 @@ private fun PlaylistTrackRow(
                         },
                     )
                     Box {
-                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToQueueClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
-                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onDownloadClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zum Künstler") },
-                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; item.track.artist?.let(onArtistClick) },
                             )
                             DropdownMenuItem(
                                 text = { Text("Teilen") },
-                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; context.shareText(item.track.webpageUrl) },
                             )
                             DropdownMenuItem(
                                 text = { Text("Nach oben") },
-                                leadingIcon = { Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onMoveUp() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Nach unten") },
-                                leadingIcon = { Icon(phosphorIcon("caret-down"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("caret-down"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onMoveDown() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Entfernen") },
-                                leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onRemove() },
                             )
                         }
@@ -340,7 +340,7 @@ private fun PlaylistHeader(playlist: PlaylistDetailOutDto, onEditClick: () -> Un
                 Text(
                     playlist.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     modifier = Modifier.padding(top = 5.dp),
                 )
             }
@@ -351,11 +351,11 @@ private fun PlaylistHeader(playlist: PlaylistDetailOutDto, onEditClick: () -> Un
                 ) {
                     playlist.moodTags.forEach { key ->
                         val label = MoodTag.entries.firstOrNull { it.key == key }?.label ?: key
-                        NocturneTag(label, style = NocturneTagStyle.Outline)
+                        CanopyTag(label, style = CanopyTagStyle.Outline)
                     }
                 }
             }
         }
-        NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = onEditClick, iconSize = 17.dp)
+        CanopyIconButton(icon = phosphorIcon("pencil-simple"), onClick = onEditClick, iconSize = 17.dp)
     }
 }

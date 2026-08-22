@@ -62,14 +62,14 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
-import dev.schlubbe.musicagent.ui.theme.Nocturne
-import dev.schlubbe.musicagent.ui.theme.NocturneShapes
+import dev.schlubbe.musicagent.ui.theme.Canopy
+import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.util.shareText
@@ -117,7 +117,7 @@ fun LibraryScreen(
         viewModel.backToHome()
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (uiState.selectedTab) {
                 LibraryTab.HOME -> LibraryHomeContent(
@@ -205,11 +205,11 @@ private fun LibraryHomeContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Bibliothek", style = MaterialTheme.typography.headlineMedium)
-                NocturneIconButton(
+                CanopyIconButton(
                     icon = phosphorIcon("gear-six"),
                     onClick = onOpenSettings,
                     shape = CircleShape,
-                    variant = NocturneButtonVariant.Secondary,
+                    variant = CanopyButtonVariant.Secondary,
                 )
             }
         }
@@ -228,7 +228,7 @@ private fun LibraryHomeContent(
                 Text(
                     "Zuletzt gespielt",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, top = 14.dp, bottom = 8.dp),
                 )
             }
@@ -246,7 +246,7 @@ private fun LibraryHomeContent(
                 Text(
                     "Wiedergabeverlauf",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, top = 14.dp, bottom = 6.dp),
                 )
             }
@@ -272,14 +272,14 @@ private fun ImportBanner(onDismiss: () -> Unit, onImportClick: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = dimens.horizontalPadding)
             .padding(bottom = 18.dp)
-            .clip(NocturneShapes.large)
-            .background(Nocturne.surface)
+            .clip(CanopyShapes.large)
+            .background(Canopy.surface)
             .padding(16.dp),
     ) {
-        NocturneIconButton(
+        CanopyIconButton(
             icon = phosphorIcon("x"),
             onClick = onDismiss,
-            variant = NocturneButtonVariant.Ghost,
+            variant = CanopyButtonVariant.Ghost,
             size = 26.dp,
             iconSize = 14.dp,
             modifier = Modifier.align(Alignment.TopEnd),
@@ -292,13 +292,13 @@ private fun ImportBanner(onDismiss: () -> Unit, onImportClick: () -> Unit) {
             Text(
                 "Importiere deine Musik von Spotify in nur drei Schritten.",
                 style = MaterialTheme.typography.labelMedium,
-                color = Nocturne.neutral500,
+                color = Canopy.neutral500,
                 modifier = Modifier.padding(top = 5.dp),
             )
-            NocturneButton(
+            CanopyButton(
                 text = "Jetzt importieren",
                 onClick = onImportClick,
-                variant = NocturneButtonVariant.Primary,
+                variant = CanopyButtonVariant.Primary,
                 modifier = Modifier.padding(top = 20.dp),
             )
         }
@@ -320,7 +320,7 @@ private fun LibraryChevronRow(label: String, onClick: () -> Unit) {
         Icon(
             phosphorIcon("caret-right"),
             contentDescription = null,
-            tint = Nocturne.neutral500,
+            tint = Canopy.neutral500,
             modifier = Modifier.size(16.dp),
         )
     }
@@ -341,7 +341,7 @@ private fun RecentlyPlayedAvatar(track: TrackEntity, onClick: () -> Unit) {
         Text(
             track.title,
             style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.neutral500,
+            color = Canopy.neutral500,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -367,34 +367,34 @@ private fun HistoryRow(
     val subtitle = listOfNotNull(track.artist, formatTrackDuration(track.durationSec).takeIf { it.isNotEmpty() })
         .joinToString(" · ")
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = if (subtitle.isBlank()) null else {
-            { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500) }
+            { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500) }
         },
         trailingContent = {
             Box {
-                NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
                         text = { Text("Zu Playlist hinzufügen") },
-                        leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; onAddToPlaylistClick() },
                     )
                     DropdownMenuItem(
                         text = { Text("Zur Warteschlange hinzufügen") },
-                        leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; onAddToQueueClick() },
                     )
                     DropdownMenuItem(
                         text = { Text("Zum Künstler") },
-                        leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; onArtistClick() },
                     )
                     DropdownMenuItem(
                         text = { Text("Teilen") },
-                        leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                        leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
                     )
                 }
@@ -428,7 +428,7 @@ private fun LibrarySubViewHeader(title: String, onBack: () -> Unit) {
             .padding(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onBack, iconSize = 20.dp)
+        CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onBack, iconSize = 20.dp)
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
     }
 }
@@ -443,14 +443,14 @@ private fun PlaylistsSubViewHeader(onBack: () -> Unit, onAddClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            NocturneIconButton(icon = phosphorIcon("caret-left"), onClick = onBack, iconSize = 20.dp)
+            CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onBack, iconSize = 20.dp)
             Text("Playlists", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
         }
-        NocturneIconButton(
+        CanopyIconButton(
             icon = phosphorIcon("plus"),
             onClick = onAddClick,
             shape = CircleShape,
-            variant = NocturneButtonVariant.Primary,
+            variant = CanopyButtonVariant.Primary,
         )
     }
 }
@@ -510,7 +510,7 @@ private fun DownloadRow(
     val displayPct = item.livePct ?: entity.progressPct
 
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(track?.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = {
             Text(track?.title ?: entity.trackId, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -523,13 +523,13 @@ private fun DownloadRow(
                             .width(130.dp)
                             .height(4.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Nocturne.neutral800),
+                            .background(Canopy.neutral800),
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(displayPct / 100f)
                                 .height(4.dp)
-                                .background(Nocturne.accent),
+                                .background(Canopy.accent),
                         )
                     }
                     val sizeText = when {
@@ -539,7 +539,7 @@ private fun DownloadRow(
                     }
                     Text(
                         sizeText,
-                        color = Nocturne.neutral500,
+                        color = Canopy.neutral500,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(top = 3.dp),
                     )
@@ -548,12 +548,12 @@ private fun DownloadRow(
                     Icon(
                         phosphorIcon("warning-circle"),
                         contentDescription = null,
-                        tint = Nocturne.neutral500,
+                        tint = Canopy.neutral500,
                         modifier = Modifier.size(12.dp),
                     )
                     Text(
                         "Fehlgeschlagen",
-                        color = Nocturne.neutral500,
+                        color = Canopy.neutral500,
                         modifier = Modifier.padding(start = 4.dp),
                     )
                 }
@@ -566,17 +566,17 @@ private fun DownloadRow(
                         subtitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Nocturne.neutral500,
+                        color = Canopy.neutral500,
                     )
                 }
-                DownloadState.QUEUED -> Text("Wartet...", fontStyle = FontStyle.Italic, color = Nocturne.neutral500)
+                DownloadState.QUEUED -> Text("Wartet...", fontStyle = FontStyle.Italic, color = Canopy.neutral500)
             }
         },
         trailingContent = when (entity.state) {
             DownloadState.COMPLETED -> if (track == null) null else {
                 {
                 Row {
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon("heart", filled = isLiked),
                         onClick = {
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
@@ -584,26 +584,26 @@ private fun DownloadRow(
                         },
                     )
                     Box {
-                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToQueueClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zum Künstler") },
-                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onArtistClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Teilen") },
-                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
                             )
                         }
@@ -612,13 +612,13 @@ private fun DownloadRow(
                 }
             }
             DownloadState.DOWNLOADING -> {
-                { NocturneIconButton(icon = phosphorIcon("pause"), onClick = onPauseClick) }
+                { CanopyIconButton(icon = phosphorIcon("pause"), onClick = onPauseClick) }
             }
             DownloadState.PAUSED -> {
-                { NocturneIconButton(icon = phosphorIcon("play"), onClick = onResumeClick) }
+                { CanopyIconButton(icon = phosphorIcon("play"), onClick = onResumeClick) }
             }
             DownloadState.FAILED -> {
-                { NocturneIconButton(icon = phosphorIcon("arrow-clockwise"), onClick = onRetryClick) }
+                { CanopyIconButton(icon = phosphorIcon("arrow-clockwise"), onClick = onRetryClick) }
             }
             DownloadState.QUEUED -> null
         },
@@ -631,11 +631,11 @@ private fun DownloadRow(
 @Composable
 private fun LikesTab(uiState: LibraryUiState, onTrackPlayed: () -> Unit, viewModel: LibraryViewModel) {
     if (uiState.isLoadingLikes) {
-        CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Nocturne.accent)
+        CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Canopy.accent)
         return
     }
     if (uiState.likes.isEmpty()) {
-        Text("Noch keine Likes", color = Nocturne.neutral500, modifier = Modifier.padding(20.dp))
+        Text("Noch keine Likes", color = Canopy.neutral500, modifier = Modifier.padding(20.dp))
         return
     }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -688,25 +688,25 @@ private fun LikeRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Nocturne.accent800)
+                    .background(Canopy.accent800)
                     .padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Nocturne.accent100)
+                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Canopy.accent100)
             }
         },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         ListItem(
-            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
             leadingContent = { TrackThumbnail(like.track.thumbnailUrl, size = dimens.listThumbnail) },
             headlineContent = { Text(like.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             supportingContent = {
-                Text(like.track.artist ?: like.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+                Text(like.track.artist ?: like.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
             },
             trailingContent = {
                 Row {
-                    NocturneIconButton(
+                    CanopyIconButton(
                         icon = phosphorIcon("heart", filled = true),
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.ToggleOff)
@@ -714,31 +714,31 @@ private fun LikeRow(
                         },
                     )
                     Box {
-                        NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
-                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToQueueClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
-                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onDownloadClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Nicht mehr gefällt mir") },
-                                leadingIcon = { Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onUnlikeClick() },
                             )
                             DropdownMenuItem(
                                 text = { Text("Zum Künstler") },
-                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = {
                                     menuExpanded = false
                                     like.track.artist?.let(onArtistClick)
@@ -746,7 +746,7 @@ private fun LikeRow(
                             )
                             DropdownMenuItem(
                                 text = { Text("Teilen") },
-                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                                leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; context.shareText(like.track.webpageUrl) },
                             )
                         }
@@ -784,14 +784,14 @@ private fun PlaylistsTab(
     val context = LocalContext.current
     val dimens = rememberResponsiveDimens()
     if (uiState.isLoadingPlaylists) {
-        CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Nocturne.accent)
+        CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Canopy.accent)
         return
     }
     val items: List<LibraryPlaylistItem> =
         uiState.playlists.map { LibraryPlaylistItem.Local(it) } +
             uiState.savedPlaylists.map { LibraryPlaylistItem.Saved(it) }
     if (items.isEmpty()) {
-        Text("Noch keine Playlists", color = Nocturne.neutral500, modifier = Modifier.padding(20.dp))
+        Text("Noch keine Playlists", color = Canopy.neutral500, modifier = Modifier.padding(20.dp))
         return
     }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -800,7 +800,7 @@ private fun PlaylistsTab(
                 is LibraryPlaylistItem.Local -> {
                     val playlist = item.playlist
                     ListItem(
-                        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+                        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
                         modifier = Modifier.fillMaxWidth().clickable { onPlaylistClick(playlist.id) },
                         leadingContent = {
                             Box(
@@ -810,12 +810,12 @@ private fun PlaylistsTab(
                                     .background(accentColorFor(playlist.accentColorKey, playlist.id)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(phosphorIcon("stack"), contentDescription = null, tint = Nocturne.text, modifier = Modifier.size(18.dp))
+                                Icon(phosphorIcon("stack"), contentDescription = null, tint = Canopy.text, modifier = Modifier.size(18.dp))
                             }
                         },
                         headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         supportingContent = {
-                            Text("${playlist.trackCount} Titel", color = Nocturne.neutral500)
+                            Text("${playlist.trackCount} Titel", color = Canopy.neutral500)
                         },
                         trailingContent = {
                             Row {
@@ -823,17 +823,17 @@ private fun PlaylistsTab(
                                 // into the detail screen first - same batched download call
                                 // (DownloadRepository.startDownloadAll) the detail screen's
                                 // own "download all" button uses.
-                                NocturneIconButton(
+                                CanopyIconButton(
                                     icon = phosphorIcon("download-simple"),
                                     onClick = { viewModel.onDownloadPlaylistClicked(playlist.id) },
                                 )
                                 // Local playlists have no remote URL - shares a plain-text
                                 // summary instead of a link, unlike every other share action.
-                                NocturneIconButton(
+                                CanopyIconButton(
                                     icon = phosphorIcon("share-network"),
                                     onClick = { context.shareText("${playlist.name} (${playlist.trackCount} Titel) — geteilt aus Grooveo") },
                                 )
-                                NocturneIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
+                                CanopyIconButton(icon = phosphorIcon("pencil-simple"), onClick = { onPlaylistClick(playlist.id) })
                             }
                         },
                     )
@@ -842,7 +842,7 @@ private fun PlaylistsTab(
                     val playlist = item.playlist
                     var menuExpanded by remember { mutableStateOf(false) }
                     ListItem(
-                        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+                        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
                         modifier = Modifier.fillMaxWidth().clickable {
                             onSavedPlaylistClick(playlist.source, playlist.sourceId)
                         },
@@ -852,7 +852,7 @@ private fun PlaylistsTab(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     if (playlist.source == "soundcloud") "SoundCloud" else "YT Music",
-                                    color = Nocturne.accent,
+                                    color = Canopy.accent,
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                                 val subtitle = listOfNotNull(playlist.owner, playlist.trackCount?.let { "$it Titel" })
@@ -860,7 +860,7 @@ private fun PlaylistsTab(
                                 if (subtitle.isNotBlank()) {
                                     Text(
                                         " · $subtitle",
-                                        color = Nocturne.neutral500,
+                                        color = Canopy.neutral500,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -873,21 +873,21 @@ private fun PlaylistsTab(
                                 // screen's own "download all" button (RemotePlaylistDetailViewModel
                                 // .onDownloadAllClicked) - fetches the live track list for this
                                 // saved playlist, since only the bookmark itself is persisted.
-                                NocturneIconButton(
+                                CanopyIconButton(
                                     icon = phosphorIcon("download-simple"),
                                     onClick = { viewModel.onDownloadSavedPlaylistClicked(playlist.source, playlist.sourceId) },
                                 )
-                                NocturneIconButton(
+                                CanopyIconButton(
                                     icon = phosphorIcon("share-network"),
                                     onClick = { context.shareText(playlist.webpageUrl) },
                                 )
                                 Box {
-                                    NocturneIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                                    CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                         DropdownMenuItem(
                                             text = { Text("Nicht mehr gespeichert") },
                                             leadingIcon = {
-                                                Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Nocturne.accent)
+                                                Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Canopy.accent)
                                             },
                                             onClick = {
                                                 menuExpanded = false

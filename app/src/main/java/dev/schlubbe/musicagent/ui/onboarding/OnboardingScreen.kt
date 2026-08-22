@@ -36,11 +36,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.WaveformLogoBadge
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -111,7 +111,7 @@ private fun IntroAnimation(onContinue: () -> Unit) {
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(Nocturne.accent.copy(alpha = 0.16f), Nocturne.bg),
+                    colors = listOf(Canopy.accent.copy(alpha = 0.16f), Canopy.bg),
                     radius = 900f,
                 ),
             ),
@@ -125,7 +125,7 @@ private fun IntroAnimation(onContinue: () -> Unit) {
                 Text(
                     "SoundCloud und YouTube Music, an einem Ort. Wir richten alles für dich ein.",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 6.dp, start = 24.dp, end = 24.dp),
                 )
@@ -136,13 +136,13 @@ private fun IntroAnimation(onContinue: () -> Unit) {
                     .width(140.dp)
                     .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Nocturne.neutral800)
+                    .background(Canopy.neutral800)
                     .alpha(textAlpha),
             ) {
-                Box(modifier = Modifier.fillMaxWidth(trackProgress).height(3.dp).background(Nocturne.accent))
+                Box(modifier = Modifier.fillMaxWidth(trackProgress).height(3.dp).background(Canopy.accent))
             }
         }
-        NocturneButton(
+        CanopyButton(
             text = "Los geht's",
             onClick = onContinue,
             block = true,
@@ -159,14 +159,14 @@ private fun TutorialPager(onFinished: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { SLIDES.size })
     val scope = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxSize().background(Nocturne.bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(Canopy.bg)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.End,
         ) {
             Text(
                 "Überspringen",
-                color = Nocturne.accent,
+                color = Canopy.accent,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable(onClick = onFinished),
             )
@@ -180,17 +180,17 @@ private fun TutorialPager(onFinished: () -> Unit) {
                 verticalArrangement = Arrangement.Center,
             ) {
                 Box(
-                    modifier = Modifier.size(88.dp).clip(CircleShape).background(Nocturne.accent800),
+                    modifier = Modifier.size(88.dp).clip(CircleShape).background(Canopy.accent800),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(phosphorIcon(slide.iconName), contentDescription = null, tint = Nocturne.accent300, modifier = Modifier.size(36.dp))
+                    Icon(phosphorIcon(slide.iconName), contentDescription = null, tint = Canopy.accent300, modifier = Modifier.size(36.dp))
                 }
                 Spacer(modifier = Modifier.padding(top = 22.dp))
                 Text(slide.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                 Text(
                     slide.description,
                     style = MaterialTheme.typography.labelMedium,
-                    color = Nocturne.neutral500,
+                    color = Canopy.neutral500,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 8.dp),
                 )
@@ -212,13 +212,13 @@ private fun TutorialPager(onFinished: () -> Unit) {
                         .width(if (active) 20.dp else 6.dp)
                         .height(6.dp)
                         .clip(RoundedCornerShape(3.dp))
-                        .background(if (active) Nocturne.accent else Nocturne.neutral700),
+                        .background(if (active) Canopy.accent else Canopy.neutral700),
                 )
             }
         }
 
         val isLast = pagerState.currentPage == SLIDES.lastIndex
-        NocturneButton(
+        CanopyButton(
             text = if (isLast) "Los geht's" else "Weiter",
             onClick = {
                 if (isLast) {
@@ -228,7 +228,7 @@ private fun TutorialPager(onFinished: () -> Unit) {
                 }
             },
             block = true,
-            variant = NocturneButtonVariant.Primary,
+            variant = CanopyButtonVariant.Primary,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 30.dp),
         )
     }

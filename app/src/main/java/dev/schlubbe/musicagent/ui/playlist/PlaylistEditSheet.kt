@@ -31,10 +31,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import dev.schlubbe.musicagent.ui.components.NocturneButton
-import dev.schlubbe.musicagent.ui.components.NocturneButtonVariant
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
 
 enum class MoodTag(val key: String, val label: String) {
@@ -73,14 +73,14 @@ fun PlaylistEditSheet(
     var accentColorKey by remember { mutableStateOf(initialAccentColorKey) }
     var selectedTags by remember { mutableStateOf(initialMoodTags.toSet()) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Nocturne.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
         Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text("Playlist bearbeiten", style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.padding(top = 12.dp))
 
-            NocturneTextField(value = name, onValueChange = { name = it }, label = "Name")
+            CanopyTextField(value = name, onValueChange = { name = it }, label = "Name")
             Spacer(modifier = Modifier.padding(top = 12.dp))
-            NocturneTextField(
+            CanopyTextField(
                 value = description,
                 onValueChange = { description = it },
                 label = "Beschreibung",
@@ -123,9 +123,9 @@ fun PlaylistEditSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                NocturneButton(text = "Abbrechen", onClick = onDismiss, variant = NocturneButtonVariant.Secondary)
+                CanopyButton(text = "Abbrechen", onClick = onDismiss, variant = CanopyButtonVariant.Secondary)
                 Spacer(modifier = Modifier.padding(start = 10.dp))
-                NocturneButton(
+                CanopyButton(
                     text = "Speichern",
                     onClick = { onSave(name.trim(), description.trim(), accentColorKey, selectedTags.toList()) },
                     enabled = name.isNotBlank(),
@@ -136,7 +136,7 @@ fun PlaylistEditSheet(
 }
 
 @Composable
-private fun NocturneTextField(
+private fun CanopyTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
@@ -144,7 +144,7 @@ private fun NocturneTextField(
     maxLines: Int = 1,
 ) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Nocturne.neutral400)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Canopy.neutral400)
         Spacer(modifier = Modifier.padding(top = 4.dp))
         TextField(
             value = value,
@@ -154,10 +154,10 @@ private fun NocturneTextField(
             maxLines = maxLines,
             shape = RoundedCornerShape(8.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Nocturne.bg,
-                unfocusedContainerColor = Nocturne.bg,
-                focusedIndicatorColor = Nocturne.divider,
-                unfocusedIndicatorColor = Nocturne.divider,
+                focusedContainerColor = Canopy.bg,
+                unfocusedContainerColor = Canopy.bg,
+                focusedIndicatorColor = Canopy.divider,
+                unfocusedIndicatorColor = Canopy.divider,
             ),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -169,15 +169,15 @@ private fun MoodTagChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .let { if (selected) it.border(1.dp, Nocturne.accent, RoundedCornerShape(6.dp)) else it }
-            .background(if (selected) Color.Transparent else Nocturne.neutral800)
+            .let { if (selected) it.border(1.dp, Canopy.accent, RoundedCornerShape(6.dp)) else it }
+            .background(if (selected) Color.Transparent else Canopy.neutral800)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (selected) Nocturne.accent else Nocturne.neutral100,
+            color = if (selected) Canopy.accent else Canopy.neutral100,
         )
     }
 }
@@ -188,7 +188,7 @@ private fun AccentSwatch(color: Color, selected: Boolean, label: String, onClick
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.selectable(selected = selected, onClick = onClick),
     ) {
-        val ringColor = if (selected) Nocturne.text else Color.Transparent
+        val ringColor = if (selected) Canopy.text else Color.Transparent
         Box(
             modifier = Modifier
                 .size(40.dp)

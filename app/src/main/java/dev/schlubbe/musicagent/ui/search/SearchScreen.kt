@@ -53,12 +53,12 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.ui.util.shareText
 import dev.schlubbe.musicagent.ui.components.DrmLockIcon
-import dev.schlubbe.musicagent.ui.components.NocturneIconButton
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.SegmentedControl
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 
 private val SOURCES = listOf("all" to "Alle", "ytmusic" to "YT Music", "soundcloud" to "SoundCloud")
@@ -100,7 +100,7 @@ fun SearchScreen(
         }
     }
 
-    Scaffold(containerColor = Nocturne.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Text(
                 "Suche",
@@ -122,10 +122,10 @@ fun SearchScreen(
                 ),
                 shape = RoundedCornerShape(8.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Nocturne.surface,
-                    unfocusedContainerColor = Nocturne.surface,
-                    focusedIndicatorColor = Nocturne.divider,
-                    unfocusedIndicatorColor = Nocturne.divider,
+                    focusedContainerColor = Canopy.surface,
+                    unfocusedContainerColor = Canopy.surface,
+                    focusedIndicatorColor = Canopy.divider,
+                    unfocusedIndicatorColor = Canopy.divider,
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -153,7 +153,7 @@ fun SearchScreen(
 
             when {
                 uiState.isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Nocturne.accent)
+                    CircularProgressIndicator(color = Canopy.accent)
                 }
                 uiState.error != null -> CenteredHint("Fehler: ${uiState.error}", isError = true)
                 uiState.query.isBlank() -> if (uiState.searchHistory.isEmpty()) {
@@ -240,7 +240,7 @@ private fun CenteredHint(text: String, isError: Boolean = false) {
     Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(
             text,
-            color = if (isError) MaterialTheme.colorScheme.error else Nocturne.neutral500,
+            color = if (isError) MaterialTheme.colorScheme.error else Canopy.neutral500,
             style = MaterialTheme.typography.bodyMedium,
         )
     }
@@ -260,7 +260,7 @@ private fun SearchHistoryList(
                 "Suchverlauf",
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(start = dimens.horizontalPadding, top = 12.dp, bottom = 8.dp),
-                color = Nocturne.neutral500,
+                color = Canopy.neutral500,
             )
         }
         items(history, key = { it }) { query ->
@@ -296,7 +296,7 @@ private fun SearchHistoryRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        NocturneIconButton(
+        CanopyIconButton(
             icon = phosphorIcon("x"),
             onClick = onQueryDeleted,
         )
@@ -331,14 +331,14 @@ private fun SwipeToQueueRow(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Nocturne.accent800)
+                    .background(Canopy.accent800)
                     .padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
                     phosphorIcon("list-plus"),
                     contentDescription = "Zur Warteschlange hinzufügen",
-                    tint = Nocturne.accent100,
+                    tint = Canopy.accent100,
                 )
             }
         },
@@ -361,7 +361,7 @@ private fun TrackRow(
     val dimens = rememberResponsiveDimens()
     SwipeToQueueRow(onSwipeToQueue = onAddToQueueClick) {
         ListItem(
-            colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
             leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -370,7 +370,7 @@ private fun TrackRow(
                 }
             },
             supportingContent = {
-                Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+                Text(track.artist ?: track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
             },
             trailingContent = {
                 TrackActions(
@@ -394,7 +394,7 @@ private fun TrackRow(
 @Composable
 private fun ShareIconButton(webpageUrl: String) {
     val context = LocalContext.current
-    NocturneIconButton(
+    CanopyIconButton(
         icon = phosphorIcon("share-network"),
         onClick = { context.shareText(webpageUrl) },
     )
@@ -407,11 +407,11 @@ private fun ArtistRow(
 ) {
     val dimens = rememberResponsiveDimens()
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(artist.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = artist.subscriberCount?.let { count ->
-            { Text("$count Abonnenten", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500) }
+            { Text("$count Abonnenten", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500) }
         },
         trailingContent = { ShareIconButton(artist.webpageUrl) },
         modifier = Modifier
@@ -424,13 +424,13 @@ private fun ArtistRow(
 private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) {
     val dimens = rememberResponsiveDimens()
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(playlist.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             val subtitle = listOfNotNull(playlist.owner, playlist.trackCount?.let { "$it Titel" })
                 .joinToString(" · ")
-            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
         },
         trailingContent = { ShareIconButton(playlist.webpageUrl) },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -441,11 +441,11 @@ private fun PlaylistResultRow(playlist: PlaylistResultDto, onClick: () -> Unit) 
 private fun AlbumResultRow(album: AlbumResultDto, onClick: () -> Unit) {
     val dimens = rememberResponsiveDimens()
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Nocturne.bg),
+        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
         leadingContent = { TrackThumbnail(album.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
-            Text(album.artist ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Nocturne.neutral500)
+            Text(album.artist ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
         },
         trailingContent = { ShareIconButton(album.webpageUrl) },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -469,7 +469,7 @@ private fun TrackActions(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     Row {
-        NocturneIconButton(
+        CanopyIconButton(
             icon = phosphorIcon("heart", filled = isLiked),
             onClick = {
                 haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
@@ -477,14 +477,14 @@ private fun TrackActions(
             },
         )
         Box {
-            NocturneIconButton(
+            CanopyIconButton(
                 icon = phosphorIcon("dots-three"),
                 onClick = { menuExpanded = true },
             )
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 DropdownMenuItem(
                     text = { Text("Zu Playlist hinzufügen") },
-                    leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Nocturne.accent) },
+                    leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                     onClick = {
                         menuExpanded = false
                         onAddToPlaylistClick()
@@ -492,7 +492,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Zur Warteschlange hinzufügen") },
-                    leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Nocturne.accent) },
+                    leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
                     onClick = {
                         menuExpanded = false
                         onAddToQueueClick()
@@ -500,7 +500,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Herunterladen") },
-                    leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Nocturne.accent) },
+                    leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
                     onClick = {
                         menuExpanded = false
                         onDownloadClick()
@@ -509,7 +509,7 @@ private fun TrackActions(
                 DropdownMenuItem(
                     text = { Text(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir") },
                     leadingIcon = {
-                        Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = Nocturne.accent)
+                        Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = Canopy.accent)
                     },
                     onClick = {
                         menuExpanded = false
@@ -518,7 +518,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Zum Künstler") },
-                    leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Nocturne.accent) },
+                    leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
                     onClick = {
                         menuExpanded = false
                         artist?.let(onArtistClick)
@@ -526,7 +526,7 @@ private fun TrackActions(
                 )
                 DropdownMenuItem(
                     text = { Text("Teilen") },
-                    leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Nocturne.accent) },
+                    leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                     onClick = {
                         menuExpanded = false
                         context.shareText(webpageUrl)

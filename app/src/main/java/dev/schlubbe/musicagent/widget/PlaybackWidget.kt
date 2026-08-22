@@ -53,23 +53,22 @@ import dev.schlubbe.musicagent.playback.PlaybackUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// Nocturne design tokens (see ui/theme/Color.kt's Nocturne object) - Glance
-// widgets can't reference Compose's MaterialTheme, so the same hex values are
-// duplicated here as plain Color constants.
-private val WIDGET_ACCENT = Color(0xFF9184D9)
-private val WIDGET_BACKGROUND = Color(0xFF161826)
-private val WIDGET_SURFACE = Color(0xFF232532)
+// Canopy dark-theme tokens (see ui/theme/Color.kt's CanopyDark) - Glance widgets
+// can't read a CompositionLocal from the app's process, so the values are
+// duplicated here as plain constants. Pinned to the *dark* palette on purpose:
+// a widget sits on the user's wallpaper, not on an app surface, so it doesn't
+// follow the in-app light/dark choice.
+private val WIDGET_ACCENT = Color(0xFF4A8F76)
+private val WIDGET_BACKGROUND = Color(0xFF10201A)
+private val WIDGET_SURFACE = Color(0xFF1B2E26)
 
-// The design handoff's widget card (Music Agent Widget.dc.html) uses
-// `background: color-mix(in srgb, var(--color-surface) 88%, transparent)` -
-// a translucent surface-toned card, not the flat opaque --color-bg the
-// widget was using before. 0xE0 alpha is 88% of 0xFF.
-private val WIDGET_CARD_BG = Color(0xE0232532)
+// A translucent surface-toned card rather than a flat opaque --color-bg, so the
+// wallpaper shows through slightly. 0xE0 alpha is 88% of 0xFF.
+private val WIDGET_CARD_BG = Color(0xE01B2E26)
 
-// --radius-lg from nocturne-tokens.css (14px), the card's own corner radius
-// in the handoff. --radius-sm (4px) is AlbumArt's.
+// Canopy --radius-md (14px) for the card, --radius-sm (8px) for the cover.
 private val WIDGET_CARD_RADIUS = 14.dp
-private val WIDGET_ART_RADIUS = 4.dp
+private val WIDGET_ART_RADIUS = 8.dp
 
 // Grid-cell size formula this project already established for the widget host's
 // own sizing quirks (see round-5 notes: minHeight per row is (rows*70)-30dp,

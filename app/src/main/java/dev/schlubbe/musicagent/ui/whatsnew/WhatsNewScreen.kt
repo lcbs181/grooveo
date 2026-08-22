@@ -24,9 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.BuildConfig
-import dev.schlubbe.musicagent.ui.components.NocturneButton
+import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
-import dev.schlubbe.musicagent.ui.theme.Nocturne
+import dev.schlubbe.musicagent.ui.theme.Canopy
 
 private data class WhatsNewItem(val iconName: String, val title: String, val description: String)
 
@@ -92,7 +92,7 @@ fun WhatsNewScreen(onDone: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Nocturne.bg)
+            .background(Canopy.bg)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
     ) {
@@ -104,10 +104,10 @@ fun WhatsNewScreen(onDone: () -> Unit) {
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(Nocturne.accent800),
+                    .background(Canopy.accent800),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(phosphorIcon("sparkle"), contentDescription = null, tint = Nocturne.accent300, modifier = Modifier.size(26.dp))
+                Icon(phosphorIcon("sparkle"), contentDescription = null, tint = Canopy.accent300, modifier = Modifier.size(26.dp))
             }
             Spacer(modifier = Modifier.padding(top = 16.dp))
             Text(
@@ -118,7 +118,7 @@ fun WhatsNewScreen(onDone: () -> Unit) {
             Text(
                 "Music Agent wurde aktualisiert",
                 style = MaterialTheme.typography.labelMedium,
-                color = Nocturne.neutral500,
+                color = Canopy.neutral500,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -130,17 +130,17 @@ fun WhatsNewScreen(onDone: () -> Unit) {
                         modifier = Modifier
                             .size(38.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Nocturne.surface),
+                            .background(Canopy.surface),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(phosphorIcon(item.iconName), contentDescription = null, tint = Nocturne.accent, modifier = Modifier.size(18.dp))
+                        Icon(phosphorIcon(item.iconName), contentDescription = null, tint = Canopy.accent, modifier = Modifier.size(18.dp))
                     }
                     Column(modifier = Modifier.padding(start = 14.dp)) {
                         Text(item.title, style = MaterialTheme.typography.labelLarge)
                         Text(
                             item.description,
                             style = MaterialTheme.typography.labelSmall,
-                            color = Nocturne.neutral500,
+                            color = Canopy.neutral500,
                             modifier = Modifier.padding(top = 2.dp),
                         )
                     }
@@ -149,7 +149,7 @@ fun WhatsNewScreen(onDone: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.padding(top = 30.dp))
-        NocturneButton(text = "Los geht's", onClick = onDone, block = true)
+        CanopyButton(text = "Los geht's", onClick = onDone, block = true)
         Spacer(modifier = Modifier.padding(bottom = 30.dp))
     }
 }
