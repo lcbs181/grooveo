@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.data.extract.soundcloud
 
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
@@ -16,6 +17,18 @@ internal fun JsonObject.stringOrNull(key: String): String? =
 
 internal fun JsonObject.longOrNull(key: String): Long? =
     get(key)?.takeIf { !it.isJsonNull }?.asLong
+
+// Gson's own getAsJsonObject/getAsJsonArray throw ClassCastException (not return
+// null) when the key is present but explicitly JSON `null` - only a genuinely
+// *missing* key returns null from those. SoundCloud sends explicit null for
+// optional relations (e.g. a deleted/deactivated user), so every JsonObject/
+// JsonArray field access in this file goes through these instead of the raw Gson
+// accessors, matching stringOrNull/longOrNull's already-correct null handling.
+internal fun JsonObject.jsonObjectOrNull(key: String): JsonObject? =
+    get(key)?.takeIf { !it.isJsonNull }?.asJsonObject
+
+internal fun JsonObject.jsonArrayOrNull(key: String): JsonArray? =
+    get(key)?.takeIf { !it.isJsonNull }?.asJsonArray
 
 // SoundCloud's user "visuals" (banner image) is an object with a "visuals" array -
 // defensive throughout since this is undocumented API shape, not a stable contract;
@@ -50,7 +63,7 @@ private fun trimTrailingZero(value: Double): String {
 }
 
 private fun JsonObject.protocol(): String? =
-    getAsJsonObject("format")?.get("protocol")?.takeIf { !it.isJsonNull }?.asString
+    jsonObjectOrNull("format")?.stringOrNull("protocol")
 
 // Same signal SoundCloudStreamResolver.resolve() uses to decide whether to throw
 // SoundCloudDrmOnlyException, checked here up front instead - search/charts/artist
@@ -61,8 +74,8 @@ private fun JsonObject.protocol(): String? =
 // deleted) is left false rather than guessed, same "no signal, no claim" convention
 // used elsewhere in this file.
 private fun JsonObject.isDrmOnly(): Boolean {
-    val transcodings = getAsJsonObject("media")
-        ?.getAsJsonArray("transcodings")
+    val transcodings = jsonObjectOrNull("media")
+        ?.jsonArrayOrNull("transcodings")
         ?.map { it.asJsonObject }
         ?: return false
     if (transcodings.isEmpty()) return false
@@ -72,7 +85,7 @@ private fun JsonObject.isDrmOnly(): Boolean {
 fun JsonObject.toSoundCloudTrackResultDto(): TrackResultDto? {
     val webpageUrl = stringOrNull("permalink_url") ?: return null
     val title = stringOrNull("title") ?: return null
-    val user = getAsJsonObject("user")
+    val user = jsonObjectOrNull("user")
     val durationMs = longOrNull("duration")
 
     return TrackResultDto(
@@ -102,7 +115,7 @@ fun JsonObject.toSoundCloudPlaylistResultDto(): PlaylistResultDto? {
         title = title,
         thumbnailUrl = upsizeImage(stringOrNull("artwork_url")),
         trackCount = longOrNull("track_count")?.toInt(),
-        owner = getAsJsonObject("user")?.stringOrNull("username"),
+        owner = jsonObjectOrNull("user")?.stringOrNull("username"),
         webpageUrl = webpageUrl,
     )
 }
@@ -115,7 +128,7 @@ fun JsonObject.toSoundCloudAlbumResultDto(): AlbumResultDto? {
         source = "soundcloud",
         sourceId = permalinkPath(webpageUrl),
         title = title,
-        artist = getAsJsonObject("user")?.stringOrNull("username"),
+        artist = jsonObjectOrNull("user")?.stringOrNull("username"),
         thumbnailUrl = upsizeImage(stringOrNull("artwork_url")),
         // SoundCloud's playlist/album search response has no reliable release-year
         // field (unlike ytmusicapi's album entries) - left null rather than guessed.

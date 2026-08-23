@@ -17,13 +17,13 @@ class SoundCloudSearchClient @Inject constructor(
 ) {
     suspend fun search(query: String, limit: Int): List<TrackResultDto> {
         val data = api.get("search/tracks", mapOf("q" to query, "limit" to limit.toString()))
-        return data.getAsJsonArray("collection")
+        return (data.jsonArrayOrNull("collection") ?: JsonArray())
             .mapNotNull { it.asJsonObject.toSoundCloudTrackResultDto() }
     }
 
     suspend fun searchArtists(query: String, limit: Int): List<ArtistResultDto> {
         val data = api.get("search/users", mapOf("q" to query, "limit" to limit.toString()))
-        return data.getAsJsonArray("collection")
+        return (data.jsonArrayOrNull("collection") ?: JsonArray())
             .mapNotNull { it.asJsonObject.toSoundCloudArtistResultDto() }
     }
 
@@ -41,8 +41,8 @@ class SoundCloudSearchClient @Inject constructor(
             "charts",
             mapOf("kind" to "trending", "genre" to "soundcloud:genres:all-music", "limit" to limit.toString()),
         )
-        return data.getAsJsonArray("collection")
-            .mapNotNull { it.asJsonObject.getAsJsonObject("track")?.toSoundCloudTrackResultDto() }
+        return (data.jsonArrayOrNull("collection") ?: JsonArray())
+            .mapNotNull { it.asJsonObject.jsonObjectOrNull("track")?.toSoundCloudTrackResultDto() }
     }
 
     // SoundCloud has one search endpoint for both playlists and albums - an album is
@@ -52,7 +52,7 @@ class SoundCloudSearchClient @Inject constructor(
     // given result page.
     private suspend fun searchPlaylistsRaw(query: String, limit: Int): List<JsonObject> {
         val data = api.get("search/playlists", mapOf("q" to query, "limit" to (limit * 3).toString()))
-        return data.getAsJsonArray("collection").map { it.asJsonObject }
+        return (data.jsonArrayOrNull("collection") ?: JsonArray()).map { it.asJsonObject }
     }
 
     suspend fun searchPlaylists(query: String, limit: Int): List<PlaylistResultDto> =
@@ -76,7 +76,7 @@ class SoundCloudSearchClient @Inject constructor(
      * initially-embedded tracks. */
     suspend fun getPlaylistTracks(permalink: String): List<TrackResultDto> {
         val playlist = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
-        val trackRefs = playlist.getAsJsonArray("tracks") ?: return emptyList()
+        val trackRefs = playlist.jsonArrayOrNull("tracks") ?: return emptyList()
         return trackRefs.mapNotNull { ref ->
             ref.asJsonObject.takeIf { it.has("title") }?.toSoundCloudTrackResultDto()
         }
@@ -90,7 +90,7 @@ class SoundCloudSearchClient @Inject constructor(
         val playlist = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
         val meta = playlist.toSoundCloudPlaylistResultDto()
             ?: error("SoundCloud playlist resolve returned an unexpected shape for $permalink")
-        val trackRefs = playlist.getAsJsonArray("tracks") ?: JsonArray()
+        val trackRefs = playlist.jsonArrayOrNull("tracks") ?: JsonArray()
         val tracks = trackRefs.mapNotNull { ref ->
             ref.asJsonObject.takeIf { it.has("title") }?.toSoundCloudTrackResultDto()
         }
@@ -121,7 +121,7 @@ class SoundCloudSearchClient @Inject constructor(
 
     suspend fun getArtist(permalink: String): ArtistDetailDto {
         val user = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
-        val userId = user.get("id").asLong
+        val userId = user.longOrNull("id") ?: error("SoundCloud user resolve for '$permalink' has no 'id' field")
 
         // A single 50-track batch covers both "top" and "latest" - sorting it two
         // different ways client-side instead of issuing a second API call keeps this
@@ -130,7 +130,7 @@ class SoundCloudSearchClient @Inject constructor(
             "users/$userId/tracks",
             mapOf("limit" to "50", "linked_partitioning" to "1"),
         )
-        val rawTracks = tracksData.getAsJsonArray("collection").map { it.asJsonObject }
+        val rawTracks = (tracksData.jsonArrayOrNull("collection") ?: JsonArray()).map { it.asJsonObject }
         val latestTracks = rawTracks.mapNotNull { it.toSoundCloudTrackResultDto() }
         val topTracks = rawTracks
             .sortedByDescending { it.longOrNull("playback_count") ?: 0L }
@@ -164,10 +164,10 @@ class SoundCloudSearchClient @Inject constructor(
             api.get(cursorUrl)
         } else {
             val user = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
-            val userId = user.get("id").asLong
+            val userId = user.longOrNull("id") ?: error("SoundCloud user resolve for '$permalink' has no 'id' field")
             api.get("users/$userId/followers", mapOf("limit" to "20", "linked_partitioning" to "1"))
         }
-        val items = data.getAsJsonArray("collection")
+        val items = (data.jsonArrayOrNull("collection") ?: JsonArray())
             .mapNotNull { it.asJsonObject.toSoundCloudArtistResultDto() }
         return SoundCloudFollowersPage(items = items, nextCursorUrl = data.stringOrNull("next_href"))
     }

@@ -18,6 +18,16 @@ interface PlaylistTrackDao {
     @Insert
     suspend fun insert(entry: PlaylistTrackEntity)
 
+    /** Reads [getMaxPosition] and inserts in one transaction - unlike calling those
+     * two separately, two concurrent calls for the same [playlistId] (e.g. an "add
+     * all results" action firing one insert per track) can't both read the same max
+     * position before either commits and insert with the same, now-duplicated
+     * [PlaylistTrackEntity.position], corrupting the playlist's intended order. */
+    @Transaction
+    suspend fun insertAtEnd(playlistId: String, entryFactory: (Int) -> PlaylistTrackEntity) {
+        insert(entryFactory(getMaxPosition(playlistId) + 1))
+    }
+
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
     suspend fun delete(playlistId: String, trackId: String)
 

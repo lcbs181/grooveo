@@ -53,9 +53,9 @@ class SoundCloudStreamResolver @Inject constructor(
         // JSON shape with no "media" or an empty "transcodings" list rather than an
         // HTTP error — fail with a clear reason instead of an opaque NPE so it's
         // distinguishable in logs from an actual network/client_id problem.
-        val media = track.getAsJsonObject("media")
+        val media = track.jsonObjectOrNull("media")
             ?: error("SoundCloud resolve for '$sourceId' returned no 'media' field")
-        val transcodingsJson = media.getAsJsonArray("transcodings")
+        val transcodingsJson = media.jsonArrayOrNull("transcodings")
             ?: error("SoundCloud track '$sourceId' has no 'transcodings' field")
         val transcodings = transcodingsJson.map { it.asJsonObject }
         if (transcodings.isEmpty()) {
@@ -122,5 +122,5 @@ class SoundCloudStreamResolver @Inject constructor(
     }
 
     private fun JsonObject.protocol(): String? =
-        getAsJsonObject("format")?.get("protocol")?.takeIf { !it.isJsonNull }?.asString
+        jsonObjectOrNull("format")?.stringOrNull("protocol")
 }
