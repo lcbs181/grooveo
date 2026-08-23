@@ -48,14 +48,8 @@ Search, stream, download, like, and organize — all resolved and stored directl
 <div align="center">
 <table>
 <tr>
-<td align="center" width="33%"><img src="docs/readme/screenshots/home.png" alt="Home screen"><br><sub><b>Start</b> — on-device charts &amp; recommendations</sub></td>
-<td align="center" width="33%"><img src="docs/readme/screenshots/player.png" alt="Player screen"><br><sub><b>Player</b> — waveform seek, equalizer, queue</sub></td>
-<td align="center" width="33%">
-<img src="docs/readme/screenshots/widget.png" alt="Home-screen widget"><br><sub><b>Widget</b> — resizable, Glance-based</sub>
-<br><br>
-<img src="app/src/main/res/drawable/ic_launcher_foreground.png" alt="App icon" width="96">
-<br><sub><b>App icon</b> &amp; launch mark</sub>
-</td>
+<td align="center" width="50%"><img src="docs/readme/screenshots/home.png" alt="Home screen"><br><sub><b>Start</b> — on-device charts &amp; recommendations</sub></td>
+<td align="center" width="50%"><img src="docs/readme/screenshots/player.png" alt="Player screen"><br><sub><b>Player</b> — waveform seek, equalizer, queue</sub></td>
 </tr>
 </table>
 </div>
