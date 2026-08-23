@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget card background gradient, in the same spirit as the dark
+     green-to-near-black backdrop "Grooveo Widgets.dc.html" renders behind every
+     tile (radial-gradient(120% 120% at 20% 0%, #1f3a30 0%, #0c1712 100%)) - a
+     plain linear approximation here since a shape drawable's radial gradient
+     needs a fixed dp radius that can't scale across the widget's 6 different
+     sizes the way a percentage-based CSS radial gradient does. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="#1F3A30"
+        android:endColor="#0C1712"
+        android:type="linear" />
+</shape>

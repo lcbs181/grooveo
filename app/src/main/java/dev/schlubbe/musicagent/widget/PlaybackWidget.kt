@@ -184,41 +184,32 @@ private suspend fun loadArtwork(context: Context, url: String): Bitmap? = withCo
     }.getOrNull()
 }
 
-/** A deterministic, per-track "equalizer bars" pattern - Glance/RemoteViews has no
- * continuous-animation capability (a home-screen widget is a static snapshot,
- * repainted only on real state changes, not a live render loop), so the design's
- * `wgPulse` CSS keyframe can't be reproduced as actual motion without polling the
- * widget many times a second, which would be a real battery cost for a purely
- * decorative flourish. This instead seeds a stable bar-height pattern from the
- * current track's id (so it looks different per track, like a snapshot of *that
- * track's* energy) and flattens to a low, even pattern when paused. */
-private fun equalizerBars(seed: String?, isPlaying: Boolean, count: Int): List<Float> {
+// A fixed "equalizer bars" silhouette, the same for every track. Glance/
+// RemoteViews has no continuous-animation capability (a home-screen widget is a
+// static snapshot, repainted only on real state changes, not a live render
+// loop), so the design's `wgPulse` CSS keyframe can't be reproduced as actual
+// motion without polling the widget many times a second, which would be a real
+// battery cost for a purely decorative flourish. An earlier version derived the
+// bar heights from a per-track hash so the shape "looked different per track",
+// but a static decoration that changes per track just reads as visually
+// unstable rather than alive - one deliberately-shaped, constant pattern reads
+// as intentional instead.
+private val EQUALIZER_STATIC_PATTERN = listOf(0.42f, 0.68f, 0.55f, 0.88f, 1f, 0.9f, 0.6f, 0.75f, 0.5f, 0.35f)
+
+private fun equalizerBars(isPlaying: Boolean, count: Int): List<Float> {
     if (!isPlaying) return List(count) { 0.22f }
-    val base = seed?.hashCode() ?: 0
-    return List(count) { i ->
-        // A proper avalanching int mix (splitmix32-style), not `base*(i+1)*const`:
-        // that earlier formula computed an effective per-index multiplier of
-        // `base*const`, which loses entropy whenever `base` is even (roughly half
-        // of all real hashCode() values), collapsing many adjacent bars to the
-        // same quantized height - confirmed on-device, where it rendered as a
-        // handful of chunky merged blocks instead of visually distinct bars.
-        // XOR-ing the index in before each multiply keeps every bar's input
-        // structurally different regardless of `base`'s parity.
-        var x = base xor (i * -0x61c88647)
-        x = (x xor (x ushr 16)) * -0x7ee3623b
-        x = (x xor (x ushr 13)) * -0x3d4d51cb
-        x = x xor (x ushr 16)
-        val h = kotlin.math.abs(x) % 100
-        0.25f + (h / 100f) * 0.75f
-    }
+    return List(count) { i -> EQUALIZER_STATIC_PATTERN[i % EQUALIZER_STATIC_PATTERN.size] }
 }
 
-/** Wraps [content] in the design's card: an opaque `var(--color-surface)` fill,
- * `border-radius:24px`, and a `1px solid var(--color-divider)` outline. Glance
- * 1.1.1 (this project's pinned version) has no `GlanceModifier.border()` - that
- * only shipped in a later release - so the outline is simulated the standard
- * RemoteViews way: an outer box painted the divider color, holding an inner box
- * inset by 1dp painted the real card color, leaving exactly a 1dp ring visible. */
+/** Wraps [content] in the widget's card: a dark green-to-near-black gradient
+ * fill, `border-radius:24px`, and a `1px solid var(--color-divider)` outline.
+ * Glance 1.1.1 (this project's pinned version) has no `GlanceModifier.border()`
+ * - that only shipped in a later release - so the outline is simulated the
+ * standard RemoteViews way: an outer box painted the divider color, holding an
+ * inner box inset by 1dp, leaving exactly a 1dp ring visible. `GlanceModifier
+ * .background()` only accepts a solid color, not a gradient, so the fill itself
+ * is a plain `Image` of [R.drawable.widget_card_gradient] instead, clipped to
+ * the same rounded corners and stacked underneath [content]. */
 @Composable
 private fun WidgetCard(content: @Composable () -> Unit) {
     Box(
@@ -231,9 +222,14 @@ private fun WidgetCard(content: @Composable () -> Unit) {
             modifier = GlanceModifier
                 .fillMaxSize()
                 .padding(1.dp)
-                .background(WIDGET_CARD_BG)
                 .cornerRadius(WIDGET_CARD_RADIUS),
         ) {
+            Image(
+                provider = ImageProvider(R.drawable.widget_card_gradient),
+                contentDescription = null,
+                modifier = GlanceModifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
             content()
         }
     }
@@ -305,7 +301,7 @@ private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?, sourc
                 }
             }
             Spacer(modifier = GlanceModifier.height(12.dp))
-            EqualizerBarsRow(seed = state.currentTrackId, isPlaying = state.isPlaying, height = 34.dp, barCount = EQUALIZER_BAR_COUNT)
+            EqualizerBarsRow(isPlaying = state.isPlaying, height = 34.dp, barCount = EQUALIZER_BAR_COUNT)
             Spacer(modifier = GlanceModifier.height(12.dp))
             TransportRow(
                 hasPrev = true,
@@ -487,7 +483,7 @@ private fun XLargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progre
                     }
                 }
                 Spacer(modifier = GlanceModifier.height(16.dp))
-                EqualizerBarsRow(seed = state.currentTrackId, isPlaying = state.isPlaying, height = 40.dp, barCount = EQUALIZER_BAR_COUNT)
+                EqualizerBarsRow(isPlaying = state.isPlaying, height = 40.dp, barCount = EQUALIZER_BAR_COUNT)
                 Spacer(modifier = GlanceModifier.height(14.dp))
                 // 288dp left column minus its own 96dp cover and 14dp leading gap.
                 WidgetProgressBar(progress, width = 178.dp)
@@ -533,8 +529,8 @@ private fun XLargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progre
 private const val EQUALIZER_BAR_COUNT = 10
 
 @Composable
-private fun EqualizerBarsRow(seed: String?, isPlaying: Boolean, height: Dp, barCount: Int) {
-    val bars = equalizerBars(seed, isPlaying, barCount)
+private fun EqualizerBarsRow(isPlaying: Boolean, height: Dp, barCount: Int) {
+    val bars = equalizerBars(isPlaying, barCount)
     Row(modifier = GlanceModifier.fillMaxWidth().height(height), verticalAlignment = Alignment.Vertical.Bottom) {
         bars.forEachIndexed { i, h ->
             Box(
