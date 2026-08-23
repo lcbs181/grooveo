@@ -8,6 +8,8 @@ import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+val QUEUE_INDEX_KEY = ActionParameters.Key<Int>("queueIndex")
+
 // Glance runs ActionCallback.onAction() on a background dispatcher thread (confirmed
 // live via logcat: androidx.media3.session.MediaController.verifyApplicationThread
 // threw "MediaController method is called from a wrong thread" from exactly this
@@ -61,6 +63,41 @@ class ToggleShuffleAction : ActionCallback {
 class CycleRepeatModeAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withContext(Dispatchers.Main) { widgetPlayerController(context).cycleRepeatMode() }
+        PlaybackWidget().updateAll(context)
+    }
+}
+
+/** Toggles the "Offline"/streaming source switch for the current track (only
+ * meaningful when a local download exists - same guard the Player screen's own
+ * switch icon uses, mirrored here since PlayerController.toggleSource() is
+ * itself a no-op otherwise). */
+class ToggleSourceAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        withContext(Dispatchers.Main) { widgetPlayerController(context).toggleSource() }
+        PlaybackWidget().updateAll(context)
+    }
+}
+
+/** Likes/unlikes whatever track is currently loaded - unlike the other actions
+ * here, this doesn't go through PlayerController/MediaController at all (no
+ * wrong-thread constraint), so it's the one callback that doesn't need the
+ * explicit Main-dispatcher hop. */
+class ToggleLikeAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val track = widgetPlayerController(context).nowPlayingTrack() ?: return
+        widgetLikesRepository(context).toggle(track)
+        PlaybackWidget().updateAll(context)
+    }
+}
+
+/** Jumps directly to one of the "up next" rows shown in the larger widget sizes -
+ * [QUEUE_INDEX_KEY] carries the logical queue index to jump to (same index space
+ * as [dev.schlubbe.musicagent.playback.PlaybackUiState.queueIndex]), passed in
+ * per-row via `actionParametersOf(QUEUE_INDEX_KEY to index)` at the call site. */
+class PlayQueueIndexAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val index = parameters[QUEUE_INDEX_KEY] ?: return
+        withContext(Dispatchers.Main) { widgetPlayerController(context).skipToQueueIndex(index) }
         PlaybackWidget().updateAll(context)
     }
 }
