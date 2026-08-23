@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- minWidth/minHeight follow the standard (cells * 70) - 30 dp formula launchers
-     use to size a widget's default placement in cells. Default placement is now
-     the large 4x2 variant (250x110dp, cover+title/artist+transport+progress -
-     see PlaybackWidget's LargeWidgetContent); resizeMode/minResize* let the user
-     drag it down to the compact 2x1 variant (110x40dp, cover+play/pause only -
-     see CompactWidgetContent) matching the design's two named breakpoints. -->
+<!-- minWidth/minHeight/targetCell* follow the Canopy widget grid from
+     "Grooveo Widgets.dc.html": width(cols) = cols*100-12dp, height(rows) =
+     rows*108-12dp. Default placement is the "Now Playing" 2x4 tier (388x204dp -
+     see PlaybackWidget's MediumWidgetContent); resizeMode/minResize* let the
+     user drag it all the way down to the smallest "Mini" 1x2 tier (188x96dp -
+     see MiniWidgetContent), and up past 2x5/3x4 to the "Tablet" 3x7 tier
+     (688x312dp - see XLargeWidgetContent) on launchers/screens with room for it. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="250dp"
-    android:minHeight="110dp"
-    android:minResizeWidth="110dp"
-    android:minResizeHeight="40dp"
+    android:minWidth="388dp"
+    android:minHeight="204dp"
+    android:minResizeWidth="188dp"
+    android:minResizeHeight="96dp"
+    android:maxResizeWidth="688dp"
+    android:maxResizeHeight="312dp"
     android:targetCellWidth="4"
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bare play triangle, no circle baked in - drawn inside a Box with an accent
+     background in PlaybackWidget.kt so the circle color and glyph color can vary
+     independently (the old ic_widget_play_circle/ic_widget_pause_circle baked a
+     fixed Nocturne-purple tint into the circle itself, which no longer matches
+     Canopy's accent-background/dark-icon convention). Dark tint (Canopy accent900)
+     to sit on the accent-green circle, per the design's `color:#0d1f1a` spec. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#0D1F1A">
+    <path android:fillColor="#FF000000" android:pathData="M8,5v14l11,-7z" />
+</vector>
