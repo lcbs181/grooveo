@@ -71,16 +71,17 @@ class PlaylistRepository @Inject constructor(
     suspend fun delete(playlistId: String) = playlistDao.delete(playlistId)
 
     suspend fun addTrack(playlistId: String, track: TrackResultDto): PlaylistDetailOutDto {
-        val nextPosition = playlistTrackDao.getMaxPosition(playlistId) + 1
-        playlistTrackDao.insert(
+        // insertAtEnd reads the max position and inserts in one transaction - see its
+        // kdoc for why that matters over a separate getMaxPosition()+insert() here.
+        playlistTrackDao.insertAtEnd(playlistId) { position ->
             PlaylistTrackEntity(
                 playlistId = playlistId,
                 trackId = "${track.source}:${track.sourceId}",
                 track = track.toLocalTrackEntity(),
-                position = nextPosition,
+                position = position,
                 addedAt = nowIso(),
-            ),
-        )
+            )
+        }
         return get(playlistId)
     }
 

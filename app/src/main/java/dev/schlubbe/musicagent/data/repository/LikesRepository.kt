@@ -10,6 +10,7 @@ import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -32,13 +33,18 @@ class LikesRepository @Inject constructor(
     suspend fun like(track: TrackResultDto) {
         val trackId = "${track.source}:${track.sourceId}"
         likeDao.insert(LikeEntity(trackId, track.toLocalTrackEntity(), nowIso()))
-        _likedTrackIds.value = _likedTrackIds.value + trackId
+        // .update{} rather than a read-modify-write of .value: two concurrent
+        // like()/unlike() calls (e.g. liking two different tracks from two rows in
+        // quick succession) could otherwise both snapshot the same old set and the
+        // second write to land would silently discard the first's change from this
+        // in-memory StateFlow, even though both rows were correctly persisted.
+        _likedTrackIds.update { it + trackId }
     }
 
     suspend fun unlike(track: TrackResultDto) {
         val trackId = "${track.source}:${track.sourceId}"
         likeDao.deleteByTrackId(trackId)
-        _likedTrackIds.value = _likedTrackIds.value - trackId
+        _likedTrackIds.update { it - trackId }
     }
 
     suspend fun toggle(track: TrackResultDto) {
