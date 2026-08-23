@@ -172,27 +172,42 @@ class YouTubeMusicSearchClient @Inject constructor() {
 
         // Auto-generated "<Artist> - Topic" channels (YouTube's stand-in for artists
         // with no manually managed channel - common for uploads distributed via a
-        // label/aggregator, e.g. observed live on a Travis Scott page) sometimes
-        // expose neither a TRACKS- nor VIDEOS-tagged tab through NewPipeExtractor's
-        // channel model, even though the channel page itself clearly has uploads.
-        // Rather than silently showing an empty artist page, fall back to whatever
-        // tab IS listed - logged first, since this is exactly the kind of
-        // channel-structure edge case worth having concrete data on if it recurs.
-        if (tracksTabItems == null && videosTabItems == null && info.tabs.isNotEmpty()) {
+        // label/aggregator, e.g. observed live on a Travis Scott page, and on every
+        // "- Topic" channel in general) sometimes expose neither a TRACKS- nor
+        // VIDEOS-tagged tab through NewPipeExtractor's channel model, even though the
+        // channel page itself clearly has uploads. Checked by emptiness, not just
+        // nullness: a "- Topic" channel's VIDEOS tab reliably resolves without
+        // throwing (so tracksTabItems/videosTabItems come back as a real, non-null
+        // emptyList(), not null) but returns zero items due to how NewPipeExtractor
+        // parses that channel type's non-standard tab layout - the previous
+        // null-only check skipped the fallback entirely for this exact case, leaving
+        // the whole artist page blank below the header (no crash, no log, nothing
+        // rendered - the bug a real "- Topic" channel screenshot surfaced). Rather
+        // than silently showing an empty artist page, fall back to whatever tab IS
+        // listed - logged first, since this is exactly the kind of channel-structure
+        // edge case worth having concrete data on if it recurs.
+        if (tracksTabItems.isNullOrEmpty() && videosTabItems.isNullOrEmpty() && info.tabs.isNotEmpty()) {
             Log.w(
                 TAG,
-                "no TRACKS/VIDEOS tab for $channelUrl - falling back to first available " +
+                "no usable TRACKS/VIDEOS tab for $channelUrl - falling back to first available " +
                     "(all tabs' contentFilters: ${info.tabs.map { it.contentFilters }})",
             )
-            videosTabItems = fetchTabTracks(info.tabs.first())
+            videosTabItems = info.tabs
+                .asSequence()
+                .filter { it != tracksTab && it != videosTab }
+                .map { fetchTabTracks(it) }
+                .firstOrNull { !it.isNullOrEmpty() }
+                ?: fetchTabTracks(info.tabs.first())
         }
 
         // "Top" prefers the dedicated music tab (already curated); "latest" prefers
         // the chronological videos tab. Either falls back to whichever tab actually
-        // came back non-null so both shelves still show something on channels that
-        // only expose one of the two tabs.
-        val topTracks = (tracksTabItems ?: videosTabItems ?: emptyList()).take(20)
-        val latestTracks = (videosTabItems ?: tracksTabItems ?: emptyList()).take(20)
+        // came back with real items so both shelves still show something on channels
+        // that only expose one of the two tabs - checked by emptiness (isNullOrEmpty),
+        // not just nullness, for the same reason as the fallback trigger above: an
+        // empty-but-non-null list must still fall through to the other candidate.
+        val topTracks = (tracksTabItems.takeIf { !it.isNullOrEmpty() } ?: videosTabItems ?: emptyList()).take(20)
+        val latestTracks = (videosTabItems.takeIf { !it.isNullOrEmpty() } ?: tracksTabItems ?: emptyList()).take(20)
 
         ArtistDetailDto(
             source = "ytmusic",
