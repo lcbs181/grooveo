@@ -35,6 +35,7 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxHeight
@@ -72,12 +73,21 @@ private val WIDGET_TEXT_TERTIARY = Color(0xFF96A89D) // Canopy neutral500, dark 
 private val WIDGET_DIVIDER = Color(0x33FFFFFF)
 private val WIDGET_QUEUE_ROW_BG = Color(0x14FFFFFF)
 
-// A translucent surface-toned card rather than a flat opaque --color-bg, so the
-// wallpaper shows through slightly. 0xE0 alpha is 88% of 0xFF.
-private val WIDGET_CARD_BG = Color(0xE01B2E26)
+// Opaque, matching "Grooveo Widgets.dc.html"'s own var(--color-surface) card
+// exactly. An earlier version of this file made the card translucent, but the
+// design's radial-gradient backdrop is the mockup's own stand-in for a phone
+// wallpaper *behind* the widget, not part of the card - the card itself has no
+// transparency in the spec.
+private val WIDGET_CARD_BG = Color(0xFF1B2E26)
 
-// Canopy --radius-md (14px) for the card, --radius-sm (8px) for the cover.
-private val WIDGET_CARD_RADIUS = 14.dp
+// Every one of the design's 5 tiers states the same `border-radius:24px` on its
+// outer card. This file previously used 14dp (Canopy's --radius-md token for
+// in-app surfaces), which reads as noticeably less rounded than the design.
+private val WIDGET_CARD_RADIUS = 24.dp
+
+// Default cover-art corner radius; every real call site below overrides this
+// with the design's own per-tier value (12/14/20/22dp), since the design does
+// not use one constant radius for the cover the way it does for the card.
 private val WIDGET_ART_RADIUS = 8.dp
 
 // design_handoff_grooveo/Grooveo Widgets.dc.html's own stated grid: "1 Zelle =
@@ -115,13 +125,23 @@ class PlaybackWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val playerController = widgetPlayerController(context)
         val likesRepository = widgetLikesRepository(context)
+        // Preload the currently-playing track's artwork before the first
+        // provideContent frame, per Glance's own recommended pattern (loading it
+        // only reactively inside the composition means the very first render -
+        // and any render before the LaunchedEffect's coroutine resolves - shows no
+        // art at all). The reactive LaunchedEffect below still runs for every
+        // later track change; this only fixes the initial paint.
+        val initialState = playerController.playbackState.value
+        val initialArtwork = initialState.artworkUrl?.let { loadArtwork(context, it) }
         provideContent {
             val state by playerController.playbackState.collectAsState()
             val likedTrackIds by likesRepository.likedTrackIds.collectAsState()
-            var artwork by remember { mutableStateOf<Bitmap?>(null) }
+            var artwork by remember { mutableStateOf(initialArtwork) }
 
             LaunchedEffect(state.artworkUrl) {
-                artwork = state.artworkUrl?.let { loadArtwork(context, it) }
+                if (state.artworkUrl != initialState.artworkUrl) {
+                    artwork = state.artworkUrl?.let { loadArtwork(context, it) }
+                }
             }
 
             // Glance has no live position ticker of its own (unlike the in-app
@@ -176,8 +196,46 @@ private fun equalizerBars(seed: String?, isPlaying: Boolean, count: Int): List<F
     if (!isPlaying) return List(count) { 0.22f }
     val base = seed?.hashCode() ?: 0
     return List(count) { i ->
-        val h = kotlin.math.abs((base * (i + 1) * 2654435761L.toInt()) shr 13) % 100
+        // A proper avalanching int mix (splitmix32-style), not `base*(i+1)*const`:
+        // that earlier formula computed an effective per-index multiplier of
+        // `base*const`, which loses entropy whenever `base` is even (roughly half
+        // of all real hashCode() values), collapsing many adjacent bars to the
+        // same quantized height - confirmed on-device, where it rendered as a
+        // handful of chunky merged blocks instead of visually distinct bars.
+        // XOR-ing the index in before each multiply keeps every bar's input
+        // structurally different regardless of `base`'s parity.
+        var x = base xor (i * -0x61c88647)
+        x = (x xor (x ushr 16)) * -0x7ee3623b
+        x = (x xor (x ushr 13)) * -0x3d4d51cb
+        x = x xor (x ushr 16)
+        val h = kotlin.math.abs(x) % 100
         0.25f + (h / 100f) * 0.75f
+    }
+}
+
+/** Wraps [content] in the design's card: an opaque `var(--color-surface)` fill,
+ * `border-radius:24px`, and a `1px solid var(--color-divider)` outline. Glance
+ * 1.1.1 (this project's pinned version) has no `GlanceModifier.border()` - that
+ * only shipped in a later release - so the outline is simulated the standard
+ * RemoteViews way: an outer box painted the divider color, holding an inner box
+ * inset by 1dp painted the real card color, leaving exactly a 1dp ring visible. */
+@Composable
+private fun WidgetCard(content: @Composable () -> Unit) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .background(WIDGET_DIVIDER)
+            .cornerRadius(WIDGET_CARD_RADIUS),
+    ) {
+        Box(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .padding(1.dp)
+                .background(WIDGET_CARD_BG)
+                .cornerRadius(WIDGET_CARD_RADIUS),
+        ) {
+            content()
+        }
     }
 }
 
@@ -186,82 +244,80 @@ private fun equalizerBars(seed: String?, isPlaying: Boolean, count: Int): List<F
  * Titel, Play" spec). */
 @Composable
 private fun MiniWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
-    Row(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(WIDGET_CARD_BG)
-            .cornerRadius(WIDGET_CARD_RADIUS)
-            .padding(10.dp),
-        verticalAlignment = Alignment.Vertical.CenterVertically,
-    ) {
-        val context = LocalContext.current
-        val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
-
-        AlbumArt(artwork, onClick = openApp, size = 56.dp)
-        Column(
-            modifier = GlanceModifier
-                .defaultWeight()
-                .padding(horizontal = 10.dp)
-                .clickable(openApp),
+    WidgetCard {
+        Row(
+            modifier = GlanceModifier.fillMaxSize().padding(10.dp),
+            verticalAlignment = Alignment.Vertical.CenterVertically,
         ) {
-            Text(
-                text = state.title ?: "Nichts wird abgespielt",
-                maxLines = 1,
-                style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 14.sp, fontWeight = FontWeight.Medium),
-            )
-            Text(
-                text = state.artist ?: "Grooveo",
-                maxLines = 1,
-                style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
-            )
+            val context = LocalContext.current
+            val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
+
+            AlbumArt(artwork, onClick = openApp, size = 40.dp, cornerRadius = 12.dp)
+            Column(
+                modifier = GlanceModifier
+                    .defaultWeight()
+                    .padding(horizontal = 10.dp)
+                    .clickable(openApp),
+            ) {
+                Text(
+                    text = state.title ?: "Nichts wird abgespielt",
+                    maxLines = 1,
+                    style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                )
+                Text(
+                    text = state.artist ?: "Grooveo",
+                    maxLines = 1,
+                    style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
+                )
+            }
+            AccentPlayPauseButton(isPlaying = state.isPlaying, size = 32.dp, iconSize = 16.dp)
         }
-        AccentPlayPauseButton(isPlaying = state.isPlaying, size = 40.dp, iconSize = 18.dp)
     }
 }
 
 /** 2x2 "Kompakt": header (cover, source label, title), a static equalizer-bar
  * strip, and a full transport row - no progress bar (not enough vertical room
- * once the bars are shown, matching the design's own layout). */
+ * once the bars are shown, matching the design's own layout). The design lays
+ * out its 3 direct children (header / bars / transport) with a uniform 12dp
+ * column gap - not a flexible spacer pushing content to the bottom, which an
+ * earlier version of this file used and which left a large, wrong-looking empty
+ * gap under the header on real devices. */
 @Composable
 private fun CompactWidgetContent(state: PlaybackUiState, artwork: Bitmap?, source: String?) {
-    Column(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(WIDGET_CARD_BG)
-            .cornerRadius(WIDGET_CARD_RADIUS)
-            .padding(14.dp),
-    ) {
-        val context = LocalContext.current
-        val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
+    WidgetCard {
+        Column(modifier = GlanceModifier.fillMaxSize().padding(14.dp)) {
+            val context = LocalContext.current
+            val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
 
-        Row(verticalAlignment = Alignment.Vertical.CenterVertically, modifier = GlanceModifier.clickable(openApp)) {
-            AlbumArt(artwork, onClick = openApp, size = 44.dp)
-            Column(modifier = GlanceModifier.defaultWeight().padding(start = 10.dp)) {
-                Text(
-                    text = sourceLabel(source),
-                    maxLines = 1,
-                    style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                )
-                Text(
-                    text = state.title ?: "Nichts wird abgespielt",
-                    maxLines = 1,
-                    style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 13.sp, fontWeight = FontWeight.Medium),
-                )
+            Row(verticalAlignment = Alignment.Vertical.CenterVertically, modifier = GlanceModifier.clickable(openApp)) {
+                AlbumArt(artwork, onClick = openApp, size = 44.dp, cornerRadius = 14.dp)
+                Column(modifier = GlanceModifier.defaultWeight().padding(start = 10.dp)) {
+                    Text(
+                        text = sourceLabel(source),
+                        maxLines = 1,
+                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                    )
+                    Text(
+                        text = state.title ?: "Nichts wird abgespielt",
+                        maxLines = 1,
+                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                    )
+                }
             }
+            Spacer(modifier = GlanceModifier.height(12.dp))
+            EqualizerBarsRow(seed = state.currentTrackId, isPlaying = state.isPlaying, height = 34.dp, barCount = EQUALIZER_BAR_COUNT)
+            Spacer(modifier = GlanceModifier.height(12.dp))
+            TransportRow(
+                hasPrev = true,
+                hasNext = true,
+                isPlaying = state.isPlaying,
+                playSize = 48.dp,
+                playIconSize = 20.dp,
+                sideTouchTarget = 34.dp,
+                sideIconSize = 15.dp,
+                trailing = null,
+            )
         }
-        Spacer(modifier = GlanceModifier.defaultWeight())
-        EqualizerBarsRow(seed = state.currentTrackId, isPlaying = state.isPlaying, height = 34.dp, barCount = 14)
-        Spacer(modifier = GlanceModifier.height(10.dp))
-        TransportRow(
-            hasPrev = true,
-            hasNext = true,
-            isPlaying = state.isPlaying,
-            playSize = 48.dp,
-            playIconSize = 20.dp,
-            sideTouchTarget = 34.dp,
-            sideIconSize = 15.dp,
-            trailing = null,
-        )
     }
 }
 
@@ -277,84 +333,13 @@ private fun MediumWidgetContent(
     source: String?,
     wide: Boolean,
 ) {
-    Row(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(WIDGET_CARD_BG)
-            .cornerRadius(WIDGET_CARD_RADIUS)
-            .padding(16.dp),
-    ) {
-        val context = LocalContext.current
-        val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
+    WidgetCard {
+        Row(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
+            val context = LocalContext.current
+            val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
 
-        AlbumArt(artwork, onClick = openApp, size = 100.dp)
-        Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight().padding(start = 16.dp)) {
-            Text(
-                text = sourceLabel(source),
-                maxLines = 1,
-                style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
-            )
-            Text(
-                text = state.title ?: "Nichts wird abgespielt",
-                maxLines = 1,
-                modifier = GlanceModifier.padding(top = 4.dp).clickable(openApp),
-                style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
-            )
-            Text(
-                text = state.artist ?: "Grooveo",
-                maxLines = 1,
-                style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
-            )
-            Spacer(modifier = GlanceModifier.height(10.dp))
-            // Fixed per-breakpoint width: SizeMode.Responsive reports LocalSize.current
-            // as exactly one of the declared DpSize buckets, so the space actually
-            // available here (widget width, minus the card's 16dp+16dp padding, the
-            // 100dp cover, and its 16dp leading gap) is a known constant per bucket
-            // rather than something to measure at runtime.
-            WidgetProgressBar(progress, width = if (wide) 340.dp else 240.dp)
-            TimeRow(state, progress)
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            TransportRow(
-                hasPrev = true,
-                hasNext = true,
-                isPlaying = state.isPlaying,
-                playSize = 42.dp,
-                playIconSize = 18.dp,
-                leading = if (wide) {
-                    { WidgetControlButton(R.drawable.ic_widget_shuffle, "Zufallswiedergabe", actionRunCallback<ToggleShuffleAction>(), touchTarget = 34.dp, iconSize = 15.dp) }
-                } else {
-                    null
-                },
-                trailing = {
-                    LikeButton(isLiked)
-                    if (wide) {
-                        Spacer(modifier = GlanceModifier.width(6.dp))
-                        SourceChip(sourceLabel(source, offline = state.isLocalPlayback))
-                    }
-                },
-            )
-        }
-    }
-}
-
-/** 3x4 "Player + Warteschlange": header row (cover, source/title/artist with an
- * inline progress bar), a transport row with an elapsed/total label and like
- * button, then up to 2 "up next" rows, each directly tappable. */
-@Composable
-private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progress: Float, isLiked: Boolean, source: String?) {
-    Column(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(WIDGET_CARD_BG)
-            .cornerRadius(WIDGET_CARD_RADIUS)
-            .padding(16.dp),
-    ) {
-        val context = LocalContext.current
-        val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
-
-        Row {
-            AlbumArt(artwork, onClick = openApp, size = 88.dp)
-            Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight().padding(start = 14.dp)) {
+            AlbumArt(artwork, onClick = openApp, size = 100.dp, cornerRadius = 20.dp)
+            Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight().padding(start = 16.dp)) {
                 Text(
                     text = sourceLabel(source),
                     maxLines = 1,
@@ -371,33 +356,98 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
                     maxLines = 1,
                     style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
                 )
+                Spacer(modifier = GlanceModifier.height(10.dp))
+                // Fixed per-breakpoint width: SizeMode.Responsive reports LocalSize.current
+                // as exactly one of the declared DpSize buckets, so the space actually
+                // available here (widget width, minus the card's 16dp+16dp padding, the
+                // 100dp cover, and its 16dp leading gap) is a known constant per bucket
+                // rather than something to measure at runtime.
+                WidgetProgressBar(progress, width = if (wide) 340.dp else 240.dp)
+                TimeRow(state, progress)
                 Spacer(modifier = GlanceModifier.defaultWeight())
-                // LARGE_SIZE (388dp) minus the card's 16+16dp padding, the 88dp
-                // cover, and its 14dp leading gap.
-                WidgetProgressBar(progress, width = 254.dp)
+                TransportRow(
+                    hasPrev = true,
+                    hasNext = true,
+                    isPlaying = state.isPlaying,
+                    playSize = 42.dp,
+                    playIconSize = 18.dp,
+                    leading = if (wide) {
+                        { WidgetControlButton(R.drawable.ic_widget_shuffle, "Zufallswiedergabe", actionRunCallback<ToggleShuffleAction>(), touchTarget = 34.dp, iconSize = 15.dp) }
+                    } else {
+                        null
+                    },
+                    trailing = {
+                        LikeButton(isLiked)
+                        if (wide) {
+                            Spacer(modifier = GlanceModifier.width(6.dp))
+                            SourceChip(sourceLabel(source, offline = state.isLocalPlayback))
+                        }
+                    },
+                )
             }
         }
-        Spacer(modifier = GlanceModifier.height(12.dp))
-        Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-            WidgetControlButton(R.drawable.ic_widget_skip_previous, "Vorheriger Titel", actionRunCallback<SkipPreviousAction>(), touchTarget = 34.dp, iconSize = 16.dp)
-            AccentPlayPauseButton(isPlaying = state.isPlaying, size = 42.dp, iconSize = 18.dp)
-            WidgetControlButton(R.drawable.ic_widget_skip_next, "Nächster Titel", actionRunCallback<SkipNextAction>(), touchTarget = 34.dp, iconSize = 16.dp)
+    }
+}
+
+/** 3x4 "Player + Warteschlange": header row (cover, source/title/artist with an
+ * inline progress bar), a transport row with an elapsed/total label and like
+ * button, then up to 2 "up next" rows, each directly tappable. */
+@Composable
+private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progress: Float, isLiked: Boolean, source: String?) {
+    WidgetCard {
+        Column(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
+            val context = LocalContext.current
+            val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
+
+            Row {
+                AlbumArt(artwork, onClick = openApp, size = 88.dp, cornerRadius = 20.dp)
+                Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight().padding(start = 14.dp)) {
+                    Text(
+                        text = sourceLabel(source),
+                        maxLines = 1,
+                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                    )
+                    Text(
+                        text = state.title ?: "Nichts wird abgespielt",
+                        maxLines = 1,
+                        modifier = GlanceModifier.padding(top = 4.dp).clickable(openApp),
+                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                    )
+                    Text(
+                        text = state.artist ?: "Grooveo",
+                        maxLines = 1,
+                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
+                    )
+                    Spacer(modifier = GlanceModifier.defaultWeight())
+                    // LARGE_SIZE (388dp) minus the card's 16+16dp padding, the 88dp
+                    // cover, and its 14dp leading gap.
+                    WidgetProgressBar(progress, width = 254.dp)
+                }
+            }
+            Spacer(modifier = GlanceModifier.height(12.dp))
+            Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
+                WidgetControlButton(R.drawable.ic_widget_skip_previous, "Vorheriger Titel", actionRunCallback<SkipPreviousAction>(), touchTarget = 34.dp, iconSize = 16.dp)
+                Spacer(modifier = GlanceModifier.width(6.dp))
+                AccentPlayPauseButton(isPlaying = state.isPlaying, size = 42.dp, iconSize = 18.dp)
+                Spacer(modifier = GlanceModifier.width(6.dp))
+                WidgetControlButton(R.drawable.ic_widget_skip_next, "Nächster Titel", actionRunCallback<SkipNextAction>(), touchTarget = 34.dp, iconSize = 16.dp)
+                Spacer(modifier = GlanceModifier.width(6.dp))
+                Text(
+                    text = timeLabel(state, progress),
+                    maxLines = 1,
+                    style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp),
+                )
+                Spacer(modifier = GlanceModifier.defaultWeight())
+                LikeButton(isLiked)
+            }
+            Spacer(modifier = GlanceModifier.height(12.dp))
             Text(
-                text = timeLabel(state, progress),
-                maxLines = 1,
-                modifier = GlanceModifier.padding(start = 8.dp),
-                style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp),
+                text = "Als Nächstes",
+                style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 12.sp, fontWeight = FontWeight.Medium),
             )
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            LikeButton(isLiked)
+            Spacer(modifier = GlanceModifier.height(6.dp))
+            QueueRows(state, count = 2)
         }
-        Spacer(modifier = GlanceModifier.height(12.dp))
-        Text(
-            text = "Als Nächstes",
-            style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 12.sp, fontWeight = FontWeight.Medium),
-        )
-        Spacer(modifier = GlanceModifier.height(6.dp))
-        QueueRows(state, count = 2)
     }
 }
 
@@ -407,83 +457,93 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
  * launchers with enough grid width to offer it. */
 @Composable
 private fun XLargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progress: Float, isLiked: Boolean, source: String?) {
-    Row(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(WIDGET_CARD_BG)
-            .cornerRadius(WIDGET_CARD_RADIUS)
-            .padding(18.dp),
-    ) {
-        val context = LocalContext.current
-        val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
+    WidgetCard {
+        Row(modifier = GlanceModifier.fillMaxSize().padding(18.dp)) {
+            val context = LocalContext.current
+            val openApp = actionStartActivity(Intent(context, MainActivity::class.java))
 
-        Column(modifier = GlanceModifier.width(252.dp).fillMaxHeight()) {
-            Row {
-                AlbumArt(artwork, onClick = openApp, size = 96.dp)
-                Column(modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)) {
-                    Text(
-                        text = sourceLabel(source),
-                        maxLines = 1,
-                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                    )
-                    Text(
-                        text = state.title ?: "Nichts wird abgespielt",
-                        maxLines = 2,
-                        modifier = GlanceModifier.padding(top = 4.dp).clickable(openApp),
-                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
-                    )
-                    Text(
-                        text = state.artist ?: "Grooveo",
-                        maxLines = 1,
-                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
-                    )
+            // The design states this left column as a fixed 288dp (not the full
+            // 688dp widget width - the right half holds the queue list).
+            Column(modifier = GlanceModifier.width(288.dp).fillMaxHeight()) {
+                Row {
+                    AlbumArt(artwork, onClick = openApp, size = 96.dp, cornerRadius = 22.dp)
+                    Column(modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)) {
+                        Text(
+                            text = sourceLabel(source),
+                            maxLines = 1,
+                            style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        )
+                        Text(
+                            text = state.title ?: "Nichts wird abgespielt",
+                            maxLines = 2,
+                            modifier = GlanceModifier.padding(top = 4.dp).clickable(openApp),
+                            style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                        )
+                        Text(
+                            text = state.artist ?: "Grooveo",
+                            maxLines = 1,
+                            style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
+                        )
+                    }
                 }
-            }
-            Spacer(modifier = GlanceModifier.height(14.dp))
-            EqualizerBarsRow(seed = state.currentTrackId, isPlaying = state.isPlaying, height = 34.dp, barCount = 14)
-            Spacer(modifier = GlanceModifier.height(12.dp))
-            // The left column here is a fixed 252dp (not the full 688dp widget
-            // width - the right half holds the queue list), minus its own 96dp
-            // cover and 14dp leading gap.
-            WidgetProgressBar(progress, width = 142.dp)
-            TimeRow(state, progress)
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            TransportRow(
-                hasPrev = true,
-                hasNext = true,
-                isPlaying = state.isPlaying,
-                playSize = 46.dp,
-                playIconSize = 20.dp,
-                leading = { WidgetControlButton(R.drawable.ic_widget_shuffle, "Zufallswiedergabe", actionRunCallback<ToggleShuffleAction>(), touchTarget = 34.dp, iconSize = 15.dp) },
-                trailing = { LikeButton(isLiked) },
-            )
-        }
-
-        Box(modifier = GlanceModifier.width(1.dp).fillMaxHeight().padding(horizontal = 18.dp).background(WIDGET_DIVIDER)) {}
-
-        Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
-            Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                Text(
-                    text = "Warteschlange",
-                    modifier = GlanceModifier.defaultWeight(),
-                    style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                Spacer(modifier = GlanceModifier.height(16.dp))
+                EqualizerBarsRow(seed = state.currentTrackId, isPlaying = state.isPlaying, height = 40.dp, barCount = EQUALIZER_BAR_COUNT)
+                Spacer(modifier = GlanceModifier.height(14.dp))
+                // 288dp left column minus its own 96dp cover and 14dp leading gap.
+                WidgetProgressBar(progress, width = 178.dp)
+                TimeRow(state, progress)
+                Spacer(modifier = GlanceModifier.defaultWeight())
+                TransportRow(
+                    hasPrev = true,
+                    hasNext = true,
+                    isPlaying = state.isPlaying,
+                    playSize = 46.dp,
+                    playIconSize = 20.dp,
+                    leading = { WidgetControlButton(R.drawable.ic_widget_shuffle, "Zufallswiedergabe", actionRunCallback<ToggleShuffleAction>(), touchTarget = 34.dp, iconSize = 15.dp) },
+                    trailing = { LikeButton(isLiked) },
                 )
-                SourceChip(sourceLabel(source, offline = state.isLocalPlayback))
             }
-            Spacer(modifier = GlanceModifier.height(8.dp))
-            QueueRows(state, count = 4)
+
+            Box(modifier = GlanceModifier.width(1.dp).fillMaxHeight().padding(horizontal = 18.dp).background(WIDGET_DIVIDER)) {}
+
+            Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
+                Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
+                    Text(
+                        text = "Warteschlange",
+                        modifier = GlanceModifier.defaultWeight(),
+                        style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    )
+                    SourceChip(sourceLabel(source, offline = state.isLocalPlayback))
+                }
+                Spacer(modifier = GlanceModifier.height(8.dp))
+                QueueRows(state, count = 4)
+            }
         }
     }
 }
 
 // ---- Shared pieces ----
 
+// RemoteViews - and therefore every Glance Row/Column, which just compiles down
+// to a LinearLayout - hard-caps a single container at 10 direct children. The
+// design's own "wgPulse" bar strip calls for 14 bars; at 14 this widget silently
+// rendered only a handful of merged, chunky-looking segments instead of throwing,
+// which is what actually caused the broken-looking equalizer strip on-device.
+// 10 is the most bars this container can hold at all.
+private const val EQUALIZER_BAR_COUNT = 10
+
 @Composable
 private fun EqualizerBarsRow(seed: String?, isPlaying: Boolean, height: Dp, barCount: Int) {
     val bars = equalizerBars(seed, isPlaying, barCount)
     Row(modifier = GlanceModifier.fillMaxWidth().height(height), verticalAlignment = Alignment.Vertical.Bottom) {
         bars.forEachIndexed { i, h ->
-            Box(modifier = GlanceModifier.defaultWeight().fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+            Box(
+                modifier = GlanceModifier
+                    .defaultWeight()
+                    .fillMaxHeight()
+                    .padding(end = if (i != bars.lastIndex) 3.dp else 0.dp),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
                 Box(
                     modifier = GlanceModifier
                         .fillMaxWidth()
@@ -492,7 +552,6 @@ private fun EqualizerBarsRow(seed: String?, isPlaying: Boolean, height: Dp, barC
                         .cornerRadius(2.dp),
                 ) {}
             }
-            if (i != bars.lastIndex) Spacer(modifier = GlanceModifier.width(3.dp))
         }
     }
 }
@@ -545,12 +604,19 @@ private fun QueueRow(indexedTrack: kotlin.collections.IndexedValue<TrackResultDt
         modifier = GlanceModifier
             .fillMaxWidth()
             .background(WIDGET_QUEUE_ROW_BG)
-            .cornerRadius(10.dp)
+            .cornerRadius(14.dp)
             .padding(8.dp)
             .clickable(actionRunCallback<PlayQueueIndexAction>(actionParametersOf(QUEUE_INDEX_KEY to index))),
         verticalAlignment = Alignment.Vertical.CenterVertically,
     ) {
-        Box(modifier = GlanceModifier.size(32.dp).cornerRadius(8.dp).background(WIDGET_ACCENT)) {}
+        Box(modifier = GlanceModifier.size(34.dp).cornerRadius(10.dp)) {
+            Image(
+                provider = ImageProvider(R.drawable.widget_cover_gradient),
+                contentDescription = null,
+                modifier = GlanceModifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
         Column(modifier = GlanceModifier.defaultWeight().padding(horizontal = 10.dp)) {
             Text(track.title, maxLines = 1, style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 12.5.sp))
             Text(track.artist ?: "", maxLines = 1, style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 11.sp))
@@ -575,16 +641,24 @@ private fun LikeButton(isLiked: Boolean) {
     }
 }
 
+/** The design specifies `background:transparent;border:1px solid
+ * var(--color-divider)` - an outlined pill, not a filled one. Simulated the same
+ * 1dp-ring way as [WidgetCard] since Glance 1.1.1 has no `.border()`. */
 @Composable
 private fun SourceChip(label: String) {
     Box(
-        modifier = GlanceModifier
-            .background(Color.Transparent)
-            .cornerRadius(999.dp)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(actionRunCallback<ToggleSourceAction>()),
+        modifier = GlanceModifier.background(WIDGET_DIVIDER).cornerRadius(999.dp),
     ) {
-        Text(label, style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp, fontWeight = FontWeight.Medium))
+        Box(
+            modifier = GlanceModifier
+                .padding(1.dp)
+                .background(WIDGET_CARD_BG)
+                .cornerRadius(999.dp)
+                .padding(horizontal = 11.dp, vertical = 5.dp)
+                .clickable(actionRunCallback<ToggleSourceAction>()),
+        ) {
+            Text(label, style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp, fontWeight = FontWeight.Medium))
+        }
     }
 }
 
@@ -644,12 +718,11 @@ private fun WidgetProgressBar(progress: Float, width: Dp) {
 }
 
 @Composable
-private fun AlbumArt(artwork: Bitmap?, onClick: Action, size: Dp = 52.dp) {
+private fun AlbumArt(artwork: Bitmap?, onClick: Action, size: Dp = 52.dp, cornerRadius: Dp = WIDGET_ART_RADIUS) {
     Box(
         modifier = GlanceModifier
             .size(size)
-            .cornerRadius(WIDGET_ART_RADIUS)
-            .background(WIDGET_SURFACE)
+            .cornerRadius(cornerRadius)
             .clickable(onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -658,14 +731,37 @@ private fun AlbumArt(artwork: Bitmap?, onClick: Action, size: Dp = 52.dp) {
                 provider = ImageProvider(artwork),
                 contentDescription = null,
                 modifier = GlanceModifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
             )
         } else {
-            Image(
-                provider = ImageProvider(R.drawable.ic_widget_music_note),
-                contentDescription = null,
-                modifier = GlanceModifier.size(size / 2),
-            )
+            CoverPlaceholder(size)
         }
+    }
+}
+
+/** The design's own brand-mark placeholder - `linear-gradient(135deg,#4a8f76,
+ * #ff7a5c)` with a bold "G" - shown only when a track has no artwork or it
+ * failed to load, so the fallback still looks intentional instead of a bare
+ * system icon. Real per-track artwork (loaded via Coil in [loadArtwork]) is
+ * shown whenever available, matching how the rest of the app (Player, mini
+ * player, search) always shows real covers. */
+@Composable
+private fun CoverPlaceholder(size: Dp) {
+    Box(contentAlignment = Alignment.Center, modifier = GlanceModifier.fillMaxSize()) {
+        Image(
+            provider = ImageProvider(R.drawable.widget_cover_gradient),
+            contentDescription = null,
+            modifier = GlanceModifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Text(
+            "G",
+            style = TextStyle(
+                color = ColorProvider(Color(0xFF0D1F1A)),
+                fontSize = (size.value * 0.34f).sp,
+                fontWeight = FontWeight.Bold,
+            ),
+        )
     }
 }
 
