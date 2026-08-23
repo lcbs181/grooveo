@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cover-art fallback tile, matching "Grooveo Widgets.dc.html"'s own
+     linear-gradient(135deg,#4a8f76,#ff7a5c) placeholder exactly (CSS's 135deg
+     top-left-to-bottom-right direction maps to Android's own angle=315). Shown
+     behind a bold "G" whenever a track has no loadable artwork. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="#4A8F76"
+        android:endColor="#FF7A5C"
+        android:type="linear" />
+</shape>
