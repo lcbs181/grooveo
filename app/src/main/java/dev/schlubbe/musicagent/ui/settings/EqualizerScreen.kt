@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -52,9 +51,8 @@ import kotlin.math.round
 
 // Design source: design_handoff_grooveo/GrooveoApp.dc.html lines 839-910 ("EQUALIZER").
 // Band layout + preset gains are copied verbatim from the handoff / README, and mirror
-// EqualizerController.kt's own EqPreset enum (FLAT / BASS_BOOST / TREBLE_BOOST / VOCAL).
-// "Eigen" (custom) has no backing EqPreset value -- see the KDoc on EqualizerScreen for
-// exactly what's UI-only here vs. what's real.
+// EqualizerController.kt's own EqPreset enum (FLAT / BASS_BOOST / TREBLE_BOOST / VOCAL /
+// CUSTOM) - see the KDoc on EqualizerScreen for exactly what's UI-only here vs. real.
 
 internal data class EqBandSpec(val hz: String, val role: String)
 
@@ -86,7 +84,7 @@ private const val PREAMP_MIN_DB = -12f
 private const val PREAMP_MAX_DB = 6f
 
 internal fun eqPresetLabel(preset: EqPreset): String =
-    EQ_PRESET_ORDER.firstOrNull { it.first == preset }?.second ?: "Flach"
+    if (preset == EqPreset.CUSTOM) "Eigen" else EQ_PRESET_ORDER.firstOrNull { it.first == preset }?.second ?: "Flach"
 
 private fun formatDb(value: Float): String {
     val rounded = round(value).toInt()
@@ -97,22 +95,23 @@ private fun formatDb(value: Float): String {
  * Full-screen Equalizer (design_handoff_grooveo section "10 Equalizer" -- new screen,
  * no prior Compose implementation existed).
  *
- * IMPORTANT -- what's real vs. UI-only, since the data layer only supports a 4-value
- * [EqPreset] enum today, not per-band gains or a pre-amp:
- * - The preset chips (Flach/Bass-Boost/Höhen-Boost/Vocal) are REAL: they call
- *   [SettingsViewModel.onEqPresetChanged], which persists via SettingsRepository and is
- *   applied to the platform Equalizer by PlaybackService's collector
+ * What's real vs. UI-only:
+ * - The preset chips (Flach/Bass-Boost/Höhen-Boost/Vocal/Eigen) are all REAL: they call
+ *   [SettingsViewModel.onEqPresetChanged], persisted via SettingsRepository and applied
+ *   to the platform Equalizer by PlaybackService's collector
  *   (`settingsRepository.eqPreset.collect { equalizerController.applyPreset(it) }`).
  * - The header on/off Toggle is REAL in effect (best-effort): switching it off applies
  *   [EqPreset.FLAT] (silences all bands) via the same real path, and switching back on
  *   re-applies whichever preset was active before. There is no dedicated "enabled" flag
  *   in the data layer, so this is implemented as a preset swap, not a true bypass toggle.
- * - The five per-band vertical faders and the pre-amp slider are UI-ONLY. Dragging them
- *   updates local Compose state (and flips the active preset chip to "Eigen"), but does
- *   NOT reach [dev.schlubbe.musicagent.playback.EqualizerController] or persist anywhere
- *   -- there is no per-band gain storage in SettingsRepository and no EqPreset.CUSTOM
- *   value to persist it under. See the task report for exactly what a real implementation
- *   needs in the data layer.
+ * - The five per-band vertical faders are REAL: dragging one calls
+ *   [SettingsViewModel.onCustomEqGainsChanged], which persists the 5-value gain list and
+ *   switches the active preset to [EqPreset.CUSTOM] - applied via
+ *   [dev.schlubbe.musicagent.playback.EqualizerController.applyCustomGains], which maps
+ *   each real device band onto whichever of the 5 reference frequencies is closest.
+ * - The pre-amp slider is still UI-ONLY (switches the preset to CUSTOM for chip-display
+ *   consistency, but the dB value itself doesn't reach [android.media.audiofx.Equalizer] -
+ *   there's no pre-amp concept in that platform API to map it onto).
  */
 @Composable
 fun EqualizerScreen(
@@ -122,18 +121,17 @@ fun EqualizerScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     var eqOn by remember { mutableStateOf(true) }
-    var presetBeforeOff by remember { mutableStateOf(uiState.eqPreset) }
-    var isCustom by remember { mutableStateOf(false) }
-    var gains by remember { mutableStateOf(EQ_PRESET_GAINS[uiState.eqPreset] ?: List(5) { 0f }) }
+    var presetBeforeOff by remember { mutableStateOf(uiState.eqPreset.takeIf { it != EqPreset.CUSTOM } ?: EqPreset.FLAT) }
     var preampDb by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(uiState.eqPreset) {
-        if (!isCustom) gains = EQ_PRESET_GAINS[uiState.eqPreset] ?: List(5) { 0f }
-    }
+    // CUSTOM and its 5 band gains are both real, persisted SettingsRepository state
+    // now (via SettingsViewModel.onCustomEqGainsChanged) - previously "isCustom"/
+    // "gains" were local-only Compose state that never reached EqualizerController
+    // or survived leaving this screen.
+    val isCustom = uiState.eqPreset == EqPreset.CUSTOM
+    val gains = if (isCustom) uiState.customEqGains else EQ_PRESET_GAINS[uiState.eqPreset] ?: List(5) { 0f }
 
     fun selectPreset(preset: EqPreset) {
-        isCustom = false
-        gains = EQ_PRESET_GAINS[preset] ?: List(5) { 0f }
         presetBeforeOff = preset
         viewModel.onEqPresetChanged(preset)
     }
@@ -141,7 +139,7 @@ fun EqualizerScreen(
     fun onEqToggle(on: Boolean) {
         eqOn = on
         if (!on) {
-            presetBeforeOff = uiState.eqPreset
+            presetBeforeOff = uiState.eqPreset.takeIf { it != EqPreset.CUSTOM } ?: presetBeforeOff
             viewModel.onEqPresetChanged(EqPreset.FLAT)
         } else {
             viewModel.onEqPresetChanged(presetBeforeOff)
@@ -150,19 +148,17 @@ fun EqualizerScreen(
 
     fun onBandDrag(index: Int, value: Float) {
         if (!eqOn) return
-        isCustom = true
-        gains = gains.toMutableList().also { it[index] = value.coerceIn(EQ_MIN_DB, EQ_MAX_DB) }
+        val newGains = gains.toMutableList().also { it[index] = value.coerceIn(EQ_MIN_DB, EQ_MAX_DB) }
+        viewModel.onCustomEqGainsChanged(newGains)
     }
 
     fun onReset() {
-        isCustom = false
-        gains = EQ_PRESET_GAINS[EqPreset.FLAT] ?: List(5) { 0f }
         preampDb = 0f
         presetBeforeOff = EqPreset.FLAT
         viewModel.onEqPresetChanged(EqPreset.FLAT)
     }
 
-    val presetLabel = if (isCustom) "Eigen" else eqPresetLabel(uiState.eqPreset)
+    val presetLabel = eqPresetLabel(uiState.eqPreset)
     val sound3dOn = uiState.sound3dPreset != Sound3dPreset.DISABLED
 
     Scaffold(containerColor = Canopy.bg) { padding ->
@@ -250,7 +246,7 @@ fun EqualizerScreen(
                         enabled = eqOn,
                         onChange = { v ->
                             preampDb = v.coerceIn(PREAMP_MIN_DB, PREAMP_MAX_DB)
-                            isCustom = true
+                            if (!isCustom) viewModel.onEqPresetChanged(EqPreset.CUSTOM)
                         },
                         modifier = Modifier.fillMaxWidth().height(24.dp),
                     )
@@ -269,7 +265,7 @@ fun EqualizerScreen(
                             EQ_PRESET_ORDER.drop(3).forEach { (preset, label) ->
                                 CanopyChip(label = label, active = !isCustom && uiState.eqPreset == preset, onClick = { selectPreset(preset) })
                             }
-                            CanopyChip(label = "Eigen", active = isCustom, onClick = { isCustom = true })
+                            CanopyChip(label = "Eigen", active = isCustom, onClick = { viewModel.onEqPresetChanged(EqPreset.CUSTOM) })
                         }
                     }
                 }

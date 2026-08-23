@@ -47,6 +47,8 @@ import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.GeneratedArtwork
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
+import dev.schlubbe.musicagent.ui.components.EqualizerBadge
+import dev.schlubbe.musicagent.ui.components.EqualizerBadgeVariant
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -137,6 +139,7 @@ fun HomeScreen(
                     selected = uiState.selectedGenre,
                     tracks = uiState.genreTracks,
                     isLoading = uiState.isGenreLoading,
+                    nowPlayingId = uiState.nowPlayingId,
                     onGenreSelected = viewModel::onGenreSelected,
                     onTrackClick = {
                         viewModel.onChartTrackClicked(it)
@@ -415,6 +418,7 @@ private fun GenreTrends(
     selected: GenreFilter,
     tracks: List<TrackResultDto>,
     isLoading: Boolean,
+    nowPlayingId: String?,
     onGenreSelected: (GenreFilter) -> Unit,
     onTrackClick: (TrackResultDto) -> Unit,
 ) {
@@ -473,6 +477,13 @@ private fun GenreTrends(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(top = 3.dp),
+                            )
+                        }
+                        if ("${track.source}:${track.sourceId}" == nowPlayingId) {
+                            EqualizerBadge(
+                                isPlaying = true,
+                                variant = EqualizerBadgeVariant.Inline,
+                                size = 18.dp,
                             )
                         }
                     }

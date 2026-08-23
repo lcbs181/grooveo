@@ -59,6 +59,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val equalizerController = EqualizerController()
     private val sound3dController = Sound3dController()
+    private val audioVisualizerController = AudioVisualizerController()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /** heart-outline/heart-filled for the "Gefällt mir" notification action -
@@ -177,14 +178,22 @@ class PlaybackService : MediaSessionService() {
             override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
                 equalizerController.attach(audioSessionId)
                 sound3dController.attach(audioSessionId)
+                audioVisualizerController.attach(audioSessionId)
             }
         })
         // The session id may already be assigned by the time we attach the listener above.
         equalizerController.attach(exoPlayer.audioSessionId)
         sound3dController.attach(exoPlayer.audioSessionId)
+        audioVisualizerController.attach(exoPlayer.audioSessionId)
+        serviceScope.launch {
+            audioVisualizerController.bands.collect { bands -> playerController.updateVisualizerBands(bands) }
+        }
 
         serviceScope.launch {
             settingsRepository.eqPreset.collect { preset -> equalizerController.applyPreset(preset) }
+        }
+        serviceScope.launch {
+            settingsRepository.customEqGains.collect { gains -> equalizerController.applyCustomGains(gains) }
         }
         serviceScope.launch {
             settingsRepository.sound3dPreset.collect { presetName ->
@@ -227,6 +236,7 @@ class PlaybackService : MediaSessionService() {
         serviceScope.cancel()
         equalizerController.release()
         sound3dController.release()
+        audioVisualizerController.release()
         mediaSession?.run {
             player.release()
             release()

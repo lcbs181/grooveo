@@ -255,6 +255,11 @@ data class HomeUiState(
     val isGenreLoading: Boolean = false,
     // Drives the coral "Offline" badge in Home's app bar.
     val dataSaverMode: Boolean = false,
+    // "source:sourceId" of the track currently loaded in the player, only while
+    // it's actually playing (not just paused) - drives the EqualizerBadge "now
+    // playing" indicator on the genre-trends row that happens to match (see
+    // GrooveoApp.dc.html's `g.isNow`, the only real call site this badge has).
+    val nowPlayingId: String? = null,
     // Home's PromoCard about the SoundCloud-HLS download limitation; sticks
     // dismissed, same flag pattern as the Library import banner.
     val scPromoDismissed: Boolean = false,
@@ -345,6 +350,7 @@ class HomeViewModel @Inject constructor(
         // progress bar.
         viewModelScope.launch {
             playerController.playbackState.collect { state ->
+                val current = playerController.nowPlayingTrack()
                 _uiState.value = _uiState.value.copy(
                     resumeTrack = state.title?.let { title ->
                         val positionMs = playerController.currentPositionMs()
@@ -358,6 +364,7 @@ class HomeViewModel @Inject constructor(
                             statusLabel = resumeStatusLabel(state.isPlaying, positionMs),
                         )
                     },
+                    nowPlayingId = current?.takeIf { state.isPlaying }?.let { "${it.source}:${it.sourceId}" },
                 )
             }
         }

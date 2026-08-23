@@ -102,6 +102,24 @@ class PlayerController @Inject constructor(
     private val _playbackState = MutableStateFlow(PlaybackUiState())
     val playbackState: StateFlow<PlaybackUiState> = _playbackState.asStateFlow()
 
+    // The Player screen's chosen Visualizer style - a singleton field (not
+    // per-screen remembered state) so it survives closing and reopening the
+    // Player, the same way the queue/current track already do.
+    private val _vizVariant = MutableStateFlow("orb")
+    val vizVariant: StateFlow<String> = _vizVariant.asStateFlow()
+    fun setVizVariant(variant: String) {
+        _vizVariant.value = variant
+    }
+
+    // Real-time FFT-derived amplitude bands from AudioVisualizerController, pushed
+    // by PlaybackService (which owns the actual audio session) - see that class's
+    // kdoc for the capture/reduction details.
+    private val _visualizerBands = MutableStateFlow(FloatArray(VISUALIZER_BAND_COUNT))
+    val visualizerBands: StateFlow<FloatArray> = _visualizerBands.asStateFlow()
+    fun updateVisualizerBands(bands: FloatArray) {
+        _visualizerBands.value = bands
+    }
+
     // Tracks what's currently loaded so play_complete/skip can be reported
     // against it once we know how the track ended. currentQueue is the *logical*
     // queue - every requested track, in order, INCLUDING SoundCloudDrmOnlyException
@@ -296,6 +314,16 @@ class PlayerController @Inject constructor(
     // this fix.
     private var pendingTrackKey: String? = null
 
+    // Incremented at the start of every playQueue()/playLocalDownload() call. Stream
+    // resolution is a network round-trip (not instant), so two different tracks
+    // requested in quick succession can otherwise both run to completion and race to
+    // mutate currentQueue/currentTrack/etc. and issue MediaController commands - a
+    // slow earlier request finishing after a faster later one would silently "un-skip"
+    // playback back to a track the user already navigated away from. Each call
+    // captures its own generation number and bails out (before touching any shared
+    // state) if a newer call has started by the time its resolve finishes.
+    private var playRequestGeneration = 0
+
     /** A single logical queue slot's resolution outcome - see [currentQueue]'s kdoc.
      * [Playable] gets an actual MediaController item; [DrmBlocked] stays in the
      * logical queue as an unplayable placeholder instead of being dropped, which is
@@ -323,19 +351,29 @@ class PlayerController @Inject constructor(
         val requestedKey = "${requestedStartTrack.source}:${requestedStartTrack.sourceId}"
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
+        val myGeneration = ++playRequestGeneration
         _playbackState.value = _playbackState.value.copy(isLoading = true, loadingTrackId = requestedKey)
 
         try {
             val mediaController = ensureConnected()
             val dataSaver = settingsRepository.dataSaverModeCached
 
-            val resolutions: List<TrackResolution> = if (dataSaver) {
-                resolveLocalOnly(tracks, requestedStartTrack).map { (track, resolved) ->
+            val resolutionsAndIndex: Pair<List<TrackResolution>, Int> = if (dataSaver) {
+                val (playable, startPos) = resolveLocalOnly(tracks, startIndex)
+                playable.map<Pair<TrackResultDto, ResolvedStream>, TrackResolution> { (track, resolved) ->
                     TrackResolution.Playable(track, resolved)
-                }
+                } to startPos
             } else {
-                resolveStreamsWithGaps(tracks, requestedStartTrack)
+                resolveStreamsWithGaps(tracks, startIndex)
             }
+            val (resolutions, newQueueIndex) = resolutionsAndIndex
+
+            // A newer playQueue()/playLocalDownload() call has started while this one
+            // was resolving streams (a network round-trip, not instant) - bail out
+            // before touching any shared queue state or issuing MediaController
+            // commands, so a slow earlier request can never stomp a faster later one
+            // and "un-skip" playback back to a track the user already left.
+            if (myGeneration != playRequestGeneration) return
 
             if (resolutions.isEmpty()) {
                 showToast(
@@ -347,8 +385,6 @@ class PlayerController @Inject constructor(
                 )
                 return
             }
-
-            val newQueueIndex = resolutions.indexOfFirst { it.track == requestedStartTrack }.takeIf { it >= 0 } ?: 0
 
             currentTrack?.let { previous ->
                 if (!currentTrackCompleted) eventReporter.skip(previous)
@@ -410,7 +446,12 @@ class PlayerController @Inject constructor(
             refreshDownloadAvailability(startTrack)
         } finally {
             if (pendingTrackKey == requestedKey) pendingTrackKey = null
-            _playbackState.value = _playbackState.value.copy(isLoading = false, loadingTrackId = null)
+            // Only the latest request may clear the loading flags - a stale request
+            // that bailed out above (superseded generation) must not clobber the
+            // still-in-flight newer request's own isLoading/loadingTrackId state.
+            if (myGeneration == playRequestGeneration) {
+                _playbackState.value = _playbackState.value.copy(isLoading = false, loadingTrackId = null)
+            }
         }
     }
 
@@ -425,10 +466,15 @@ class PlayerController @Inject constructor(
         val requestedKey = "${track.source}:${track.sourceId}"
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
+        val myGeneration = ++playRequestGeneration
         _playbackState.value = _playbackState.value.copy(isLoading = true, loadingTrackId = requestedKey)
 
         try {
             val mediaController = ensureConnected()
+            // See playQueue()'s identical check: ensureConnected() can suspend on
+            // first connect, during which a newer playQueue()/playLocalDownload()
+            // call may have already started and should win.
+            if (myGeneration != playRequestGeneration) return
             currentTrack?.let { previous ->
                 if (!currentTrackCompleted) eventReporter.skip(previous)
             }
@@ -454,7 +500,9 @@ class PlayerController @Inject constructor(
             mediaController.play()
         } finally {
             if (pendingTrackKey == requestedKey) pendingTrackKey = null
-            _playbackState.value = _playbackState.value.copy(isLoading = false, loadingTrackId = null)
+            if (myGeneration == playRequestGeneration) {
+                _playbackState.value = _playbackState.value.copy(isLoading = false, loadingTrackId = null)
+            }
         }
     }
 
@@ -619,6 +667,9 @@ class PlayerController @Inject constructor(
             mediaController.seekTo(0L)
             mediaController.play()
             _playbackState.value = _playbackState.value.copy(
+                title = track.title,
+                artist = track.artist,
+                artworkUrl = track.thumbnailUrl,
                 durationMs = (track.durationSec ?: 0) * 1000L,
                 currentTrackId = "${track.source}:${track.sourceId}",
                 queueIndex = newLogicalIndex,
@@ -740,25 +791,30 @@ class PlayerController @Inject constructor(
     }
 
     /** Filters [tracks] down to only those with a completed local download, notifying
-     * the user (via toast) about any that were skipped. */
+     * the user (via toast) about any that were skipped. Returns the filtered list
+     * together with [startIndex]'s position within it (by original index, not by
+     * value-equality - a queue containing the same track twice would otherwise have
+     * every copy matched/dropped together instead of just the one actually tapped). */
     private suspend fun resolveLocalOnly(
         tracks: List<TrackResultDto>,
-        requestedStartTrack: TrackResultDto,
-    ): List<Pair<TrackResultDto, ResolvedStream>> {
+        startIndex: Int,
+    ): Pair<List<Pair<TrackResultDto, ResolvedStream>>, Int> {
         val playable = mutableListOf<Pair<TrackResultDto, ResolvedStream>>()
-        for (track in tracks) {
+        var startPos = -1
+        tracks.forEachIndexed { i, track ->
             val download = downloadDao.getByTrackId("${track.source}:${track.sourceId}")
             if (download?.state == DownloadState.COMPLETED && download.mediaStoreUri != null) {
+                if (i == startIndex) startPos = playable.size
                 playable += track to ResolvedStream(url = download.mediaStoreUri, isHls = false)
             }
         }
         val skipped = tracks.size - playable.size
-        if (playable.none { it.first == requestedStartTrack }) {
-            showToast("Datensparmodus: „${requestedStartTrack.title}“ ist nicht heruntergeladen und wird übersprungen.")
+        if (startPos < 0) {
+            showToast("Datensparmodus: „${tracks[startIndex].title}“ ist nicht heruntergeladen und wird übersprungen.")
         } else if (skipped > 0) {
             showToast("Datensparmodus: $skipped Titel ohne Download wurden aus der Warteschlange übersprungen.")
         }
-        return playable
+        return playable to startPos.coerceAtLeast(0)
     }
 
     /** Resolves every track's stream URL on-device, prioritizing the requested
@@ -773,8 +829,9 @@ class PlayerController @Inject constructor(
      * kdoc for why). */
     private suspend fun resolveStreamsWithGaps(
         tracks: List<TrackResultDto>,
-        requestedStartTrack: TrackResultDto,
-    ): List<TrackResolution> = coroutineScope {
+        startIndex: Int,
+    ): Pair<List<TrackResolution>, Int> = coroutineScope {
+        val requestedStartTrack = tracks[startIndex]
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "resolveStreams: starting with ${tracks.size} tracks, prioritizing ${requestedStartTrack.title}")
 
@@ -800,21 +857,32 @@ class PlayerController @Inject constructor(
 
         if (startResolution == null) {
             // Requested track failed for a non-DRM reason; fall back to resolving
-            // everything and hope one of them succeeds.
+            // everything and hope one of them succeeds. Original index is carried
+            // alongside each result so the eventual start position can be found by
+            // index, not by value-equality (see this function's kdoc).
             Log.w(TAG, "resolveStreams: falling back to full-queue resolve")
-            val resolved = tracks.map { track ->
-                async { track to resolveWithRetry(track) }
+            val resolved = tracks.mapIndexed { i, track ->
+                async { i to (track to resolveWithRetry(track)) }
             }.awaitAll()
-            val error = resolved.firstOrNull { it.first == requestedStartTrack }?.second?.exceptionOrNull()
+            val error = resolved.firstOrNull { (i, _) -> i == startIndex }?.second?.second?.exceptionOrNull()
             showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
-            return@coroutineScope resolved.mapNotNull { (track, result) -> toResolution(track, result) }
+            var startPos = -1
+            val resolutions = mutableListOf<TrackResolution>()
+            for ((origIndex, pair) in resolved) {
+                val resolution = toResolution(pair.first, pair.second) ?: continue
+                if (origIndex == startIndex) startPos = resolutions.size
+                resolutions += resolution
+            }
+            return@coroutineScope resolutions to startPos.coerceAtLeast(0)
         }
 
-        // Priority 2: Resolve the rest in the background.
-        val otherTracks = tracks.filter { it != requestedStartTrack }
-        val backgroundResults = otherTracks.map { track ->
-            async { track to resolveWithRetry(track) }
-        }.awaitAll()
+        // Priority 2: Resolve the rest in the background - by original index, not
+        // value-equality, so a queue containing the same track twice only excludes
+        // the one copy actually at [startIndex], not every occurrence.
+        val backgroundResults = tracks.withIndex()
+            .filter { it.index != startIndex }
+            .map { (_, track) -> async { track to resolveWithRetry(track) } }
+            .awaitAll()
         val totalElapsed = System.currentTimeMillis() - startTime
         Log.d(TAG, "resolveStreams: all tracks done in ${totalElapsed}ms (start: fast, rest: background)")
 
@@ -827,7 +895,9 @@ class PlayerController @Inject constructor(
 
         val resolutions = mutableListOf(startResolution)
         backgroundResults.forEach { (track, result) -> toResolution(track, result)?.let { resolutions += it } }
-        resolutions
+        // The requested start track is always prepended first above, so it's always
+        // at position 0 in this (non-fallback) branch.
+        resolutions to 0
     }
 
     private fun toResolution(track: TrackResultDto, result: Result<ResolvedStream>): TrackResolution? = when {
