@@ -1,12 +1,6 @@
 package dev.schlubbe.musicagent.ui.player
 
 import android.widget.Toast
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,13 +50,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -83,13 +76,13 @@ import dev.schlubbe.musicagent.ui.components.CanopyToggle
 import dev.schlubbe.musicagent.ui.components.Confetti
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.components.rememberBreathingScale
-import dev.schlubbe.musicagent.ui.components.rememberEqBarHeights
 import dev.schlubbe.musicagent.ui.components.rememberGlowAlpha
 import dev.schlubbe.musicagent.ui.components.rememberHeartPopScale
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.CanopyShapes
+import dev.schlubbe.musicagent.ui.util.rememberPremiumHaptics
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
 import dev.schlubbe.musicagent.ui.util.shareText
 import kotlin.math.cos
@@ -109,6 +102,7 @@ private fun eqPresetLabel(preset: EqPreset): String = when (preset) {
     EqPreset.BASS_BOOST -> "Bass-Boost"
     EqPreset.TREBLE_BOOST -> "Höhen-Boost"
     EqPreset.VOCAL -> "Vocal"
+    EqPreset.CUSTOM -> "Eigen"
 }
 
 /** The Player's artwork is a fixed 232dp square per the handoff (GrooveoApp.dc.html
@@ -148,6 +142,7 @@ fun PlayerScreen(
     val playerStyle by viewModel.playerStyle.collectAsState()
     val addToPlaylistState by viewModel.addToPlaylistState.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val premiumHaptics = rememberPremiumHaptics()
     val context = LocalContext.current
     val dimens = rememberResponsiveDimens()
     val coroutineScope = rememberCoroutineScope()
@@ -160,7 +155,12 @@ fun PlayerScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showEqMenu by remember { mutableStateOf(false) }
     var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
-    var vizVariant by remember { mutableStateOf("wave") }
+    val vizVariant by viewModel.vizVariant.collectAsState()
+    // Not destructured with `by` - a bare State<FloatArray> handle updating ~10-15x/
+    // second would otherwise recompose this entire screen at that rate. Passed down
+    // as-is so only the Visualizer's own Canvas/graphicsLayer draw phases read
+    // `.value`, which redraws without recomposing (see Visualizer.kt's kdoc).
+    val visualizerBands = viewModel.visualizerBands.collectAsState()
     var likeTrigger by remember { mutableIntStateOf(0) }
 
     if (showSleepTimerDialog) {
@@ -330,13 +330,21 @@ fun PlayerScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(modifier = Modifier.padding(top = 10.dp), contentAlignment = Alignment.Center) {
+                // Both States are read only inside a draw-phase block below (never
+                // in this composable's own body), so an animation tick redraws the
+                // artwork/glow without recomposing this whole Column - see
+                // CanopyMotion.rememberBreathingScale's kdoc for why that matters.
                 val breatheScale = rememberBreathingScale(playbackState.isPlaying)
                 val glowAlpha = rememberGlowAlpha(playbackState.isPlaying)
+                // Canopy.accent is a @Composable property (CompositionLocal-backed) -
+                // must be read here, in a real composable context, not inside
+                // drawBehind's plain DrawScope lambda below.
+                val accentColor = Canopy.accent
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(PlayerArtSize)
-                        .graphicsLayer { scaleX = breatheScale; scaleY = breatheScale },
+                        .graphicsLayer { scaleX = breatheScale.value; scaleY = breatheScale.value },
                 ) {
                     // The glow's `inset:-18px` in CSS -> a child 36dp larger than the art,
                     // centered; Box doesn't clip its children by default, so the overflow
@@ -345,10 +353,12 @@ fun PlayerScreen(
                         modifier = Modifier
                             .size(PlayerArtSize + 36.dp)
                             .blur(18.dp)
-                            .background(
-                                brush = Brush.radialGradient(listOf(Canopy.accent.copy(alpha = glowAlpha), Color.Transparent)),
-                                shape = RoundedCornerShape(34.dp),
-                            ),
+                            .drawBehind {
+                                drawRoundRect(
+                                    brush = Brush.radialGradient(listOf(accentColor.copy(alpha = glowAlpha.value), Color.Transparent)),
+                                    cornerRadius = CornerRadius(34.dp.toPx(), 34.dp.toPx()),
+                                )
+                            },
                     )
                     AlbumArt(
                         url = playbackState.artworkUrl,
@@ -406,6 +416,7 @@ fun PlayerScreen(
                         Visualizer(
                             variant = vizVariant,
                             isPlaying = playbackState.isPlaying,
+                            bands = visualizerBands,
                             modifier = Modifier
                                 .padding(bottom = 14.dp)
                                 .width(200.dp)
@@ -422,7 +433,7 @@ fun PlayerScreen(
                 VizOptions.forEach { option ->
                     CanopyIconButton(
                         icon = phosphorIcon(option.icon),
-                        onClick = { vizVariant = option.id },
+                        onClick = { premiumHaptics.select(); viewModel.setVizVariant(option.id) },
                         variant = if (vizVariant == option.id) CanopyButtonVariant.Primary else CanopyButtonVariant.Ghost,
                         size = 34.dp,
                         contentDescription = option.id,
@@ -483,6 +494,7 @@ fun PlayerScreen(
                         .border(1.dp, Canopy.divider, CircleShape)
                         .clickable {
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                            if (isLiked) premiumHaptics.unlike() else premiumHaptics.like()
                             if (!isLiked) likeTrigger++
                             viewModel.toggleLike()
                         },
@@ -586,6 +598,10 @@ fun PlayerScreen(
                             haptic.performHapticFeedback(
                                 if (playbackState.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
                             )
+                            // Starting playback gets the bright double-tap - the
+                            // "yes, here we go" moment; pausing gets a lighter tick,
+                            // since a stop is routine, not an achievement.
+                            if (playbackState.isPlaying) premiumHaptics.select() else premiumHaptics.success()
                             viewModel.togglePlayPause()
                         },
                     contentAlignment = Alignment.Center,
@@ -715,6 +731,11 @@ fun PlayerScreen(
                         EqPresetMenuItem("Bass-Boost", EqPreset.BASS_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
                         EqPresetMenuItem("Höhen-Boost", EqPreset.TREBLE_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
                         EqPresetMenuItem("Vocal", EqPreset.VOCAL, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
+                        // Re-selects whatever custom band gains were last saved in
+                        // Einstellungen > Equalizer (EqualizerController.applyCustomGains) -
+                        // there's nothing new to set from here, this just switches back
+                        // to it if the user had picked a fixed preset since.
+                        EqPresetMenuItem("Eigen", EqPreset.CUSTOM, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
                     }
                 }
                 // The design's "Zur Warteschlange" chip just flashes a toast in the mockup;
@@ -904,150 +925,6 @@ private fun Waveform(progress: Float, seed: Int, modifier: Modifier = Modifier) 
                 size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
             )
-        }
-    }
-}
-
-/** The Player's five-way "Visualizer" overlay drawn on the artwork's bottom scrim
- * (design_handoff_grooveo's `Visualizer` component, `_ds_bundle.js` variants
- * wave/bars/orb/particles/pulse). No existing CanopyMotion helper covers a
- * multi-variant visualizer like this, so [rememberEqBarHeights] is reused for the
- * two bar-shaped variants and the radial ones (orb/pulse/particles) get their own
- * small animations here, all gated on [isPlaying] the same way the motion helpers
- * gate their own loops (never feeding a zero-length duration into `tween`). */
-@Composable
-private fun Visualizer(
-    variant: String,
-    isPlaying: Boolean,
-    modifier: Modifier = Modifier,
-    color: Color = Color.White.copy(alpha = 0.92f),
-) {
-    when (variant) {
-        "bars" -> {
-            val heights = rememberEqBarHeights(isPlaying, barCount = 10)
-            Row(
-                modifier = modifier,
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                heights.forEach { h ->
-                    Box(
-                        modifier = Modifier
-                            .width(8.dp)
-                            .fillMaxHeight(h)
-                            .clip(RoundedCornerShape(50))
-                            .background(color),
-                    )
-                }
-            }
-        }
-        "orb" -> {
-            val spin = if (isPlaying) {
-                val transition = rememberInfiniteTransition(label = "vizOrb")
-                val s by transition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 360f,
-                    animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing)),
-                    label = "vizOrbSpin",
-                )
-                s
-            } else {
-                0f
-            }
-            val accent200 = Canopy.accent200
-            Canvas(modifier = modifier) {
-                val r = size.minDimension / 2f
-                val centre = Offset(size.width / 2f, size.height / 2f)
-                val strokeWidth = r * 0.14f
-                rotate(spin, centre) {
-                    drawArc(
-                        color = color,
-                        startAngle = 0f,
-                        sweepAngle = 120f,
-                        useCenter = false,
-                        style = Stroke(width = strokeWidth),
-                        topLeft = Offset(centre.x - r, centre.y - r),
-                        size = Size(r * 2, r * 2),
-                    )
-                    drawArc(
-                        color = accent200,
-                        startAngle = 170f,
-                        sweepAngle = 90f,
-                        useCenter = false,
-                        style = Stroke(width = strokeWidth),
-                        topLeft = Offset(centre.x - r, centre.y - r),
-                        size = Size(r * 2, r * 2),
-                    )
-                }
-                drawCircle(color = Color.Black.copy(alpha = 0.7f), radius = r * 0.55f, center = centre)
-                drawCircle(color = color, radius = r * 0.55f, center = centre, style = Stroke(width = 1.dp.toPx()))
-            }
-        }
-        "particles" -> {
-            val phases = rememberEqBarHeights(isPlaying, barCount = 16)
-            Canvas(modifier = modifier) {
-                val centre = Offset(size.width / 2f, size.height / 2f)
-                val r = size.minDimension * 0.42f
-                phases.forEachIndexed { i, phase ->
-                    val angle = (i.toFloat() / phases.size) * 2f * Math.PI.toFloat()
-                    val pos = Offset(centre.x + cos(angle) * r, centre.y + sin(angle) * r * 0.5f)
-                    drawCircle(
-                        color = color.copy(alpha = 0.4f + 0.6f * phase),
-                        radius = 2.5.dp.toPx() * phase,
-                        center = pos,
-                    )
-                }
-            }
-        }
-        "pulse" -> {
-            val ringProgresses = if (isPlaying) {
-                val transition = rememberInfiniteTransition(label = "vizPulse")
-                (0 until 3).map { i ->
-                    val p by transition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(2100, easing = LinearEasing, delayMillis = i * 700),
-                            repeatMode = RepeatMode.Restart,
-                        ),
-                        label = "vizPulseRing$i",
-                    )
-                    p
-                }
-            } else {
-                listOf(0.3f, 0.3f, 0.3f)
-            }
-            Canvas(modifier = modifier) {
-                val centre = Offset(size.width / 2f, size.height / 2f)
-                val maxR = size.minDimension / 2f
-                ringProgresses.forEach { p ->
-                    drawCircle(
-                        color = color.copy(alpha = (1f - p) * 0.8f),
-                        radius = maxR * (0.3f + 0.7f * p),
-                        center = centre,
-                        style = Stroke(width = 1.5.dp.toPx()),
-                    )
-                }
-                drawCircle(color = color, radius = maxR * 0.18f, center = centre)
-            }
-        }
-        else -> { // "wave", the default variant
-            val heights = rememberEqBarHeights(isPlaying, barCount = 22)
-            Row(
-                modifier = modifier,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                heights.forEach { h ->
-                    Box(
-                        modifier = Modifier
-                            .width(3.dp)
-                            .fillMaxHeight(0.35f + 0.65f * h)
-                            .clip(RoundedCornerShape(50))
-                            .background(color.copy(alpha = 0.35f + 0.65f * h)),
-                    )
-                }
-            }
         }
     }
 }

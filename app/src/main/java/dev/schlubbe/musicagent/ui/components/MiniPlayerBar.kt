@@ -35,6 +35,7 @@ import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.player.PlayerViewModel
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.CanopyPillShape
+import dev.schlubbe.musicagent.ui.util.rememberPremiumHaptics
 
 /** Canopy `MiniPlayerBar`: a floating surface pill that sits above the tab bar
  * on every main screen once something is loaded, from GrooveoApp.dc.html.
@@ -52,6 +53,7 @@ fun MiniPlayerBar(
     val isLiked by viewModel.isLiked.collectAsState()
     val isFollowing by viewModel.isCurrentArtistFollowed.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val premiumHaptics = rememberPremiumHaptics()
 
     // Also shown while the very first track of the session is still resolving (no
     // currentTrackId yet) - without this, tapping a track gave no feedback at all
@@ -94,6 +96,7 @@ fun MiniPlayerBar(
                                 HapticFeedbackType.ToggleOn
                             },
                         )
+                        if (playbackState.isPlaying) premiumHaptics.select() else premiumHaptics.success()
                         waveTrigger++
                         viewModel.togglePlayPause()
                     },
@@ -176,6 +179,7 @@ fun MiniPlayerBar(
                                 overlay.spray(count = 8)
                             }
                             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                            if (isLiked) premiumHaptics.unlike() else premiumHaptics.like()
                             viewModel.toggleLike()
                         },
                 )

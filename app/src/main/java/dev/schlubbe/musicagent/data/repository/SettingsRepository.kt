@@ -32,6 +32,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val HI_RES_AUDIO = booleanPreferencesKey("hi_res_audio")
         val DATA_SAVER_MODE = booleanPreferencesKey("data_saver_mode")
         val EQ_PRESET = stringPreferencesKey("eq_preset")
+        // 5 comma-joined dB values, one per EQ_BAND_SPECS reference frequency - the
+        // EqPreset.CUSTOM preset's actual band gains (see EqualizerController.applyCustomGains).
+        val CUSTOM_EQ_GAINS = stringPreferencesKey("custom_eq_gains")
         val PROFILE_NAME = stringPreferencesKey("profile_name")
         val PROFILE_COLOR_STYLE = stringPreferencesKey("profile_color_style")
         // Home "Startseite personalisieren" toggles (Einstellungen section) -- Home
@@ -71,6 +74,13 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val eqPreset: Flow<EqPreset> = dataStore.data.map { prefs ->
         prefs[Keys.EQ_PRESET]?.let { name -> runCatching { EqPreset.valueOf(name) }.getOrNull() }
             ?: EqPreset.FLAT
+    }
+    val customEqGains: Flow<List<Float>> = dataStore.data.map { prefs ->
+        prefs[Keys.CUSTOM_EQ_GAINS]
+            ?.split(",")
+            ?.mapNotNull { it.toFloatOrNull() }
+            ?.takeIf { it.size == 5 }
+            ?: List(5) { 0f }
     }
     val profileName: Flow<String> = dataStore.data.map { it[Keys.PROFILE_NAME] ?: "" }
     val profileColorStyle: Flow<String> = dataStore.data.map { it[Keys.PROFILE_COLOR_STYLE] ?: "auto" }
@@ -120,6 +130,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     private val hiResAudioCache = MutableStateFlow(false)
     private val dataSaverModeCache = MutableStateFlow(false)
     private val eqPresetCache = MutableStateFlow(EqPreset.FLAT)
+    private val customEqGainsCache = MutableStateFlow(List(5) { 0f })
     private val sound3dPresetCache = MutableStateFlow("DISABLED")
     private val downloadsWifiOnlyCache = MutableStateFlow(false)
     private val autoplayRadioCache = MutableStateFlow(false)
@@ -129,6 +140,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val hiResAudioCached: Boolean get() = hiResAudioCache.value
     val dataSaverModeCached: Boolean get() = dataSaverModeCache.value
     val eqPresetCached: EqPreset get() = eqPresetCache.value
+    val customEqGainsCached: List<Float> get() = customEqGainsCache.value
     val sound3dPresetCached: String get() = sound3dPresetCache.value
     val downloadsWifiOnlyCached: Boolean get() = downloadsWifiOnlyCache.value
     val autoplayRadioCached: Boolean get() = autoplayRadioCache.value
@@ -139,6 +151,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         scope.launch { hiResAudio.collect { hiResAudioCache.value = it } }
         scope.launch { dataSaverMode.collect { dataSaverModeCache.value = it } }
         scope.launch { eqPreset.collect { eqPresetCache.value = it } }
+        scope.launch { customEqGains.collect { customEqGainsCache.value = it } }
         scope.launch { sound3dPreset.collect { sound3dPresetCache.value = it } }
         scope.launch { downloadsWifiOnly.collect { downloadsWifiOnlyCache.value = it } }
         scope.launch { autoplayRadio.collect { autoplayRadioCache.value = it } }
@@ -174,6 +187,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setEqPreset(preset: EqPreset) {
         dataStore.edit { it[Keys.EQ_PRESET] = preset.name }
+    }
+
+    suspend fun setCustomEqGains(gains: List<Float>) {
+        dataStore.edit { it[Keys.CUSTOM_EQ_GAINS] = gains.joinToString(",") }
     }
 
     suspend fun setProfileName(name: String) {

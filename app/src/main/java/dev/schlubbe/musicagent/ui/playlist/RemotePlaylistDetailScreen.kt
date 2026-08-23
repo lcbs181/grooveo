@@ -52,6 +52,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyBadgeVariant
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
+import dev.schlubbe.musicagent.ui.util.rememberPremiumHaptics
 import dev.schlubbe.musicagent.ui.util.shareText
 
 /** A public SoundCloud/YouTube playlist or album, reached by tapping a search
@@ -71,6 +72,7 @@ fun RemotePlaylistDetailScreen(
     var showTopMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val premiumHaptics = rememberPremiumHaptics()
 
     LaunchedEffect(uiState.artistNavTarget) {
         uiState.artistNavTarget?.let { (source, sourceId) ->
@@ -209,6 +211,10 @@ fun RemotePlaylistDetailScreen(
                                     haptic.performHapticFeedback(
                                         if (uiState.isSaved) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
                                     )
+                                    // Saving a whole playlist is a bigger action than
+                                    // liking one track - the ascending 3-step pattern
+                                    // gives it more ceremony than premiumHaptics.like().
+                                    if (uiState.isSaved) premiumHaptics.unlike() else premiumHaptics.celebrate()
                                     viewModel.toggleSaved()
                                 },
                                 variant = if (uiState.isSaved) CanopyButtonVariant.Secondary else CanopyButtonVariant.Primary,

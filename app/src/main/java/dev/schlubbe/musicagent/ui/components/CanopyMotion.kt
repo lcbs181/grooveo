@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +34,6 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.ui.theme.Canopy
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -273,37 +273,39 @@ private fun DrawScope.rotateRect(
 /** The Player's "breathing" artwork: scale oscillating to 1.028 over 4.4s.
  * Returns 1f when [isPlaying] is false so a paused cover sits still. */
 @Composable
-fun rememberBreathingScale(isPlaying: Boolean): Float {
-    if (!isPlaying) return 1f
+// Both return the raw State (not a `by`-resolved value) so callers can read
+// `.value` inside a draw-phase graphicsLayer/drawBehind block instead of at
+// composition time - reading either via `by` here previously recomposed
+// everything nested inside the caller's Box (artwork, glow layer, Visualizer
+// overlay) on every animation frame while a track was playing, not just the one
+// property that actually needed to change.
+fun rememberBreathingScale(isPlaying: Boolean): State<Float> {
     val transition = rememberInfiniteTransition(label = "breathe")
-    val scale by transition.animateFloat(
+    return transition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.028f,
+        targetValue = if (isPlaying) 1.028f else 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
+            animation = tween(if (isPlaying) 2200 else Int.MAX_VALUE / 2, easing = LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
         ),
         label = "breatheScale",
     )
-    return scale
 }
 
-/** The accent glow behind the Player artwork, pulsing over 3.6s. Returns an
- * alpha multiplier. */
+/** The accent glow behind the Player artwork, pulsing over 3.6s. Returns a
+ * [State] of the alpha multiplier - see [rememberBreathingScale]'s kdoc for why. */
 @Composable
-fun rememberGlowAlpha(isPlaying: Boolean): Float {
-    if (!isPlaying) return 0.35f
+fun rememberGlowAlpha(isPlaying: Boolean): State<Float> {
     val transition = rememberInfiniteTransition(label = "glow")
-    val alpha by transition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.55f,
+    return transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = if (isPlaying) 0.55f else 0.35f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1800, easing = LinearEasing),
+            animation = tween(if (isPlaying) 1800 else Int.MAX_VALUE / 2, easing = LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
         ),
         label = "glowAlpha",
     )
-    return alpha
 }
 
 /** `ds-fade-up`: 10dp rise + fade, 400ms, for section entrances. Returns a
@@ -317,30 +319,6 @@ fun rememberFadeUp(key: Any? = Unit): Modifier {
     return Modifier.graphicsLayer {
         alpha = progress.value
         translationY = (1f - progress.value) * offsetPx
-    }
-}
-
-/** The four-bar `eqBounce` now-playing indicator's per-bar phase. Exposed so
- * both EqualizerBadge and the Player's inline indicator animate identically. */
-@Composable
-fun rememberEqBarHeights(isPlaying: Boolean, barCount: Int = 4): List<Float> {
-    if (!isPlaying) return List(barCount) { 0.28f }
-    val transition = rememberInfiniteTransition(label = "eq")
-    // Each bar gets its own duration/offset so they don't pulse in lockstep,
-    // mirroring the staggered animation-delay in the CSS.
-    return (0 until barCount).map { i ->
-        val duration = 620 + i * 130
-        val phase by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(duration, easing = LinearEasing),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
-            ),
-            label = "eqBar$i",
-        )
-        // scaleY .28 -> 1 -> .28
-        0.28f + 0.72f * abs(phase)
     }
 }
 

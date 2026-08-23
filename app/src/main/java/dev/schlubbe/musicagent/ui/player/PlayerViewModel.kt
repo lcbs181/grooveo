@@ -48,6 +48,9 @@ class PlayerViewModel @Inject constructor(
 ) : ViewModel() {
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
+    val vizVariant: StateFlow<String> = playerController.vizVariant
+    val visualizerBands: StateFlow<FloatArray> = playerController.visualizerBands
+    fun setVizVariant(variant: String) = playerController.setVizVariant(variant)
 
     val eqPreset: StateFlow<EqPreset> = settingsRepository.eqPreset
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EqPreset.FLAT)

@@ -44,6 +44,7 @@ data class SettingsUiState(
     // Wiedergabe
     val hiResAudio: Boolean = false,
     val eqPreset: EqPreset = EqPreset.FLAT,
+    val customEqGains: List<Float> = List(5) { 0f },
     val playerStyle: String = "waveform",
     val autoplayRadio: Boolean = false,
     // 3D-Sound
@@ -100,6 +101,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.eqPreset.collect { preset ->
                 _uiState.value = _uiState.value.copy(eqPreset = preset)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.customEqGains.collect { gains ->
+                _uiState.value = _uiState.value.copy(customEqGains = gains)
             }
         }
         viewModelScope.launch {
@@ -179,6 +185,17 @@ class SettingsViewModel @Inject constructor(
     fun onEqPresetChanged(preset: EqPreset) {
         _uiState.value = _uiState.value.copy(eqPreset = preset)
         viewModelScope.launch { settingsRepository.setEqPreset(preset) }
+    }
+
+    /** Dragging a band slider both persists the new gain and switches the active
+     * preset to CUSTOM (matching every fixed-preset chip's own real-persistence
+     * path) - previously this only updated local, never-persisted Compose state. */
+    fun onCustomEqGainsChanged(gains: List<Float>) {
+        _uiState.value = _uiState.value.copy(eqPreset = EqPreset.CUSTOM, customEqGains = gains)
+        viewModelScope.launch {
+            settingsRepository.setCustomEqGains(gains)
+            settingsRepository.setEqPreset(EqPreset.CUSTOM)
+        }
     }
 
     fun onPlayerStyleChanged(style: String) {
