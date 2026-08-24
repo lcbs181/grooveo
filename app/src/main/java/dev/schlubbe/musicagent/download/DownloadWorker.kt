@@ -249,6 +249,15 @@ class DownloadWorker @AssistedInject constructor(
                 response.body.string()
             }
 
+            // SoundCloudStreamResolver already filters DRM-only tracks out before a
+            // download is ever offered, so an encrypted media playlist reaching here
+            // would be unexpected - but downloadHls() has no AES-128 decryption, so
+            // silently concatenating ciphertext segments would produce a file that
+            // "downloads successfully" and then fails to play. Fail fast instead.
+            if (playlistText.lineSequence().any { it.trim().startsWith("#EXT-X-KEY") && !it.contains("METHOD=NONE") }) {
+                return TransferOutcome.Failed(0, retryable = false)
+            }
+
             val segmentUrls = playlistText.lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && !it.startsWith("#") }
@@ -277,7 +286,11 @@ class DownloadWorker @AssistedInject constructor(
                     }
                 }
             }
-            TransferOutcome.Completed(mimeType = "video/mp2t")
+            // "audio/mp2t" rather than the more common "video/mp2t" registration -
+            // this is audio-only MPEG-TS and MediaStoreWriter always inserts into the
+            // Audio collection regardless, but external players/file managers that
+            // filter by an "audio/*" MIME prefix would otherwise skip this file.
+            TransferOutcome.Completed(mimeType = "audio/mp2t", totalBytes = tempFile.length())
         } catch (e: IOException) {
             TransferOutcome.Failed(tempFile.length(), retryable = true)
         }
