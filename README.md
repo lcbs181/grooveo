@@ -39,7 +39,7 @@ Search, stream, download, like, and organize — all resolved and stored directl
 |---|---|
 | **Search** | Across SoundCloud and YouTube Music — tracks, artists, playlists, and albums, per-source or combined. |
 | **Streaming** | Fully on-device. SoundCloud resolves its own signed CDN URLs (native HLS via Media3); YouTube Music resolves through NewPipeExtractor. No server-side proxy, ever. |
-| **Downloads** | Offline playback for YouTube tracks (see [Known limitations](#known-limitations)), plus a *Datensparmodus* (data-saver) setting that restricts playback to downloaded tracks only. |
+| **Downloads** | Offline playback for both sources — progressive download for YouTube, segment-fetch-and-concatenate for SoundCloud's HLS streams (see [Known limitations](#known-limitations) for the DRM-only exception) — plus a *Datensparmodus* (data-saver) setting that restricts playback to downloaded tracks only. |
 | **Likes & playlists** | Stored locally in Room, with reordering, rename, and bulk-download-a-playlist. |
 | **Home** | A *Charts* shelf (global SoundCloud/YouTube trending) and a *Für dich* feed computed entirely on-device from local play history and likes — no server-side aggregation. |
 | **Artist pages** | Collapsible bio, top/latest track shelves, and a paginated follower list (SoundCloud). |
@@ -124,12 +124,6 @@ The app works completely standalone. If you also run the companion FastAPI backe
    This is a real account on your backend (created via its own register/invite flow) used for a silent background login — the app never shows a login screen. Analytics events and the update check simply no-op if left blank.
 
 ## Known limitations
-
-<details>
-<summary>SoundCloud downloads aren't supported</summary><br>
-
-SoundCloud tracks resolve to HLS, which needs segment fetch + remux to download properly; not built yet. Attempting one immediately shows "Fehlgeschlagen" rather than enqueueing doomed work.
-</details>
 
 <details>
 <summary>Some SoundCloud tracks are DRM-only</summary><br>
