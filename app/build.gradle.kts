@@ -35,8 +35,8 @@ android {
         applicationId = "dev.schlubbe.musicagent.standalone"
         minSdk = 30
         targetSdk = 37
-        versionCode = 16
-        versionName = "0.5.1"
+        versionCode = 17
+        versionName = "0.5.2"
 
         buildConfigField(
             "String",
