@@ -67,12 +67,29 @@ internal fun TrackEntity.toTrackResultDto(): TrackResultDto = TrackResultDto(
 // nav destination, see LibraryScreen's BackHandler for the system-back wiring.
 enum class LibraryTab { HOME, DOWNLOADS, LIKES, PLAYLISTS }
 
+/** Which chip is active in the unified Library home content (LibraryScreen.kt's
+ * `LibraryHomeContent`) - moved here (was a local `remember` inside that
+ * composable) and into [LibraryUiState] so it survives the composable being torn
+ * down and rebuilt (e.g. switching to another bottom-nav tab and back), the same
+ * way [LibraryUiState.selectedTab] already does, instead of silently resetting to
+ * [PLAYLISTS] every time. Playlists and Likes have a real ViewModel-backed data
+ * source; Verlauf reuses the same recently-played source Home's own shelf uses;
+ * Künstler has no followed-artist source wired to this ViewModel at all, so it
+ * renders an honest empty state instead of inventing content. */
+enum class LibraryChip(val label: String) {
+    PLAYLISTS("Playlists"),
+    LIKES("Likes"),
+    VERLAUF("Verlauf"),
+    KUENSTLER("Künstler"),
+}
+
 // Same magnitude as HomeViewModel's own recently-played query - enough to both
 // slice a short circular rail and fill a scrollable history list underneath it.
 private const val RECENTLY_PLAYED_LIMIT = 30
 
 data class LibraryUiState(
     val selectedTab: LibraryTab = LibraryTab.HOME,
+    val selectedChip: LibraryChip = LibraryChip.PLAYLISTS,
     // Mirrors SettingsRepository's persisted flag so the landing menu's Spotify-
     // import banner stays dismissed across process restarts once closed.
     val importBannerDismissed: Boolean = false,
@@ -157,6 +174,24 @@ class LibraryViewModel @Inject constructor(
      * without leaving the Library nav-graph destination itself. */
     fun backToHome() {
         _uiState.value = _uiState.value.copy(selectedTab = LibraryTab.HOME)
+    }
+
+    /** Switches the active chip in the unified Library home content - mirrors
+     * [openSection]'s old "refresh on open" behavior for the two chips with a real
+     * ViewModel-backed data source, now triggered from here instead of a
+     * LaunchedEffect in the composable, since the selection itself lives here too.
+     * The old LaunchedEffect(selectedChip) only fired on an actual value change
+     * (Compose skips a re-key with the same value) - re-tapping the already-active
+     * chip did nothing. Guarding here keeps that behavior instead of re-firing a
+     * network refresh on every tap of an already-selected chip. */
+    fun selectChip(chip: LibraryChip) {
+        if (_uiState.value.selectedChip == chip) return
+        _uiState.value = _uiState.value.copy(selectedChip = chip)
+        when (chip) {
+            LibraryChip.LIKES -> refreshLikes()
+            LibraryChip.PLAYLISTS -> refreshPlaylists()
+            LibraryChip.VERLAUF, LibraryChip.KUENSTLER -> Unit
+        }
     }
 
     fun dismissImportBanner() {
