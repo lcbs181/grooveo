@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.playback.VISUALIZER_BAND_COUNT
+import dev.schlubbe.musicagent.playback.bassAmplitude
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import kotlin.math.PI
 import kotlin.math.asin
@@ -54,6 +55,15 @@ private fun amplitudeFor(i: Int, elementCount: Int, bands: FloatArray): Float {
     val bandIndex = (i * bands.size / elementCount).coerceIn(0, bands.size - 1)
     val real = bands[bandIndex]
     return if (real > 0.001f) real else seq(i)
+}
+
+/** [bassAmplitude], falling back to a fixed mid-value while [bands] is still
+ * all-zero (no real capture data yet) - shared by every variant that drives a
+ * single scale/breathe factor off bass rather than per-element amplitude. */
+private fun bassOrFallback(bands: FloatArray): Float {
+    if (bands.isEmpty()) return 0.5f
+    val bass = bassAmplitude(bands)
+    return if (bass > 0.001f) bass else 0.5f
 }
 
 /** A raised-sine stand-in for a 3-keyframe (0%/50%/100%) CSS animation whose middle
@@ -199,8 +209,10 @@ private fun BarsVisualizer(
 /** `vizSpin`/`vizSpinRev`/`vizOrb`: a conic-gradient ring (color -> accent200 ->
  * transparent) drawn twice - a wider/dimmer glow copy and a narrower sharp copy -
  * counter-rotating at 5200ms/7600ms, wrapped in a slow breathing scale whose
- * amplitude now tracks the track's overall real loudness (mean of all bands)
- * instead of a fixed .18 swing, over a dark radial disc with a thin outline ring. */
+ * amplitude tracks the track's bass energy ([bassAmplitude], the lowest few FFT
+ * bands - was the full-spectrum mean of all bands, which smeared bass/mid/treble
+ * together and read as a smooth drift instead of a beat) over a dark radial disc
+ * with a thin outline ring. */
 @Composable
 private fun OrbVisualizer(
     color: Color,
@@ -229,8 +241,8 @@ private fun OrbVisualizer(
     Canvas(modifier = modifier) {
         val r = size.minDimension / 2f
         val center = Offset(size.width / 2f, size.height / 2f)
-        val loudness = bands.value.let { b -> if (b.isEmpty()) 0.5f else b.average().toFloat() }.let { if (it > 0.001f) it else 0.5f }
-        val breathe = if (isPlaying) 0.82f + 0.18f * loudness else 1f
+        val bass = bassOrFallback(bands.value)
+        val breathe = if (isPlaying) 0.82f + 0.18f * bass else 1f
         val spinDeg = if (isPlaying) (clockMs.value / 5200f * 360f) % 360f else 0f
         val spinRevDeg = if (isPlaying) -(clockMs.value / 7600f * 360f) % 360f else 0f
         val ringRadius = r * breathe * 0.93f
@@ -266,7 +278,15 @@ private data class ParticleSpec(val lat: Float, val lon: Float, val durationMs: 
  * reworked to a single set of preallocated parallel arrays (positions/depths/an
  * index-sort array) reused every frame instead of allocating a fresh
  * `List<ProjectedParticle>` + `sortedBy{}` per frame (was ~110 allocations x the
- * screen's frame rate, continuously, while this variant was on screen). */
+ * screen's frame rate, continuously, while this variant was on screen).
+ *
+ * On top of each particle's own band-mapped breathe, a single traveling wave
+ * ripples pole-to-pole across the whole sphere: `sin(latitude*3 - time*speed)`
+ * gives every particle a phase based on where it sits, so a snapshot in time
+ * looks like a real wavefront sweeping across the surface, not just a random
+ * jitter. Its amplitude is driven by [bassAmplitude] (the lowest few FFT bands),
+ * so the ripple is visibly synced to kick-drum/bassline hits rather than
+ * constantly rippling regardless of what's actually playing. */
 @Composable
 private fun ParticlesVisualizer(
     count: Int,
@@ -309,12 +329,18 @@ private fun ParticlesVisualizer(
         val cosTilt = cos(tiltRad)
         val sinTilt = sin(tiltRad)
         val bandsValue = bands.value
+        val bass = if (isPlaying) bassAmplitude(bandsValue) else 0f
+        // Wave travels one full pole-to-pole cycle every ~2200ms; phase per-particle
+        // is offset by latitude so the ripple visibly sweeps across the sphere
+        // instead of every particle pulsing in lockstep.
+        val wavePhase = clockMs.value / 2200f * 2f * PI.toFloat()
 
         for (i in points.indices) {
             val p = points[i]
             val popT = if (isPlaying) hump(phaseOf(clockMs.value, p.delayMs, p.durationMs)) else 0f
             val amp = amplitudeFor(i, n, bandsValue) * 0.14f
-            val radius = rPx + amp * sizePx * popT
+            val wave = if (isPlaying) sin(p.lat * 3f - wavePhase) * bass * 0.16f else 0f
+            val radius = rPx + amp * sizePx * popT + wave * sizePx
             val x0 = cos(p.lat) * sin(p.lon)
             val y0 = sin(p.lat)
             val z0 = cos(p.lat) * cos(p.lon)
@@ -356,8 +382,9 @@ private fun ParticlesVisualizer(
 
 /** `vizRing`/`vizShoot`/`vizOrb`: 3 expanding-and-fading ring outlines staggered
  * 700ms apart, 18 small rotating streaks "shooting" outward to a seeded distance
- * (scaled by the track's real loudness) and fading on their own quick-in/slow-out
- * curve, and a breathing core dot whose amplitude also tracks real loudness. */
+ * (scaled by the track's bass energy, see [OrbVisualizer]'s kdoc for why bass
+ * instead of the full-spectrum mean) and fading on their own quick-in/slow-out
+ * curve, and a breathing core dot whose amplitude also tracks bass. */
 @Composable
 private fun PulseVisualizer(
     color: Color,
@@ -370,7 +397,7 @@ private fun PulseVisualizer(
     Canvas(modifier = modifier) {
         val r = size.minDimension
         val center = Offset(size.width / 2f, size.height / 2f)
-        val loudness = bands.value.let { b -> if (b.isEmpty()) 0.5f else b.average().toFloat() }.let { if (it > 0.001f) it else 0.5f }
+        val bass = bassOrFallback(bands.value)
 
         for (i in 0..2) {
             val progress = if (isPlaying) phaseOf(clockMs.value, delayMs = i * 700, durationMs = 2100) else 0f
@@ -382,7 +409,7 @@ private fun PulseVisualizer(
         if (isPlaying) {
             for (i in 0 until 18) {
                 val angle = (360f / 18f * i + if (i % 2 == 1) 9f else 0f) * (PI.toFloat() / 180f)
-                val amp = (r / 2f) * (0.4f + loudness * 0.9f)
+                val amp = (r / 2f) * (0.4f + bass * 0.9f)
                 val dx = cos(angle) * amp
                 val dy = sin(angle) * amp
                 val rotDeg = (if (i % 2 == 1) 1f else -1f) * (120f + seq(i) * 240f)
@@ -407,7 +434,7 @@ private fun PulseVisualizer(
             }
         }
 
-        val coreBreathe = if (isPlaying) 0.82f + 0.18f * loudness else 1f
+        val coreBreathe = if (isPlaying) 0.82f + 0.18f * bass else 1f
         drawCircle(color = color, radius = (r / 2f) * 0.28f * coreBreathe, center = center)
     }
 }

@@ -13,6 +13,24 @@ import kotlin.math.sqrt
  * how many real device-specific FFT bins backed them. */
 const val VISUALIZER_BAND_COUNT = 32
 
+/** How many of the lowest (bass) bands from [VISUALIZER_BAND_COUNT] get averaged into
+ * a scalar "bass" value. Since [AudioVisualizerController.reduceToBands] pools bins on
+ * an exponential curve, these first few bands already cover only the low end of the
+ * spectrum (roughly sub-250Hz) rather than a linear 1/32 slice of it. */
+private const val BASS_BAND_COUNT = 4
+
+/** Averages the lowest [BASS_BAND_COUNT] bands of a [bands] array into a single
+ * scalar - use this instead of a full-spectrum average wherever a visualizer's scale
+ * or motion is meant to track kick-drum/bassline hits specifically rather than
+ * overall loudness (which smears bass, mids, and treble together). */
+fun bassAmplitude(bands: FloatArray): Float {
+    if (bands.isEmpty()) return 0f
+    val count = BASS_BAND_COUNT.coerceAtMost(bands.size)
+    var sum = 0f
+    for (i in 0 until count) sum += bands[i]
+    return (sum / count).coerceIn(0f, 1f)
+}
+
 /**
  * Wraps the platform [Visualizer] audio effect, attached to the current ExoPlayer's
  * audio session id - same attach-is-idempotent-per-session pattern as
