@@ -4,6 +4,10 @@
 
 <p></p>
 
+<img src="docs/readme/banner.svg" alt="Grooveo — animated equalizer banner" width="100%">
+
+<p></p>
+
 [![CI](https://github.com/lcbs181/grooveo/actions/workflows/ci.yml/badge.svg)](https://github.com/lcbs181/grooveo/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lcbs181/grooveo?label=release&color=4a8f76&style=flat-square)](https://github.com/lcbs181/grooveo/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/lcbs181/grooveo?color=4a8f76&style=flat-square)](LICENSE)
