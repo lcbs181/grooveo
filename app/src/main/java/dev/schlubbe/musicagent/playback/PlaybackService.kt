@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.playback
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.media3.common.AudioAttributes
@@ -10,6 +11,9 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -28,8 +32,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -138,7 +144,25 @@ class PlaybackService : MediaSessionService() {
         // steps. This is NOT true bit-perfect output -- Android's mixer still sits
         // between the app and the DAC on stock, unrooted devices -- see the disclaimer
         // shown next to the Settings toggle that drives this.
-        val renderersFactory = DefaultRenderersFactory(this).apply {
+        // The audio sink is overridden purely to splice a TeeAudioProcessor into the
+        // processing chain: it passes every decoded PCM buffer through untouched while
+        // also handing a read-only copy to audioVisualizerController, which is what
+        // makes the Player's Visualizer overlay react to the actual audio. Doing it
+        // here (rather than via android.media.audiofx.Visualizer, which this used to
+        // use) needs no RECORD_AUDIO permission - see AudioVisualizerController's kdoc.
+        // enableFloatOutput/enableAudioTrackPlaybackParams are forwarded from the
+        // defaults so the hi-res float-output path below still works as before.
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController)))
+                .build()
+        }.apply {
             if (settingsRepository.hiResAudioCached) {
                 setEnableAudioFloatOutput(true)
             }
@@ -176,19 +200,38 @@ class PlaybackService : MediaSessionService() {
             .build()
         player = exoPlayer
 
+        // Equalizer/3D-sound are genuine AudioEffects bound to the audio session (and
+        // unlike the Visualizer effect they need no RECORD_AUDIO). The visualizer is
+        // not in this list: it reads the PCM stream via the TeeAudioProcessor
+        // installed in the audio sink above, so it has no session to attach to.
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
                 equalizerController.attach(audioSessionId)
                 sound3dController.attach(audioSessionId)
-                audioVisualizerController.attach(audioSessionId)
+            }
+
+            // While paused no PCM buffers flow, so the spectrum would otherwise freeze
+            // on whatever the final frame happened to be - leaving the overlay stuck
+            // mid-pose. Zeroing it lets the UI settle into its rest shape, and makes
+            // the visual strictly "live while playing, at rest while not".
+            override fun onIsPlayingChanged(eventTime: AnalyticsListener.EventTime, isPlaying: Boolean) {
+                if (!isPlaying) audioVisualizerController.reset()
             }
         })
         // The session id may already be assigned by the time we attach the listener above.
         equalizerController.attach(exoPlayer.audioSessionId)
         sound3dController.attach(exoPlayer.audioSessionId)
-        audioVisualizerController.attach(exoPlayer.audioSessionId)
         serviceScope.launch {
             audioVisualizerController.bands.collect { bands -> playerController.updateVisualizerBands(bands) }
+        }
+        // Watchdog for the cases where PCM silently stops reaching the visualizer tap
+        // while playback continues (see AudioVisualizerController.hasGoneStale) - the
+        // overlay settles into its rest state instead of freezing on the last frame.
+        serviceScope.launch {
+            while (isActive) {
+                delay(STALE_CHECK_INTERVAL_MS)
+                if (audioVisualizerController.hasGoneStale()) audioVisualizerController.reset()
+            }
         }
 
         serviceScope.launch {
@@ -235,10 +278,12 @@ class PlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
+        // reset() before cancelling the scope, so the zeroed spectrum it publishes
+        // still reaches the collector above rather than being dropped on the floor.
+        audioVisualizerController.reset()
         serviceScope.cancel()
         equalizerController.release()
         sound3dController.release()
-        audioVisualizerController.release()
         mediaSession?.run {
             player.release()
             release()
@@ -249,6 +294,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private const val STALE_CHECK_INTERVAL_MS = 250L
         private const val ACTION_LIKE = "dev.schlubbe.musicagent.ACTION_LIKE"
         private const val ACTION_DOWNLOAD = "dev.schlubbe.musicagent.ACTION_DOWNLOAD"
     }
