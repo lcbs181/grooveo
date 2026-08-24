@@ -134,8 +134,6 @@ fun LibraryScreen(
                     onImportClick = {
                         Toast.makeText(context, "Bald verfügbar", Toast.LENGTH_SHORT).show()
                     },
-                    onRefreshLikes = viewModel::refreshLikes,
-                    onRefreshPlaylists = viewModel::refreshPlaylists,
                     onPlaylistClick = onPlaylistClick,
                     onSavedPlaylistClick = onSavedPlaylistClick,
                     onCreatePlaylistClick = { showCreatePlaylistDialog = true },
@@ -182,17 +180,9 @@ fun LibraryScreen(
 
 /** The 4 chips under the "Bibliothek" headline (design 05): Playlists / Likes /
  * Verlauf / Künstler switch which content renders below, in place - unlike the
- * old landing menu's chevron rows, this never leaves [LibraryTab.HOME]. Only
- * Playlists and Likes have a real ViewModel-backed data source; Verlauf reuses
- * the same recently-played source Home's own shelf uses; Künstler has no
- * followed-artist source wired to this ViewModel at all, so it renders an
- * honest empty state instead of inventing content. */
-private enum class LibraryChip(val label: String) {
-    PLAYLISTS("Playlists"),
-    LIKES("Likes"),
-    VERLAUF("Verlauf"),
-    KUENSTLER("Künstler"),
-}
+ * old landing menu's chevron rows, this never leaves [LibraryTab.HOME]. The
+ * active chip itself lives in LibraryViewModel's uiState (see [LibraryChip]'s
+ * kdoc) rather than as local state here. */
 
 /** The unified Bibliothek screen: headline + chip row + whichever content the
  * active chip selects, followed by a persistent "Schnellzugriff" section and
@@ -209,8 +199,6 @@ private fun LibraryHomeContent(
     onOpenDownloads: () -> Unit,
     onDismissBanner: () -> Unit,
     onImportClick: () -> Unit,
-    onRefreshLikes: () -> Unit,
-    onRefreshPlaylists: () -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSavedPlaylistClick: (source: String, sourceId: String) -> Unit,
     onCreatePlaylistClick: () -> Unit,
@@ -222,17 +210,6 @@ private fun LibraryHomeContent(
     onRecentlyPlayedArtistClick: (TrackEntity) -> Unit,
 ) {
     val dimens = rememberResponsiveDimens()
-    var selectedChip by remember { mutableStateOf(LibraryChip.PLAYLISTS) }
-
-    // Mirrors the old openSection()'s "refresh on open" behavior, just keyed off
-    // the in-place chip instead of a pushed sub-view.
-    LaunchedEffect(selectedChip) {
-        when (selectedChip) {
-            LibraryChip.LIKES -> onRefreshLikes()
-            LibraryChip.PLAYLISTS -> onRefreshPlaylists()
-            LibraryChip.VERLAUF, LibraryChip.KUENSTLER -> Unit
-        }
-    }
 
     val playlistItems: List<LibraryPlaylistItem> =
         uiState.playlists.map { LibraryPlaylistItem.Local(it) } +
@@ -263,12 +240,12 @@ private fun LibraryHomeContent(
                 modifier = Modifier.padding(bottom = 12.dp),
             ) {
                 items(LibraryChip.entries.toList(), key = { it.name }) { chip ->
-                    CanopyChip(label = chip.label, active = chip == selectedChip, onClick = { selectedChip = chip })
+                    CanopyChip(label = chip.label, active = chip == uiState.selectedChip, onClick = { viewModel.selectChip(chip) })
                 }
             }
         }
 
-        when (selectedChip) {
+        when (uiState.selectedChip) {
             LibraryChip.PLAYLISTS -> {
                 if (!uiState.importBannerDismissed) {
                     item { ImportBanner(onDismiss = onDismissBanner, onImportClick = onImportClick) }
