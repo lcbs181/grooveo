@@ -42,6 +42,8 @@ import javax.inject.Singleton
 private const val TAG = "PlayerController"
 
 private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – DRM-geschützt und kann von dieser App nicht abgespielt werden."
+private const val PLAYBACK_ERROR_MESSAGE = "Wiedergabe unterbrochen – Verbindung prüfen und erneut versuchen."
+private const val MAX_PLAYBACK_ERROR_RETRIES = 2
 
 data class PlaybackUiState(
     val isPlaying: Boolean = false,
@@ -138,6 +140,28 @@ class PlayerController @Inject constructor(
     private var currentTrack: TrackResultDto? = null
     private var currentTrackCompleted = false
 
+    // Counts consecutive PlaybackExceptions for the *current* track (reset by
+    // resetPlaybackErrorState(), called from every real track-change/manual-pause
+    // entry point below) so a network hiccup gets a couple of automatic retries
+    // instead of silently leaving playback stopped, while a track that's genuinely
+    // broken doesn't retry forever - and so a track right after one that exhausted
+    // its retries still gets its own full retry budget.
+    private var playbackErrorRetryCount = 0
+
+    // The pending delayed retry scheduled by onPlayerError, if any - tracked so it
+    // can be cancelled from resetPlaybackErrorState() when the user manually pauses
+    // or the controller moves to a different track while the retry is still
+    // waiting out its delay. Without this, a stale retry can fire prepare()+play()
+    // against whatever the controller happens to be sitting on by then (silently
+    // overriding a manual pause, or re-playing an unrelated track).
+    private var playbackRetryJob: Job? = null
+
+    private fun resetPlaybackErrorState() {
+        playbackRetryJob?.cancel()
+        playbackRetryJob = null
+        playbackErrorRetryCount = 0
+    }
+
     // Singleton-scoped: outlives any one screen, so fire-and-forget DB lookups
     // triggered from the (non-suspend) Player.Listener callbacks below can use it
     // without needing a ViewModel's viewModelScope in hand.
@@ -181,7 +205,39 @@ class PlayerController @Inject constructor(
 
         newController.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) resetPlaybackErrorState()
                 _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
+            }
+
+            // ExoPlayer drops to STATE_IDLE on any fatal error (network hiccup mid-stream,
+            // a stale/expired signed CDN URL, etc.) and just stops -- there was no
+            // handling here at all before, so a transient error silently ended playback
+            // with no recovery and no feedback. Retry a couple of times first (a fresh
+            // prepare() re-resolves/reopens the same MediaItem's data source), then fall
+            // back to the same isUnavailable messaging DRM-only tracks already use (the
+            // play button retries directly from there instead of being a dead end - see
+            // togglePlayPause). The scheduled retry double-checks the media item is still
+            // the one that errored before acting, since the delay window gives the user
+            // time to pause or skip away in the meantime.
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                Log.w(TAG, "Playback error (retry $playbackErrorRetryCount/$MAX_PLAYBACK_ERROR_RETRIES)", error)
+                val controllerRef = controller ?: return
+                if (playbackErrorRetryCount < MAX_PLAYBACK_ERROR_RETRIES) {
+                    playbackErrorRetryCount++
+                    val mediaIdAtError = controllerRef.currentMediaItem?.mediaId
+                    playbackRetryJob?.cancel()
+                    playbackRetryJob = scope.launch {
+                        delay(1_000L * playbackErrorRetryCount)
+                        if (controller?.currentMediaItem?.mediaId != mediaIdAtError) return@launch
+                        controllerRef.prepare()
+                        controllerRef.play()
+                    }
+                } else {
+                    _playbackState.value = _playbackState.value.copy(
+                        isUnavailable = true,
+                        unavailableMessage = PLAYBACK_ERROR_MESSAGE,
+                    )
+                }
             }
 
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
@@ -212,6 +268,7 @@ class PlayerController @Inject constructor(
                     return
                 }
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
+                resetPlaybackErrorState()
                 val newExoIndex = controller?.currentMediaItemIndex ?: return
                 val newLogicalIndex = exoIndexForLogical.indexOf(newExoIndex).takeIf { it >= 0 } ?: return
 
@@ -352,6 +409,12 @@ class PlayerController @Inject constructor(
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
         val myGeneration = ++playRequestGeneration
+        // A fresh load replaces the controller's item(s) wholesale, which fires
+        // onMediaItemTransition with reason PLAYLIST_CHANGED - explicitly ignored
+        // there, so a pending retry from a *previous* track's error needs
+        // cancelling here instead, before it can fire prepare()+play() against
+        // whatever ends up loaded from this call.
+        resetPlaybackErrorState()
         _playbackState.value = _playbackState.value.copy(isLoading = true, loadingTrackId = requestedKey)
 
         try {
@@ -467,6 +530,12 @@ class PlayerController @Inject constructor(
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
         val myGeneration = ++playRequestGeneration
+        // A fresh load replaces the controller's item(s) wholesale, which fires
+        // onMediaItemTransition with reason PLAYLIST_CHANGED - explicitly ignored
+        // there, so a pending retry from a *previous* track's error needs
+        // cancelling here instead, before it can fire prepare()+play() against
+        // whatever ends up loaded from this call.
+        resetPlaybackErrorState()
         _playbackState.value = _playbackState.value.copy(isLoading = true, loadingTrackId = requestedKey)
 
         try {
@@ -577,11 +646,31 @@ class PlayerController @Inject constructor(
     }
 
     suspend fun togglePlayPause() {
-        // Belt-and-suspenders alongside the disabled buttons in PlayerScreen/
-        // MiniPlayerBar: nothing is loaded for a DRM-blocked slot to play/pause.
-        if (_playbackState.value.isUnavailable) return
+        if (_playbackState.value.isUnavailable) {
+            // A DRM-blocked slot has nothing loaded to play/pause (belt-and-suspenders
+            // alongside the disabled buttons in PlayerScreen/MiniPlayerBar) - but a
+            // playback error that exhausted its automatic retries (see onPlayerError)
+            // still has a real, preparable MediaItem loaded, so the play button
+            // retries in place instead of being a dead end with no way to act on its
+            // own "check connection and try again" message.
+            if (_playbackState.value.unavailableMessage == PLAYBACK_ERROR_MESSAGE) retryAfterPlaybackError()
+            return
+        }
         val mediaController = ensureConnected()
-        if (mediaController.isPlaying) mediaController.pause() else mediaController.play()
+        if (mediaController.isPlaying) {
+            resetPlaybackErrorState()
+            mediaController.pause()
+        } else {
+            mediaController.play()
+        }
+    }
+
+    private suspend fun retryAfterPlaybackError() {
+        resetPlaybackErrorState()
+        _playbackState.value = _playbackState.value.copy(isUnavailable = false, unavailableMessage = null)
+        val mediaController = ensureConnected()
+        mediaController.prepare()
+        mediaController.play()
     }
 
     /** Next/previous/jump-to-index all navigate the *logical* queue (see
@@ -638,6 +727,7 @@ class PlayerController @Inject constructor(
      * seek to - this just pauses and shows the "Titel nicht verfügbar" state. */
     private suspend fun moveToLogicalIndex(newLogicalIndex: Int) {
         val track = currentQueue.getOrNull(newLogicalIndex) ?: return
+        resetPlaybackErrorState()
         val mediaController = ensureConnected()
         val exoIndex = exoIndexForLogical.getOrNull(newLogicalIndex)
 
