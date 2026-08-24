@@ -32,6 +32,21 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "chart-bar",
+        "Visualizer reagieren jetzt wirklich auf den Ton",
+        "Bisher haben die Visualizer nur eine feste Animation abgespielt - sie waren technisch nie mit dem Ton verbunden. Jetzt wird das laufende Audio in Echtzeit analysiert: der Orb-Ring wächst mit dem Bass, in der Partikel-Kugel schlägt jeder Punkt auf seine eigene Frequenz aus, und Pulse sprüht Konfetti, je lauter es wird.",
+    ),
+    WhatsNewItem(
+        "cloud",
+        "Weniger Aussetzer beim Streamen",
+        "Der Wiedergabe-Puffer war zu knapp bemessen und riss bei kurzen Netzaussetzern ab. Jetzt wird mehr im Voraus geladen, und bei einem Abbruch versucht die App es automatisch erneut.",
+    ),
+    WhatsNewItem(
+        "stack",
+        "Bibliothek merkt sich die Ansicht",
+        "Playlists, Likes, Verlauf oder Künstler - die zuletzt gewählte Kachel bleibt erhalten, auch wenn du zwischendurch in einen anderen Tab wechselst.",
+    ),
+    WhatsNewItem(
         "waveform",
         "Neuer Player",
         "Der Player ist komplett neu: großes Cover, das im Takt atmet, fünf umschaltbare Visualizer, eine Wellenform zum Spulen und ein eigener Bereich für Offline-Wiedergabe.",
