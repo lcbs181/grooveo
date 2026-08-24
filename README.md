@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/readme/banner.svg" alt="Grooveo — on-device SoundCloud and YouTube Music client for Android" width="100%">
+<img src="docs/readme/screenshots/00-banner.jpg" alt="Grooveo — on-device SoundCloud and YouTube Music client for Android" width="100%">
 
 <p></p>
 
@@ -48,8 +48,16 @@ Search, stream, download, like, and organize — all resolved and stored directl
 <div align="center">
 <table>
 <tr>
-<td align="center" width="50%"><img src="docs/readme/screenshots/home.png" alt="Home screen"><br><sub><b>Start</b> — on-device charts &amp; recommendations</sub></td>
-<td align="center" width="50%"><img src="docs/readme/screenshots/player.png" alt="Player screen"><br><sub><b>Player</b> — waveform seek, equalizer, queue</sub></td>
+<td align="center"><img src="docs/readme/screenshots/01-home.jpg" alt="Home screen"><br><sub>Start</sub></td>
+<td align="center"><img src="docs/readme/screenshots/02-player.jpg" alt="Player screen"><br><sub>Player</sub></td>
+<td align="center"><img src="docs/readme/screenshots/03-search.jpg" alt="Search screen"><br><sub>Suche</sub></td>
+<td align="center"><img src="docs/readme/screenshots/04-library.jpg" alt="Library screen"><br><sub>Bibliothek</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/readme/screenshots/05-playlist.jpg" alt="Playlist screen"><br><sub>Playlist</sub></td>
+<td align="center"><img src="docs/readme/screenshots/06-artist.jpg" alt="Artist screen"><br><sub>Künstler</sub></td>
+<td align="center"><img src="docs/readme/screenshots/07-downloads.jpg" alt="Downloads screen"><br><sub>Downloads</sub></td>
+<td align="center"><img src="docs/readme/screenshots/08-equalizer.jpg" alt="Equalizer screen"><br><sub>Equalizer</sub></td>
 </tr>
 </table>
 </div>
