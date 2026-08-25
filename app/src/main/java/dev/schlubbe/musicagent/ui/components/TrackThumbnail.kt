@@ -11,7 +11,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 
@@ -37,14 +37,25 @@ fun TrackThumbnail(
             .background(Canopy.neutral200),
         contentAlignment = Alignment.Center,
     ) {
+        // The generated cover is the fallback for a *failed* load as well as for a
+        // missing url. Previously only `url == null` fell back, so a url that 404s -
+        // which happens routinely, since SoundCloud artwork is rewritten to a
+        // -t500x500 rendition that not every upload has - drew nothing at all and
+        // looked like the artwork simply never loaded.
+        val fallbackSeed = seed
         when {
-            url != null -> AsyncImage(
+            url != null -> SubcomposeAsyncImage(
                 model = url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size),
+                error = {
+                    if (fallbackSeed != null) {
+                        GeneratedArtwork(seed = fallbackSeed, modifier = Modifier.fillMaxSize())
+                    }
+                },
             )
-            seed != null -> GeneratedArtwork(seed = seed, modifier = Modifier.fillMaxSize())
+            fallbackSeed != null -> GeneratedArtwork(seed = fallbackSeed, modifier = Modifier.fillMaxSize())
         }
     }
 }

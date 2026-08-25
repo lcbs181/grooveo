@@ -113,13 +113,13 @@ class PlayerController @Inject constructor(
         _vizVariant.value = variant
     }
 
-    // Real-time FFT-derived amplitude bands from AudioVisualizerController, pushed
-    // by PlaybackService (which owns the actual audio session) - see that class's
-    // kdoc for the capture/reduction details.
-    private val _visualizerBands = MutableStateFlow(FloatArray(VISUALIZER_BAND_COUNT))
-    val visualizerBands: StateFlow<FloatArray> = _visualizerBands.asStateFlow()
-    fun updateVisualizerBands(bands: FloatArray) {
-        _visualizerBands.value = bands
+    // Real-time FFT-derived spectrum + beat scalars from AudioVisualizerController,
+    // pushed by PlaybackService (which owns the actual audio session) - see that
+    // class's kdoc for the capture/reduction details.
+    private val _visualizerFrame = MutableStateFlow(EMPTY_VISUALIZER_FRAME)
+    val visualizerFrame: StateFlow<VisualizerFrame> = _visualizerFrame.asStateFlow()
+    fun updateVisualizerFrame(frame: VisualizerFrame) {
+        _visualizerFrame.value = frame
     }
 
     // Tracks what's currently loaded so play_complete/skip can be reported
@@ -248,7 +248,16 @@ class PlayerController @Inject constructor(
                 // track's title/artist/artwork with the next track's, which is exactly
                 // the silent-skip appearance this is meant to prevent. Ignored until a
                 // real move (moveToLogicalIndex/playQueue) clears isUnavailable again.
-                if (_playbackState.value.isUnavailable) return
+                //
+                // Deliberately narrowed to the DRM case. isUnavailable is now also set
+                // for ordinary transient playback errors, and a blanket gate here meant
+                // one network blip could suppress every later title/artist/artwork
+                // update - Media3 only emits this on *change*, so a swallowed event is
+                // never re-sent and the UI stayed blank or stale until the next
+                // playQueue. That was the "sometimes the thumbnail and track info don't
+                // load" report.
+                val state = _playbackState.value
+                if (state.isUnavailable && state.unavailableMessage == DRM_UNAVAILABLE_MESSAGE) return
                 _playbackState.value = _playbackState.value.copy(
                     title = mediaMetadata.title?.toString(),
                     artist = mediaMetadata.artist?.toString(),
@@ -322,7 +331,17 @@ class PlayerController @Inject constructor(
                 currentTrackCompleted = false
                 currentQueueIndex = newLogicalIndex
                 eventReporter.playStart(newTrack)
+                // title/artist/artworkUrl are set from our own track data here, not
+                // left to onMediaMetadataChanged alone. That callback used to be their
+                // only writer on this path, and Media3 delivers the transition and the
+                // metadata as two separate IPC messages - so any time the metadata
+                // event was missed or arrived while a gate was up, the UI kept the
+                // previous track's text and cover, or none at all. We already know
+                // exactly what is playing; there is no reason to wait to be told.
                 _playbackState.value = _playbackState.value.copy(
+                    title = newTrack.title,
+                    artist = newTrack.artist,
+                    artworkUrl = newTrack.thumbnailUrl,
                     durationMs = (newTrack.durationSec ?: 0) * 1000L,
                     currentTrackId = "${newTrack.source}:${newTrack.sourceId}",
                     queueIndex = newLogicalIndex,
@@ -415,7 +434,18 @@ class PlayerController @Inject constructor(
         // cancelling here instead, before it can fire prepare()+play() against
         // whatever ends up loaded from this call.
         resetPlaybackErrorState()
-        _playbackState.value = _playbackState.value.copy(isLoading = true, loadingTrackId = requestedKey)
+        // Show the tapped track's own title/artist/cover straight away. Resolving a
+        // queue is a real network round trip per track, and this used to leave the UI
+        // on "Wird geladen..." with a blank cover for the whole time - which on a long
+        // queue is seconds, and reads as "the artwork and info didn't load".
+        _playbackState.value = _playbackState.value.copy(
+            isLoading = true,
+            loadingTrackId = requestedKey,
+            title = requestedStartTrack.title,
+            artist = requestedStartTrack.artist,
+            artworkUrl = requestedStartTrack.thumbnailUrl,
+            durationMs = (requestedStartTrack.durationSec ?: 0) * 1000L,
+        )
 
         try {
             val mediaController = ensureConnected()
@@ -536,7 +566,16 @@ class PlayerController @Inject constructor(
         // cancelling here instead, before it can fire prepare()+play() against
         // whatever ends up loaded from this call.
         resetPlaybackErrorState()
-        _playbackState.value = _playbackState.value.copy(isLoading = true, loadingTrackId = requestedKey)
+        // Same reasoning as playQueue: fill in what we already know immediately rather
+        // than leaving the UI blank until the load finishes.
+        _playbackState.value = _playbackState.value.copy(
+            isLoading = true,
+            loadingTrackId = requestedKey,
+            title = track.title,
+            artist = track.artist,
+            artworkUrl = track.thumbnailUrl,
+            durationMs = (track.durationSec ?: 0) * 1000L,
+        )
 
         try {
             val mediaController = ensureConnected()
@@ -768,6 +807,19 @@ class PlayerController @Inject constructor(
                 unavailableMessage = null,
             )
         } else {
+            // Clear the unavailable state here rather than waiting for the resulting
+            // onMediaItemTransition to do it: that callback has several early returns
+            // before it gets there, and while the flag is up the metadata callback is
+            // gated - so skipping away from an unavailable track could leave the title,
+            // artist and cover stuck on the old one.
+            _playbackState.value = _playbackState.value.copy(
+                isUnavailable = false,
+                unavailableMessage = null,
+            )
+            // prepare() because a preceding playback error leaves the player IDLE, and
+            // seekTo+play alone does not bring it back - skipping past a failed track
+            // used to land on a silently dead player.
+            mediaController.prepare()
             mediaController.seekTo(exoIndex, 0L)
             mediaController.play()
             // onMediaItemTransition (reason SEEK) handles the rest of the state update.

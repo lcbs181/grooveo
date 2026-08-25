@@ -27,3 +27,8 @@ captures/
 /*.png
 /*.log
 /dump.xml
+# Full logcat captures from adb debugging sessions. These are .txt rather than .log so
+# the pattern above missed them, and they contain device identifiers (Bluetooth MAC,
+# device name) that must not reach a public repo.
+/full_log*.txt
+/*_log*.txt
