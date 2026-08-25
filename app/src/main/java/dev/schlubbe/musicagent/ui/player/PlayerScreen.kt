@@ -118,7 +118,7 @@ private val PlayerArtSize = 232.dp
  * process death. */
 private data class VizOption(val id: String, val icon: String)
 private val VizOptions = listOf(
-    VizOption("wave", "waveform"),
+    VizOption("circle", "vinyl-record"),
     VizOption("bars", "chart-bar"),
     // Design's icon here is "ph-circle-half", which isn't in PhosphorIcon.kt's map
     // (its fallback would silently render a warning-circle glyph) -- "circles-three"
@@ -160,7 +160,8 @@ fun PlayerScreen(
     // second would otherwise recompose this entire screen at that rate. Passed down
     // as-is so only the Visualizer's own Canvas/graphicsLayer draw phases read
     // `.value`, which redraws without recomposing (see Visualizer.kt's kdoc).
-    val visualizerBands = viewModel.visualizerBands.collectAsState()
+    val visualizerFrame = viewModel.visualizerFrame.collectAsState()
+    val confetti = LocalAudioConfetti.current
     var likeTrigger by remember { mutableIntStateOf(0) }
 
     if (showSleepTimerDialog) {
@@ -413,14 +414,18 @@ fun PlayerScreen(
                             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
+                        // Fills most of the 232x104dp scrim rather than sitting as a
+                        // small strip inside it, so every variant's geometry - which is
+                        // all expressed as a fraction of the canvas - scales up with it.
                         Visualizer(
                             variant = vizVariant,
                             isPlaying = playbackState.isPlaying,
-                            bands = visualizerBands,
+                            frame = visualizerFrame,
                             modifier = Modifier
-                                .padding(bottom = 14.dp)
-                                .width(200.dp)
-                                .height(64.dp),
+                                .padding(bottom = 2.dp)
+                                .width(230.dp)
+                                .height(102.dp)
+                                .reportConfettiAnchor { confetti.playerAnchor = it },
                         )
                     }
                 }
@@ -449,13 +454,19 @@ fun PlayerScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        if (playbackState.isLoading) "Wird geladen…" else playbackState.title ?: "Kein Titel ausgewählt",
+                        // Prefer the real title even while loading: PlayerController now
+                        // fills it in from the tapped track immediately, so replacing it
+                        // with "Wird geladen…" would hide information we already have.
+                        // The placeholder is only for the case where we genuinely have
+                        // no title yet.
+                        playbackState.title
+                            ?: if (playbackState.isLoading) "Wird geladen…" else "Kein Titel ausgewählt",
                         style = MaterialTheme.typography.headlineMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (playbackState.isLoading) "" else playbackState.artist ?: "",
+                        playbackState.artist ?: "",
                         style = MaterialTheme.typography.bodyLarge,
                         color = Canopy.neutral600,
                         maxLines = 1,

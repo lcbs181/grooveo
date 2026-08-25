@@ -52,7 +52,11 @@ import dev.schlubbe.musicagent.ui.connect.ConnectScreen
 import dev.schlubbe.musicagent.ui.downloads.DownloadsScreen
 import dev.schlubbe.musicagent.ui.home.HomeScreen
 import dev.schlubbe.musicagent.ui.library.LibraryScreen
+import dev.schlubbe.musicagent.ui.player.AudioConfettiHost
+import dev.schlubbe.musicagent.ui.player.AudioConfettiState
+import dev.schlubbe.musicagent.ui.player.LocalAudioConfetti
 import dev.schlubbe.musicagent.ui.player.PlayerScreen
+import dev.schlubbe.musicagent.ui.player.PlayerViewModel
 import dev.schlubbe.musicagent.ui.playlist.PlaylistDetailScreen
 import dev.schlubbe.musicagent.ui.playlist.RemotePlaylistDetailScreen
 import dev.schlubbe.musicagent.ui.search.SearchScreen
@@ -148,7 +152,17 @@ fun MusicAgentNavGraph(
     }
 
     val overlayState = remember { CanopyOverlayState() }
-    CompositionLocalProvider(LocalCanopyOverlay provides overlayState) {
+    // Shared by the Player screen and the mini player (which report where the spray
+    // should come from) and by AudioConfettiHost below (which draws it).
+    val confettiState = remember { AudioConfettiState() }
+    val playerViewModel: PlayerViewModel = hiltViewModel()
+    val playbackState by playerViewModel.playbackState.collectAsState()
+    val vizVariant by playerViewModel.vizVariant.collectAsState()
+    val visualizerFrame = playerViewModel.visualizerFrame.collectAsState()
+    CompositionLocalProvider(
+        LocalCanopyOverlay provides overlayState,
+        LocalAudioConfetti provides confettiState,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = Canopy.bg,
@@ -371,6 +385,16 @@ fun MusicAgentNavGraph(
         // Window-level, above every screen and the bottom bar, so a follow spray
         // covers the whole display rather than being clipped to its button.
         CanopyOverlayHost(overlayState)
+        // Same reasoning, for the pulse visualizer's audio-reactive spray: with the
+        // Player open it fans out from the visualizer across the screen; with it
+        // closed it fires upward out of the mini player's play and like buttons.
+        AudioConfettiHost(
+            state = confettiState,
+            variant = vizVariant,
+            isPlaying = playbackState.isPlaying,
+            frame = visualizerFrame,
+            playerOpen = currentRoute == Routes.PLAYER,
+        )
     }
     }
 }

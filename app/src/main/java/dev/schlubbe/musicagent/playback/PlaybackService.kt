@@ -222,7 +222,16 @@ class PlaybackService : MediaSessionService() {
         equalizerController.attach(exoPlayer.audioSessionId)
         sound3dController.attach(exoPlayer.audioSessionId)
         serviceScope.launch {
-            audioVisualizerController.bands.collect { bands -> playerController.updateVisualizerBands(bands) }
+            // The controller queues spectra as the audio thread produces them - in
+            // bursts, one decoded buffer at a time - and this releases them at display
+            // rate. See AudioVisualizerController.MAX_QUEUED_FRAMES for why.
+            while (isActive) {
+                audioVisualizerController.pumpNextFrame()
+                delay(VISUALIZER_PUMP_INTERVAL_MS)
+            }
+        }
+        serviceScope.launch {
+            audioVisualizerController.frames.collect { frame -> playerController.updateVisualizerFrame(frame) }
         }
         // Watchdog for the cases where PCM silently stops reaching the visualizer tap
         // while playback continues (see AudioVisualizerController.hasGoneStale) - the
@@ -281,6 +290,7 @@ class PlaybackService : MediaSessionService() {
         // reset() before cancelling the scope, so the zeroed spectrum it publishes
         // still reaches the collector above rather than being dropped on the floor.
         audioVisualizerController.reset()
+        audioVisualizerController.release()
         serviceScope.cancel()
         equalizerController.release()
         sound3dController.release()
@@ -295,6 +305,9 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val STALE_CHECK_INTERVAL_MS = 250L
+
+        /** How often queued spectra are released to the UI - one display frame at 60Hz. */
+        private const val VISUALIZER_PUMP_INTERVAL_MS = 16L
         private const val ACTION_LIKE = "dev.schlubbe.musicagent.ACTION_LIKE"
         private const val ACTION_DOWNLOAD = "dev.schlubbe.musicagent.ACTION_DOWNLOAD"
     }

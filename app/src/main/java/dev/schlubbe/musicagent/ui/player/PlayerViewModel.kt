@@ -13,6 +13,7 @@ import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.playback.EqPreset
 import dev.schlubbe.musicagent.playback.PlaybackUiState
 import dev.schlubbe.musicagent.playback.PlayerController
+import dev.schlubbe.musicagent.playback.VisualizerFrame
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,7 +50,7 @@ class PlayerViewModel @Inject constructor(
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
     val vizVariant: StateFlow<String> = playerController.vizVariant
-    val visualizerBands: StateFlow<FloatArray> = playerController.visualizerBands
+    val visualizerFrame: StateFlow<VisualizerFrame> = playerController.visualizerFrame
     fun setVizVariant(variant: String) = playerController.setVizVariant(variant)
 
     val eqPreset: StateFlow<EqPreset> = settingsRepository.eqPreset

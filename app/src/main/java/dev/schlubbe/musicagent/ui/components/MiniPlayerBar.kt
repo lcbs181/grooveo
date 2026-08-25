@@ -32,7 +32,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
+import dev.schlubbe.musicagent.ui.player.LocalAudioConfetti
 import dev.schlubbe.musicagent.ui.player.PlayerViewModel
+import dev.schlubbe.musicagent.ui.player.reportConfettiAnchor
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.CanopyPillShape
 import dev.schlubbe.musicagent.ui.util.rememberPremiumHaptics
@@ -61,6 +63,10 @@ fun MiniPlayerBar(
     if (playbackState.currentTrackId == null && !playbackState.isLoading) return
 
     val overlay = LocalCanopyOverlay.current
+    // Anchors for the window-level audio confetti: while the Player is closed the
+    // pulse variant's spray fires upward out of these two buttons, and it has to be
+    // drawn outside this pill (which clips) to be visible at all.
+    val confetti = LocalAudioConfetti.current
     var waveTrigger by remember { mutableIntStateOf(0) }
     var likeTrigger by remember { mutableIntStateOf(0) }
 
@@ -86,6 +92,7 @@ fun MiniPlayerBar(
             Box(
                 modifier = Modifier
                     .size(44.dp)
+                    .reportConfettiAnchor { confetti.miniPlayAnchor = it }
                     .clip(CircleShape)
                     .background(Canopy.accent)
                     .clickable(enabled = !playbackState.isUnavailable) {
@@ -102,18 +109,23 @@ fun MiniPlayerBar(
                     },
                 contentAlignment = Alignment.Center,
             ) {
+                // The spinner rings the icon rather than replacing it. It used to be an
+                // either/or, which meant the play button visibly vanished for as long
+                // as a track took to resolve and only reappeared once the stream
+                // started - most noticeable after a DRM-blocked track, where the wait is
+                // longest. A control that disappears reads as a glitch; one that keeps
+                // its glyph and gains a progress ring reads as busy.
+                Icon(
+                    phosphorIcon(if (playbackState.isPlaying) "pause" else "play", filled = true),
+                    contentDescription = if (playbackState.isPlaying) "Pause" else "Abspielen",
+                    tint = Canopy.neutral100,
+                    modifier = Modifier.size(20.dp),
+                )
                 if (playbackState.isLoading) {
                     CircularProgressIndicator(
-                        color = Canopy.neutral100,
+                        color = Canopy.neutral100.copy(alpha = 0.75f),
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(20.dp),
-                    )
-                } else {
-                    Icon(
-                        phosphorIcon(if (playbackState.isPlaying) "pause" else "play", filled = true),
-                        contentDescription = if (playbackState.isPlaying) "Pause" else "Abspielen",
-                        tint = Canopy.neutral100,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(34.dp),
                     )
                 }
             }
@@ -126,7 +138,9 @@ fun MiniPlayerBar(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    if (playbackState.isLoading) "Wird geladen…" else playbackState.title.orEmpty(),
+                    // See PlayerScreen: the title is known as soon as the track is
+                    // tapped, so it wins over the loading placeholder.
+                    playbackState.title ?: if (playbackState.isLoading) "Wird geladen…" else "",
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = Canopy.text,
                     maxLines = 1,
@@ -172,6 +186,7 @@ fun MiniPlayerBar(
                     modifier = Modifier
                         .padding(8.dp)
                         .size(20.dp)
+                        .reportConfettiAnchor { confetti.miniLikeAnchor = it }
                         .graphicsLayer { scaleX = popScale; scaleY = popScale }
                         .clickable {
                             if (!isLiked) {
