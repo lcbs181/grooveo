@@ -32,6 +32,11 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "stack",
+        "Bibliothek neu gegliedert",
+        "Favoriten, Playlists und Downloads sind jetzt eigene Unterseiten mit Live-Anzahl statt Kacheln zum Umschalten - übersichtlicher, näher am gewohnten SoundCloud-Aufbau. \"Kürzlich abgespielt\" und der Wiedergabeverlauf stehen direkt auf der Startseite der Bibliothek.",
+    ),
+    WhatsNewItem(
         "download-simple",
         "Downloads repariert - auch von großen Labels",
         "SoundCloud-Downloads schlugen bisher fast immer fehl, vor allem bei Major-Label-Titeln ohne direkten Stream. Die Downloads laufen jetzt über den richtigen Weg und werden korrekt zusammengesetzt. Außerdem: Titel im Downloads-Tab (untere Leiste) lassen sich jetzt antippen und spielen ab - ging vorher gar nicht - und der \"Offline verfügbar\"-Hinweis im Player aktualisiert sich jetzt sofort, sobald ein Download fertig ist, statt erst nach erneutem Öffnen.",
@@ -55,11 +60,6 @@ private val ITEMS = listOf(
         "cloud",
         "Weniger Aussetzer beim Streamen",
         "Der Wiedergabe-Puffer war zu knapp bemessen und riss bei kurzen Netzaussetzern ab. Jetzt wird mehr im Voraus geladen, und bei einem Abbruch versucht die App es automatisch erneut.",
-    ),
-    WhatsNewItem(
-        "stack",
-        "Bibliothek merkt sich die Ansicht",
-        "Playlists, Likes, Verlauf oder Künstler - die zuletzt gewählte Kachel bleibt erhalten, auch wenn du zwischendurch in einen anderen Tab wechselst.",
     ),
     WhatsNewItem(
         "waveform",
