@@ -32,6 +32,11 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "download-simple",
+        "Downloads repariert - auch von großen Labels",
+        "SoundCloud-Downloads schlugen bisher fast immer fehl, vor allem bei Major-Label-Titeln ohne direkten Stream. Die Downloads laufen jetzt über den richtigen Weg und werden korrekt zusammengesetzt. Außerdem: Titel im Downloads-Tab (untere Leiste) lassen sich jetzt antippen und spielen ab - ging vorher gar nicht - und der \"Offline verfügbar\"-Hinweis im Player aktualisiert sich jetzt sofort, sobald ein Download fertig ist, statt erst nach erneutem Öffnen.",
+    ),
+    WhatsNewItem(
         "sparkle",
         "Bessere Vorschläge, und ein Filter dafür in den Einstellungen",
         "\"Automatische Weiterempfehlung\" (Wiedergabe-Einstellungen) schlägt jetzt passende nächste Titel vor, wenn eine Warteschlange endet - basierend auf dem, was du gerade gehört hast, nicht auf einer zufälligen Liste. Die \"Für dich\"-Vorschläge sollten insgesamt treffsicherer sein. Neu unter \"Startseite personalisieren\": ein Schalter, der versucht, anstößige Titelbilder aus Charts und Mixes herauszuhalten - standardmäßig an, abschaltbar falls er mal einen falschen Titel erwischt.",
@@ -99,7 +104,7 @@ private val ITEMS = listOf(
     WhatsNewItem(
         "clock-counter-clockwise",
         "Suchverlauf",
-        "Die Suche merkt sich zuletzt gesuchte Begriffe und zeigt sie beim Öffnen an - einzeln löschbar per Wisch.",
+        "Die Suche merkt sich zuletzt gesuchte Begriffe und zeigt sie beim Öffnen an - lange gedrückt halten zeigt ein Löschen-Menü.",
     ),
     WhatsNewItem(
         "house",

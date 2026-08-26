@@ -42,7 +42,7 @@ import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 private const val CONTENT_BOTTOM_PADDING = 150
 
 @Composable
-fun DownloadsScreen(viewModel: DownloadsViewModel = hiltViewModel()) {
+fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewModel = hiltViewModel()) {
     val downloads by viewModel.downloads.collectAsState()
     val dataSaver by viewModel.dataSaverMode.collectAsState()
     val storage by viewModel.storage.collectAsState()
@@ -80,6 +80,9 @@ fun DownloadsScreen(viewModel: DownloadsViewModel = hiltViewModel()) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Decorative: the adjacent "Datensparmodus" text already labels
+                    // this row for TalkBack, so the icon itself stays unlabeled
+                    // rather than announcing redundantly.
                     Icon(
                         phosphorIcon("cell-signal-slash"),
                         contentDescription = null,
@@ -130,7 +133,15 @@ fun DownloadsScreen(viewModel: DownloadsViewModel = hiltViewModel()) {
                         modifier = Modifier.padding(top = 24.dp),
                     )
                 }
-                items(onDevice.size) { index -> OnDeviceRow(onDevice[index]) }
+                items(onDevice.size) { index ->
+                    OnDeviceRow(
+                        item = onDevice[index],
+                        onClick = {
+                            viewModel.playDownload(onDevice[index])
+                            onDownloadPlayed()
+                        },
+                    )
+                }
             }
 
             if (downloads.isEmpty()) {
@@ -265,9 +276,12 @@ private fun QueueRow(
 }
 
 @Composable
-private fun OnDeviceRow(item: DownloadUiItem) {
+private fun OnDeviceRow(item: DownloadUiItem, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
