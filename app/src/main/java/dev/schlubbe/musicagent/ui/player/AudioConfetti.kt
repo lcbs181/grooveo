@@ -18,7 +18,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -73,10 +72,6 @@ fun Modifier.reportConfettiAnchor(set: (Offset) -> Unit): Modifier =
  * them early. */
 private const val MAX_PIECES = 1600
 private const val CONFETTI_COLOR_COUNT = 5
-
-/** Concurrent bass ripples. A handful is plenty - they expand fast and fade, so more
- * than this would just overlap into a smear. */
-private const val MAX_RIPPLES = 10
 
 /**
  * Detects the drop in a track, so the spray can go genuinely extreme exactly there
@@ -150,18 +145,6 @@ private class DropDetector {
     }
 }
 
-/** One expanding ring, spawned by a bass hit and behaving like the wave from a drop
- * hitting water: it leaves the centre quickly, decelerates as it widens, thins out,
- * and fades. */
-private class Ripple {
-    var x = 0f
-    var y = 0f
-    var age = 0f
-    var life = 0f
-    var strength = 0f
-    val alive get() = age < life
-}
-
 private class ConfettiPiece {
     var x = 0f
     var y = 0f
@@ -187,38 +170,17 @@ private class ConfettiField {
     var lastDrawMs = Float.NaN
     var spawnAccumulator = 0f
     var burstCooldownMs = 0f
-    var rippleCooldownMs = 0f
-    val ripples = Array(MAX_RIPPLES) { Ripple() }
-    private var nextRipple = 0
     private val random = Random(0x51F7)
 
-    /** Drops every live piece and ripple at once. Used when the effect is switched
-     * off (another visualizer variant picked, playback stopped): the frame clock stops
-     * with it, so anything still on screen would otherwise be frozen in place forever
-     * rather than finishing its flight. */
+    /** Drops every live piece at once. Used when the effect is switched off (another
+     * visualizer variant picked, playback stopped): the frame clock stops with it, so
+     * anything still on screen would otherwise be frozen in place forever rather than
+     * finishing its flight. */
     fun clear() {
         for (piece in pieces) piece.life = 0f
-        for (ripple in ripples) ripple.age = ripple.life
         spawnAccumulator = 0f
         burstCooldownMs = 0f
-        rippleCooldownMs = 0f
         lastDrawMs = Float.NaN
-    }
-
-    fun spawnRipple(x: Float, y: Float, strength: Float) {
-        val ripple = ripples[nextRipple]
-        nextRipple = (nextRipple + 1) % MAX_RIPPLES
-        ripple.x = x
-        ripple.y = y
-        ripple.age = 0f
-        ripple.life = 0.85f + strength * 0.5f
-        ripple.strength = strength
-    }
-
-    fun advanceRipples(dt: Float) {
-        for (ripple in ripples) {
-            if (ripple.alive) ripple.age += dt
-        }
     }
 
     /** Emits [count] pieces from ([x], [y]) into a cone of [spreadRad] centred on
@@ -340,9 +302,6 @@ fun AudioConfettiHost(
         Canopy.accent600,
         Color.White.copy(alpha = 0.92f),
     )
-    // Canopy.* are @Composable (CompositionLocal-backed) properties, so they have to
-    // be read here rather than inside the draw lambda.
-    val rippleColor = Canopy.accent200
     var hostOrigin by remember { mutableStateOf(Offset.Zero) }
 
     Canvas(
@@ -386,20 +345,8 @@ fun AudioConfettiHost(
             if (field.burstCooldownMs > 0f) field.burstCooldownMs -= dt * 1000f
             val isOnset = kick > 0.45f && field.burstCooldownMs <= 0f
 
-            if (field.rippleCooldownMs > 0f) field.rippleCooldownMs -= dt * 1000f
-            val isBassHit = kick > 0.38f && field.rippleCooldownMs <= 0f
-            if (isBassHit) {
-                val rippleAt = if (playerOpen) {
-                    state.playerAnchor ?: Offset(size.width / 2f, size.height * 0.4f)
-                } else {
-                    state.miniPlayAnchor
-                }
-                rippleAt?.let { field.spawnRipple(it.x - hostOrigin.x, it.y - hostOrigin.y, bass) }
-                field.rippleCooldownMs = 130f
-            }
-
-            // The drop itself: one big shockwave ripple plus a mass of confetti in a
-            // single frame, so the moment lands rather than merely ramping up.
+            // The drop itself: one mass of confetti in a single frame, so the moment
+            // lands rather than merely ramping up.
             if (drop.justFired) {
                 val origins = if (playerOpen) {
                     listOfNotNull(state.playerAnchor ?: Offset(size.width / 2f, size.height * 0.4f))
@@ -409,7 +356,6 @@ fun AudioConfettiHost(
                 origins.forEach { origin ->
                     val x = origin.x - hostOrigin.x
                     val y = origin.y - hostOrigin.y
-                    field.spawnRipple(x, y, 1f)
                     field.spawn(
                         count = if (playerOpen) 220 else 110,
                         x = x,
@@ -508,45 +454,8 @@ fun AudioConfettiHost(
 
         if (reference > 0f) {
             field.advance(dt, gravity = reference * 0.75f)
-            field.advanceRipples(dt)
         }
-        // Ripples under the confetti: they read as the surface the pieces are thrown
-        // off, not as something layered on top of them.
-        drawRipples(field, rippleColor, reference)
         drawPieces(field, colors)
-    }
-}
-
-/** Draws each live ripple as a pair of concentric rings, like the wave a drop leaves
- * on water: the radius eases *out* (fast off the centre, decelerating as it widens),
- * while the stroke thins and the whole thing fades. The trailing second ring, slightly
- * behind and fainter, is what stops it reading as a plain expanding circle. */
-private fun DrawScope.drawRipples(field: ConfettiField, color: Color, reference: Float) {
-    if (reference <= 0f) return
-    for (ripple in field.ripples) {
-        if (!ripple.alive) continue
-        val t = (ripple.age / ripple.life).coerceIn(0f, 1f)
-        val eased = 1f - (1f - t) * (1f - t) * (1f - t)
-        val maxRadius = reference * (0.36f + 0.46f * ripple.strength)
-        val fade = (1f - t) * (1f - t)
-        val stroke = reference * 0.012f * (1f - t * 0.75f) * (0.6f + 0.7f * ripple.strength)
-        if (stroke <= 0f) continue
-
-        drawCircle(
-            color = color.copy(alpha = fade * (0.35f + 0.45f * ripple.strength)),
-            radius = maxRadius * eased,
-            center = Offset(ripple.x, ripple.y),
-            style = Stroke(width = stroke),
-        )
-        val trailing = eased * 0.72f
-        if (trailing > 0.02f) {
-            drawCircle(
-                color = color.copy(alpha = fade * (0.16f + 0.24f * ripple.strength)),
-                radius = maxRadius * trailing,
-                center = Offset(ripple.x, ripple.y),
-                style = Stroke(width = stroke * 0.65f),
-            )
-        }
     }
 }
 
