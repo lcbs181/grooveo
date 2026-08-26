@@ -614,9 +614,10 @@ class PlayerController @Inject constructor(
         }
     }
 
-    /** Appends [track] to the current queue without disturbing current playback --
-     * used by other screens to queue a track "up next" style. If nothing is currently
-     * playing, starts playing it immediately instead. Data-saver mode applies the same
+    /** Inserts [track] to play right after the current one, without disturbing current
+     * playback -- used by other screens' "Zur Warteschlange hinzufügen" action, which
+     * is meant to queue a track "up next", not last. If nothing is currently playing,
+     * starts playing it immediately instead. Data-saver mode applies the same
      * local-download-only rule as [playQueue]. */
     suspend fun addToQueue(track: TrackResultDto) {
         if (currentTrack == null) {
@@ -639,10 +640,25 @@ class PlayerController @Inject constructor(
             }
         }
 
-        val newExoIndex = mediaController.mediaItemCount
-        mediaController.addMediaItem(buildMediaItem(track, resolved))
-        currentQueue = currentQueue + track
-        exoIndexForLogical = exoIndexForLogical + newExoIndex
+        // Insert one past whatever is actually loaded for the current logical slot,
+        // rather than always appending. exoIndexForLogical[currentQueueIndex] is the
+        // exo index to insert after in the common case; it is null only when the
+        // current logical slot is itself a DRM-unavailable gap (see the class-level
+        // kdoc on currentQueue), in which case nothing for that slot is loaded and the
+        // player's own currentMediaItemIndex - the real track ExoPlayer already
+        // auto-advanced to and is paused on - is the right anchor instead.
+        val insertExoIndex = (exoIndexForLogical.getOrNull(currentQueueIndex) ?: mediaController.currentMediaItemIndex) + 1
+        mediaController.addMediaItem(insertExoIndex, buildMediaItem(track, resolved))
+
+        val insertLogicalIndex = currentQueueIndex + 1
+        currentQueue = currentQueue.toMutableList().apply { add(insertLogicalIndex, track) }
+        // Inserting into ExoPlayer's own item list shifts every item after it along by
+        // one, so every already-recorded exo index at or past the insertion point has
+        // to shift with it or it will point at the wrong loaded item.
+        exoIndexForLogical = exoIndexForLogical
+            .map { exoIndex -> if (exoIndex != null && exoIndex >= insertExoIndex) exoIndex + 1 else exoIndex }
+            .toMutableList()
+            .apply { add(insertLogicalIndex, insertExoIndex) }
         _playbackState.value = _playbackState.value.copy(queue = currentQueue)
     }
 
