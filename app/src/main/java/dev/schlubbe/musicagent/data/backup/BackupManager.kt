@@ -77,6 +77,7 @@ class BackupManager @Inject constructor(
                     eqPreset = settingsRepository.eqPreset.first().name,
                     playerStyle = settingsRepository.playerStyle.first(),
                     autoplayRadio = settingsRepository.autoplayRadio.first(),
+                    contentSafetyFilter = settingsRepository.contentSafetyFilter.first(),
                     sound3dPreset = settingsRepository.sound3dPreset.first(),
                     downloadsWifiOnly = settingsRepository.downloadsWifiOnly.first(),
                     notifyNewUploads = settingsRepository.notifyNewUploads.first(),
@@ -148,6 +149,7 @@ class BackupManager @Inject constructor(
         }
         settingsRepository.setPlayerStyle(s.playerStyle)
         settingsRepository.setAutoplayRadio(s.autoplayRadio)
+        settingsRepository.setContentSafetyFilter(s.contentSafetyFilter)
         settingsRepository.setSound3dPreset(s.sound3dPreset)
         settingsRepository.setDownloadsWifiOnly(s.downloadsWifiOnly)
         settingsRepository.setNotifyNewUploads(s.notifyNewUploads)

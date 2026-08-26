@@ -48,18 +48,8 @@ private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – DRM-gesc
 private const val PLAYBACK_ERROR_MESSAGE = "Wiedergabe unterbrochen – Verbindung prüfen und erneut versuchen."
 private const val MAX_PLAYBACK_ERROR_RETRIES = 2
 
-/** Once this few tracks remain after the one currently playing, [PlayerController]
- * starts fetching predicted continuations in the background - see [PlayerController.extendQueue].
- * High enough that a slow network resolve has time to finish before the listener
- * genuinely runs out of queue; low enough that a short explicit queue (a 4-track
- * playlist) doesn't immediately trigger prediction before the user has even heard
- * what they actually chose. */
-private const val EXTEND_LOOKAHEAD_TRACKS = 3
-
-/** How many predicted tracks [PlayerController.extendQueue] tries to resolve and
- * append per pass. Deliberately more than [EXTEND_LOOKAHEAD_TRACKS] so one
- * successful pass buys several transitions' worth of headroom rather than firing
- * on almost every track. */
+/** How many predicted tracks [PlayerController.continueWithRadio] tries to resolve
+ * and append per pass, once "Autoplay-Radio" continues a queue that has run out. */
 private const val EXTEND_BATCH_SIZE = 8
 
 /** How many of the most recently played tracks count as "the session" handed to
@@ -337,7 +327,6 @@ class PlayerController @Inject constructor(
                             isUnavailable = true,
                             unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
                         )
-                        scope.launch { extendQueue() }
                         return
                     }
                 }
@@ -377,7 +366,6 @@ class PlayerController @Inject constructor(
                     unavailableMessage = null,
                 )
                 refreshDownloadAvailability(newTrack)
-                scope.launch { extendQueue() }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -766,18 +754,6 @@ class PlayerController @Inject constructor(
      * diverge. */
     suspend fun skipToNext() {
         ensureConnected()
-        val next = nextLogicalIndex()
-        if (next != null) {
-            moveToLogicalIndex(next)
-            return
-        }
-        // Genuinely at the end with nothing already appended. The proactive extend in
-        // onMediaItemTransition should normally have prevented this - it fires
-        // EXTEND_LOOKAHEAD_TRACKS early specifically so this never has to block on
-        // network - but a slow resolve can still lose that race. One direct, awaited
-        // attempt here means pressing skip at the end of a queue still does
-        // something, rather than silently doing nothing.
-        extendQueue()
         nextLogicalIndex()?.let { moveToLogicalIndex(it) }
     }
 
@@ -971,11 +947,66 @@ class PlayerController @Inject constructor(
      * trending tracks - the same always-populated signal Home's Charts shelf
      * uses, rather than nothing (no per-user "radio" generation exists
      * on-device beyond that). */
+    /**
+     * "Autoplay-Radio" setting, fired from [onPlaybackStateChanged]'s STATE_ENDED
+     * branch once the whole queue has genuinely run out. Used to just be
+     * `getTrending().shuffled()` fed into a fresh [playQueue] - a hard reset onto
+     * unrelated global trending with zero connection to what was actually just
+     * playing, which is a large part of why "next song prediction" read as
+     * arbitrary. Now appends [FeedRepository.predictNext]'s output - weighted
+     * overwhelmingly toward the artists of the tracks that were just playing - onto
+     * the *existing* queue instead of replacing it, so a radio continuation is a
+     * continuation, not a restart.
+     *
+     * [extendQueueMutex] guards against this firing more than once concurrently
+     * (STATE_ENDED shouldn't repeat while a pass is already resolving, but nothing
+     * stops it structurally).
+     */
     private fun continueWithRadio() {
         scope.launch {
-            val tracks = runCatching { searchRepository.getTrending() }.getOrNull()?.shuffled() ?: return@launch
-            if (tracks.isEmpty()) return@launch
-            playQueue(tracks, 0)
+            extendQueueMutex.withLock {
+                if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock
+
+                val myGeneration = playRequestGeneration
+                val recentContext = (currentQueueIndex downTo 0).asSequence()
+                    .mapNotNull { currentQueue.getOrNull(it) }
+                    .take(SESSION_CONTEXT_SIZE)
+                    .toList()
+                val excludeIds = currentQueue.mapTo(mutableSetOf()) { "${it.source}:${it.sourceId}" }
+
+                val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE) }
+                    .getOrDefault(emptyList())
+                if (predicted.isEmpty()) return@withLock
+
+                val resolved = coroutineScope {
+                    predicted.map { track -> async { track to resolveWithRetry(track) } }.awaitAll()
+                }.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
+                if (resolved.isEmpty()) return@withLock
+
+                // The queue this batch was built for may have been replaced by a
+                // fresh playQueue() while resolving was in flight - discard rather
+                // than glue a stale prediction onto an unrelated new session.
+                if (myGeneration != playRequestGeneration) return@withLock
+
+                val mediaController = ensureConnected()
+                var exoIndex = mediaController.mediaItemCount
+                resolved.forEach { (track, stream) ->
+                    mediaController.addMediaItem(buildMediaItem(track, stream))
+                    currentQueue = currentQueue + track
+                    exoIndexForLogical = exoIndexForLogical + exoIndex
+                    exoIndex++
+                }
+                _playbackState.value = _playbackState.value.copy(queue = currentQueue)
+
+                // The player sat at STATE_ENDED with nothing left; now there is.
+                // moveToLogicalIndex handles the DRM-unavailable case itself, so this
+                // is safe even if predictNext's first candidate somehow ended up
+                // DRM-blocked (it shouldn't - predictNext's own search results aren't
+                // annotated that way at this layer - but resolveWithRetry already
+                // dropped anything that failed to resolve above regardless).
+                val next = currentQueueIndex + 1
+                if (next < currentQueue.size) moveToLogicalIndex(next)
+            }
         }
     }
 
@@ -1096,67 +1127,6 @@ class PlayerController @Inject constructor(
         // The requested start track is always prepended first above, so it's always
         // at position 0 in this (non-fallback) branch.
         resolutions to 0
-    }
-
-    /**
-     * Infinite autoplay: once few enough tracks remain in the logical queue (see
-     * [EXTEND_LOOKAHEAD_TRACKS]), fetches predicted continuations from
-     * [FeedRepository.predictNext] - seeded by the actual tail of what has been
-     * playing, i.e. genuinely "the next songs after wherever you started", not a
-     * generic recommendation - resolves their streams, and appends the ones that
-     * succeed to both ExoPlayer's own item list and the logical queue, the same
-     * append pattern [addToQueue] uses for a single track.
-     *
-     * A candidate that fails to resolve (dead stream, DRM-only, ...) is silently
-     * dropped rather than surfaced: unlike a track the user explicitly asked to
-     * queue, a single failed background prediction is not something they should
-     * ever have to see. Skipped entirely in Datensparmodus - silently streaming new,
-     * undownloaded content in the background is exactly what that setting exists to
-     * prevent, the same restriction [addToQueue] already applies per-track.
-     *
-     * [extendQueueMutex] serializes this against itself: the proactive call from
-     * [onMediaItemTransition] and the awaited fallback in [skipToNext] can otherwise
-     * both decide "the queue is low" from the same stale read and each fetch and
-     * append their own batch.
-     */
-    private suspend fun extendQueue() {
-        if (settingsRepository.dataSaverModeCached) return
-        extendQueueMutex.withLock {
-            if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock
-            val remaining = currentQueue.size - 1 - currentQueueIndex
-            if (remaining > EXTEND_LOOKAHEAD_TRACKS) return@withLock
-
-            val myGeneration = playRequestGeneration
-            val recentContext = (currentQueueIndex downTo 0).asSequence()
-                .mapNotNull { currentQueue.getOrNull(it) }
-                .take(SESSION_CONTEXT_SIZE)
-                .toList()
-            val excludeIds = currentQueue.mapTo(mutableSetOf()) { "${it.source}:${it.sourceId}" }
-
-            val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE) }
-                .getOrDefault(emptyList())
-            if (predicted.isEmpty()) return@withLock
-
-            val resolved = coroutineScope {
-                predicted.map { track -> async { track to resolveWithRetry(track) } }.awaitAll()
-            }.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
-            if (resolved.isEmpty()) return@withLock
-
-            // The queue this batch was built for may have been replaced by a fresh
-            // playQueue() while resolving was in flight - discard rather than glue a
-            // stale prediction onto an unrelated new session.
-            if (myGeneration != playRequestGeneration) return@withLock
-
-            val mediaController = ensureConnected()
-            var exoIndex = mediaController.mediaItemCount
-            resolved.forEach { (track, stream) ->
-                mediaController.addMediaItem(buildMediaItem(track, stream))
-                currentQueue = currentQueue + track
-                exoIndexForLogical = exoIndexForLogical + exoIndex
-                exoIndex++
-            }
-            _playbackState.value = _playbackState.value.copy(queue = currentQueue)
-        }
     }
 
     private fun toResolution(track: TrackResultDto, result: Result<ResolvedStream>): TrackResolution? = when {

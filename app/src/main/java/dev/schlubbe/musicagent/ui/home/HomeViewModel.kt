@@ -551,20 +551,39 @@ class HomeViewModel @Inject constructor(
      * - Fokus-Mix reuses [FeedRepository.getPersonalizedMix] verbatim (the same
      *   top-artist/genre-affinity pool that used to live in "Im Fokus"'s "Dein
      *   Mix" card) - the only pool actually backed by the user's own taste signal.
-     * - Chill-/Party-Mix reuse the exact same on-device search keywords
-     *   [MoodFilter.CHILL]/[MoodFilter.PARTY] already use for the mood chips
-     *   below "Mix starten" - there's no real energy/tempo signal in the local
-     *   data to bias a pool by, so a mood-keyword search is the honest option
-     *   rather than a fabricated one. */
+     * - Chill-Mix reuses the same on-device search keyword [MoodFilter.CHILL]
+     *   already uses for the mood chip below "Mix starten" - there's no real
+     *   energy/tempo signal in the local data to bias a pool by, so a
+     *   mood-keyword search is the honest option rather than a fabricated one.
+     * - Party-Mix deliberately does *not* do the equivalent raw "party music"
+     *   text search: on-device, verified live, that search's top uploads-with-
+     *   thumbnails are dominated by anonymous DJ-mix reuploads whose titles are
+     *   generic ("Party Mix 2024") but whose cover art is not - exactly the kind
+     *   of thumbnail [filterForDiscovery]'s title/artist text filter structurally
+     *   cannot catch, since there is nothing explicit in the text to match. Genre-
+     *   tagged tracks ([SearchRepository.getTrendingByGenre] against real
+     *   uploader-set SoundCloud genres) are a materially different, generally
+     *   more legitimate population - genuine dance/house releases rather than
+     *   reupload-culture mixes - so that's the primary source here, with the
+     *   keyword search only as a fallback if genre coverage is too sparse to
+     *   fill the card. */
     private fun loadMixCards() {
         viewModelScope.launch {
             val focusPool = runCatching { feedRepository.getPersonalizedMix() }.getOrDefault(emptyList())
             val chillPool = runCatching { searchRepository.search(MoodFilter.CHILL.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
                 .getOrDefault(emptyList())
-                .filterForDiscovery()
-            val partyPool = runCatching { searchRepository.search(MoodFilter.PARTY.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
-                .getOrDefault(emptyList())
-                .filterForDiscovery()
+                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+            val partyPool = (
+                runCatching { searchRepository.getTrendingByGenre("House", limit = MOOD_MIX_SEARCH_LIMIT / 2) }
+                    .getOrDefault(emptyList()) +
+                    runCatching { searchRepository.getTrendingByGenre("Bass", limit = MOOD_MIX_SEARCH_LIMIT / 2) }
+                        .getOrDefault(emptyList())
+                ).distinctBy { "${it.source}:${it.sourceId}" }
+                .ifEmpty {
+                    runCatching { searchRepository.search(MoodFilter.PARTY.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
+                        .getOrDefault(emptyList())
+                        .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+                }
 
             val cards = buildList {
                 if (focusPool.size >= MIX_POOL_MINIMUM) {
@@ -712,7 +731,7 @@ class HomeViewModel @Inject constructor(
             } else {
                 runCatching { searchRepository.search(mood.searchKeyword, limit = 25) }
                     .getOrDefault(emptyList())
-                    .filterForDiscovery()
+                    .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                     .shuffled()
             }
             _uiState.value = _uiState.value.copy(isMixLoading = false)
@@ -755,7 +774,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val tracks = runCatching { searchRepository.search(artist.name, source = artist.source, limit = STATION_POOL_LIMIT) }
                 .getOrDefault(emptyList())
-                .filterForDiscovery()
+                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                 .shuffled()
             if (tracks.isNotEmpty()) playerController.playQueue(tracks, 0)
         }

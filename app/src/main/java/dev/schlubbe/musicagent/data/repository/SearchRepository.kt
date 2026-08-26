@@ -24,6 +24,7 @@ import javax.inject.Singleton
 class SearchRepository @Inject constructor(
     private val soundCloud: SoundCloudSearchClient,
     private val youTube: YouTubeMusicSearchClient,
+    private val settingsRepository: SettingsRepository,
 ) {
     suspend fun search(query: String, source: String = "all", limit: Int = 25): List<TrackResultDto> =
         when (source) {
@@ -103,7 +104,7 @@ class SearchRepository @Inject constructor(
             val yt = async { runCatching { youTube.getTrending(limit) }.getOrDefault(emptyList()) }
             sc.await() + yt.await()
         }
-    }.filterForDiscovery()
+    }.filterForDiscovery(settingsRepository.contentSafetyFilterCached)
 
     /** Tracks for one genre, backing Home's "Trends nach Genre" shelf.
      *
@@ -121,7 +122,8 @@ class SearchRepository @Inject constructor(
     suspend fun getTrendingByGenre(genreTerm: String, limit: Int = 12): List<TrackResultDto> {
         // Over-fetch: only a fraction of any result page carries a matching genre,
         // and filterForDiscovery below removes a further slice.
-        val pool = soundCloud.search(genreTerm, limit = limit * 8).filterForDiscovery()
+        val pool = soundCloud.search(genreTerm, limit = limit * 8)
+            .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
         val wanted = normalizeGenre(genreTerm)
         val tagged = pool.filter { it.genre?.let { g -> normalizeGenre(g).contains(wanted) } == true }
         // Top up from the unfiltered pool rather than showing an empty shelf when
