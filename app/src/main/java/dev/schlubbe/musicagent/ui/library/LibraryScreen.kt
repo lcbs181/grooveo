@@ -66,13 +66,12 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
-import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
-import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Canopy
+import dev.schlubbe.musicagent.ui.theme.CanopyPillShape
 import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 import dev.schlubbe.musicagent.ui.theme.accentColorFor
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
@@ -114,33 +113,28 @@ fun LibraryScreen(
         }
     }
 
-    // Downloads is the one remaining in-screen sub-view (Playlists/Likes/Verlauf
-    // are now Bibliothek chips switched in place, see LibraryChip below) - it still
-    // pushes its own back-header state, so the system back gesture/button needs to
-    // return to the chip screen first instead of leaving the Library tab.
-    BackHandler(enabled = uiState.selectedTab == LibraryTab.DOWNLOADS) {
+    // HOME is the landing menu; the other three are chevron-row sub-views that each
+    // push their own back header without leaving the Library nav-graph destination -
+    // the system back gesture/button needs to return to the landing menu first.
+    BackHandler(enabled = uiState.selectedTab != LibraryTab.HOME) {
         viewModel.backToHome()
     }
 
     Scaffold(containerColor = Canopy.bg) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (uiState.selectedTab) {
-                LibraryTab.HOME, LibraryTab.LIKES, LibraryTab.PLAYLISTS -> LibraryHomeContent(
+                LibraryTab.HOME -> LibraryHomeContent(
                     uiState = uiState,
                     recentlyPlayed = recentlyPlayed,
+                    likedCount = likedTrackIds.size,
+                    downloadedCount = downloads.count { it.entity.state == DownloadState.COMPLETED },
                     onOpenSettings = onOpenSettings,
+                    onOpenLikes = { viewModel.openSection(LibraryTab.LIKES) },
+                    onOpenPlaylists = { viewModel.openSection(LibraryTab.PLAYLISTS) },
                     onOpenDownloads = { viewModel.openSection(LibraryTab.DOWNLOADS) },
                     onDismissBanner = viewModel::dismissImportBanner,
                     onImportClick = {
                         Toast.makeText(context, "Bald verfügbar", Toast.LENGTH_SHORT).show()
-                    },
-                    onPlaylistClick = onPlaylistClick,
-                    onSavedPlaylistClick = onSavedPlaylistClick,
-                    onCreatePlaylistClick = { showCreatePlaylistDialog = true },
-                    viewModel = viewModel,
-                    onLikedTrackClick = { like ->
-                        viewModel.playLikedTrack(like)
-                        onDownloadPlayed()
                     },
                     onRecentlyPlayedClick = { track ->
                         viewModel.onRecentlyPlayedClicked(track)
@@ -150,6 +144,26 @@ fun LibraryScreen(
                     onRecentlyPlayedAddToQueue = { viewModel.onAddToQueueClicked(it.toTrackResultDto()) },
                     onRecentlyPlayedArtistClick = { viewModel.onTrackArtistClicked(it.toTrackResultDto()) },
                 )
+                LibraryTab.LIKES -> Column(modifier = Modifier.fillMaxSize()) {
+                    LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
+                    LikesTab(
+                        uiState = uiState,
+                        onLikedTrackClick = { like ->
+                            viewModel.playLikedTrack(like)
+                            onDownloadPlayed()
+                        },
+                        viewModel = viewModel,
+                    )
+                }
+                LibraryTab.PLAYLISTS -> Column(modifier = Modifier.fillMaxSize()) {
+                    LibrarySubViewHeader(title = "Playlists", onBack = viewModel::backToHome)
+                    PlaylistsTab(
+                        uiState = uiState,
+                        onPlaylistClick = onPlaylistClick,
+                        onSavedPlaylistClick = onSavedPlaylistClick,
+                        onCreatePlaylistClick = { showCreatePlaylistDialog = true },
+                    )
+                }
                 LibraryTab.DOWNLOADS -> Column(modifier = Modifier.fillMaxSize()) {
                     LibrarySubViewHeader(title = "Downloads", onBack = viewModel::backToHome)
                     DownloadsTab(downloads, likedTrackIds, onDownloadPlayed, viewModel)
@@ -178,32 +192,29 @@ fun LibraryScreen(
     }
 }
 
-/** The 4 chips under the "Bibliothek" headline (design 05): Playlists / Likes /
- * Verlauf / Künstler switch which content renders below, in place - unlike the
- * old landing menu's chevron rows, this never leaves [LibraryTab.HOME]. The
- * active chip itself lives in LibraryViewModel's uiState (see [LibraryChip]'s
- * kdoc) rather than as local state here. */
-
-/** The unified Bibliothek screen: headline + chip row + whichever content the
- * active chip selects, followed by a persistent "Schnellzugriff" section and
- * the "Neue Playlist" button - matching the design's markup, where those two
- * blocks sit below the switchable content rather than being re-conditioned per
- * chip. Downloads has no chip of its own (it's already promoted to its own
- * top-level tab in NavGraph.kt), so its one remaining entry point from Library
- * lives in Schnellzugriff. */
+/** The landing menu: headline, the Spotify-import banner, a quick-access card
+ * with a chevron row per real Library section (each pushes its own back header,
+ * see LibraryTab), then the "Kürzlich abgespielt" rail and "Wiedergabeverlauf"
+ * list shown directly rather than gated behind a selector. Restores the layout
+ * [LibraryTab]'s own kdoc already described - an in-between revision had
+ * replaced the chevron rows with a chip switcher that folded Playlists/Likes/
+ * Verlauf into this same composable instead of giving them their own sub-view,
+ * which is what this reverts to (see LikesTab/PlaylistsTab below). "Folge ich"
+ * has no followed-artist source wired to this ViewModel at all (no repository/
+ * DAO exposes one), so it's shown disabled with an honest "Bald verfügbar" pill
+ * instead of a chevron that would lead nowhere. */
 @Composable
 private fun LibraryHomeContent(
     uiState: LibraryUiState,
     recentlyPlayed: List<TrackEntity>,
+    likedCount: Int,
+    downloadedCount: Int,
     onOpenSettings: () -> Unit,
+    onOpenLikes: () -> Unit,
+    onOpenPlaylists: () -> Unit,
     onOpenDownloads: () -> Unit,
     onDismissBanner: () -> Unit,
     onImportClick: () -> Unit,
-    onPlaylistClick: (String) -> Unit,
-    onSavedPlaylistClick: (source: String, sourceId: String) -> Unit,
-    onCreatePlaylistClick: () -> Unit,
-    viewModel: LibraryViewModel,
-    onLikedTrackClick: (LikeOutDto) -> Unit,
     onRecentlyPlayedClick: (TrackEntity) -> Unit,
     onRecentlyPlayedAddToPlaylist: (TrackEntity) -> Unit,
     onRecentlyPlayedAddToQueue: (TrackEntity) -> Unit,
@@ -211,9 +222,7 @@ private fun LibraryHomeContent(
 ) {
     val dimens = rememberResponsiveDimens()
 
-    val playlistItems: List<LibraryPlaylistItem> =
-        uiState.playlists.map { LibraryPlaylistItem.Local(it) } +
-            uiState.savedPlaylists.map { LibraryPlaylistItem.Saved(it) }
+    val playlistCount = uiState.playlists.size + uiState.savedPlaylists.size
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -234,139 +243,174 @@ private fun LibraryHomeContent(
                 )
             }
         }
+        if (!uiState.importBannerDismissed) {
+            item { ImportBanner(onDismiss = onDismissBanner, onImportClick = onImportClick) }
+        }
         item {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = dimens.horizontalPadding),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 12.dp),
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = dimens.horizontalPadding)
+                    .padding(bottom = 26.dp)
+                    .clip(CanopyShapes.medium)
+                    .background(Canopy.surface)
+                    .border(1.dp, Canopy.divider, CanopyShapes.medium),
             ) {
-                items(LibraryChip.entries.toList(), key = { it.name }) { chip ->
-                    CanopyChip(label = chip.label, active = chip == uiState.selectedChip, onClick = { viewModel.selectChip(chip) })
-                }
+                QuickAccessRow(
+                    icon = phosphorIcon("heart"),
+                    label = "Favoriten",
+                    subtitle = "$likedCount gelikte Titel",
+                    onClick = onOpenLikes,
+                )
+                QuickAccessRow(
+                    icon = phosphorIcon("stack"),
+                    label = "Playlists",
+                    subtitle = if (playlistCount == 1) "1 Playlist" else "$playlistCount Playlists",
+                    onClick = onOpenPlaylists,
+                )
+                QuickAccessRow(
+                    icon = phosphorIcon("download-simple"),
+                    label = "Downloads",
+                    subtitle = "$downloadedCount Titel offline verfügbar",
+                    onClick = onOpenDownloads,
+                )
+                QuickAccessRow(
+                    icon = phosphorIcon("user-circle"),
+                    label = "Folge ich",
+                    subtitle = "Künstlerübersicht",
+                    onClick = null,
+                )
             }
         }
 
-        when (uiState.selectedChip) {
-            LibraryChip.PLAYLISTS -> {
-                if (!uiState.importBannerDismissed) {
-                    item { ImportBanner(onDismiss = onDismissBanner, onImportClick = onImportClick) }
-                }
-                when {
-                    uiState.isLoadingPlaylists -> item {
-                        CircularProgressIndicator(modifier = Modifier.padding(dimens.horizontalPadding), color = Canopy.accent)
-                    }
-                    playlistItems.isEmpty() -> item {
-                        Text("Noch keine Playlists", color = Canopy.neutral500, modifier = Modifier.padding(dimens.horizontalPadding))
-                    }
-                    else -> items(playlistItems.chunked(2), key = { row -> row.joinToString("|") { it.key } }) { row ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = dimens.horizontalPadding)
-                                .padding(bottom = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            row.forEach { item ->
-                                Box(modifier = Modifier.weight(1f)) {
-                                    PlaylistGridCard(
-                                        item = item,
-                                        onClick = {
-                                            when (item) {
-                                                is LibraryPlaylistItem.Local -> onPlaylistClick(item.playlist.id)
-                                                is LibraryPlaylistItem.Saved -> onSavedPlaylistClick(item.playlist.source, item.playlist.sourceId)
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                            if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-            LibraryChip.LIKES -> {
-                when {
-                    uiState.isLoadingLikes -> item {
-                        CircularProgressIndicator(modifier = Modifier.padding(dimens.horizontalPadding), color = Canopy.accent)
-                    }
-                    uiState.likes.isEmpty() -> item {
-                        Text("Noch keine Likes", color = Canopy.neutral500, modifier = Modifier.padding(dimens.horizontalPadding))
-                    }
-                    else -> items(uiState.likes, key = { "like:${it.track.id}" }) { like ->
-                        LikeRow(
-                            like = like,
-                            onClick = { onLikedTrackClick(like) },
-                            onUnlikeClick = { viewModel.unlike(like) },
-                            onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(like.track.toTrackResultDto()) },
-                            onAddToQueueClick = { viewModel.onAddToQueueClicked(like.track.toTrackResultDto()) },
-                            onDownloadClick = { viewModel.onDownloadClicked(like.track.toTrackResultDto()) },
-                            onArtistClick = { viewModel.onTrackArtistClicked(like.track.toTrackResultDto()) },
-                        )
-                    }
-                }
-            }
-            LibraryChip.VERLAUF -> {
-                if (recentlyPlayed.isEmpty()) {
-                    item {
-                        Text("Noch keine Wiedergabe", color = Canopy.neutral500, modifier = Modifier.padding(dimens.horizontalPadding))
-                    }
-                } else {
-                    item {
-                        Text(
-                            "Zuletzt gespielt",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = Canopy.neutral500,
-                            modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, bottom = 8.dp),
-                        )
-                    }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = dimens.horizontalPadding),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            items(recentlyPlayed, key = { "rail:${it.id}" }) { track ->
-                                RecentlyPlayedAvatar(track = track, onClick = { onRecentlyPlayedClick(track) })
-                            }
-                        }
-                    }
-                    item {
-                        Text(
-                            "Wiedergabeverlauf",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = Canopy.neutral500,
-                            modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, top = 14.dp, bottom = 6.dp),
-                        )
-                    }
-                    items(recentlyPlayed, key = { "history:${it.id}" }) { track ->
-                        HistoryRow(
-                            track = track,
-                            onClick = { onRecentlyPlayedClick(track) },
-                            onAddToPlaylistClick = { onRecentlyPlayedAddToPlaylist(track) },
-                            onAddToQueueClick = { onRecentlyPlayedAddToQueue(track) },
-                            onArtistClick = { onRecentlyPlayedArtistClick(track) },
-                        )
-                    }
-                }
-            }
-            LibraryChip.KUENSTLER -> item {
-                // No followed-artist source is wired to LibraryViewModel (no
-                // repository/DAO exposes one) - an honest placeholder instead of
-                // fabricating a list. See the screen's task report for detail.
+        if (recentlyPlayed.isEmpty()) {
+            item {
                 Text(
-                    "Künstlerübersicht noch nicht verfügbar",
+                    "Noch keine Wiedergabe",
                     color = Canopy.neutral500,
                     modifier = Modifier.padding(dimens.horizontalPadding),
                 )
             }
-        }
-
-        item {
-            Column(modifier = Modifier.padding(top = 22.dp)) {
-                CanopySectionHeader(
-                    title = "Schnellzugriff",
-                    modifier = Modifier.padding(horizontal = dimens.horizontalPadding),
+        } else {
+            item {
+                Text(
+                    "Kürzlich abgespielt",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Canopy.neutral500,
+                    modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, bottom = 8.dp),
                 )
-                LibraryChevronRow("Downloads", onClick = onOpenDownloads)
+            }
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = dimens.horizontalPadding),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    items(recentlyPlayed, key = { "rail:${it.id}" }) { track ->
+                        RecentlyPlayedAvatar(track = track, onClick = { onRecentlyPlayedClick(track) })
+                    }
+                }
+            }
+            item {
+                Text(
+                    "Wiedergabeverlauf",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Canopy.neutral500,
+                    modifier = Modifier.padding(start = dimens.horizontalPadding, end = dimens.horizontalPadding, top = 14.dp, bottom = 6.dp),
+                )
+            }
+            items(recentlyPlayed, key = { "history:${it.id}" }) { track ->
+                HistoryRow(
+                    track = track,
+                    onClick = { onRecentlyPlayedClick(track) },
+                    onAddToPlaylistClick = { onRecentlyPlayedAddToPlaylist(track) },
+                    onAddToQueueClick = { onRecentlyPlayedAddToQueue(track) },
+                    onArtistClick = { onRecentlyPlayedArtistClick(track) },
+                )
+            }
+        }
+        item { Spacer(modifier = Modifier.height(18.dp)) }
+    }
+}
+
+/** The "Favoriten" chevron row's own sub-view (was the Likes chip's in-place
+ * content). */
+@Composable
+private fun LikesTab(
+    uiState: LibraryUiState,
+    onLikedTrackClick: (LikeOutDto) -> Unit,
+    viewModel: LibraryViewModel,
+) {
+    val dimens = rememberResponsiveDimens()
+    when {
+        uiState.isLoadingLikes -> Box(modifier = Modifier.padding(dimens.horizontalPadding)) {
+            CircularProgressIndicator(color = Canopy.accent)
+        }
+        uiState.likes.isEmpty() -> Text(
+            "Noch keine Likes",
+            color = Canopy.neutral500,
+            modifier = Modifier.padding(dimens.horizontalPadding),
+        )
+        else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(uiState.likes, key = { "like:${it.track.id}" }) { like ->
+                LikeRow(
+                    like = like,
+                    onClick = { onLikedTrackClick(like) },
+                    onUnlikeClick = { viewModel.unlike(like) },
+                    onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(like.track.toTrackResultDto()) },
+                    onAddToQueueClick = { viewModel.onAddToQueueClicked(like.track.toTrackResultDto()) },
+                    onDownloadClick = { viewModel.onDownloadClicked(like.track.toTrackResultDto()) },
+                    onArtistClick = { viewModel.onTrackArtistClicked(like.track.toTrackResultDto()) },
+                )
+            }
+        }
+    }
+}
+
+/** The "Playlists" chevron row's own sub-view (was the Playlists chip's in-place
+ * content) - the "Neue Playlist" action now lives here, next to the grid it
+ * populates, instead of on the landing menu below an unrelated section. */
+@Composable
+private fun PlaylistsTab(
+    uiState: LibraryUiState,
+    onPlaylistClick: (String) -> Unit,
+    onSavedPlaylistClick: (source: String, sourceId: String) -> Unit,
+    onCreatePlaylistClick: () -> Unit,
+) {
+    val dimens = rememberResponsiveDimens()
+    val playlistItems: List<LibraryPlaylistItem> =
+        uiState.playlists.map { LibraryPlaylistItem.Local(it) } +
+            uiState.savedPlaylists.map { LibraryPlaylistItem.Saved(it) }
+
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        when {
+            uiState.isLoadingPlaylists -> item {
+                CircularProgressIndicator(modifier = Modifier.padding(dimens.horizontalPadding), color = Canopy.accent)
+            }
+            playlistItems.isEmpty() -> item {
+                Text("Noch keine Playlists", color = Canopy.neutral500, modifier = Modifier.padding(dimens.horizontalPadding))
+            }
+            else -> items(playlistItems.chunked(2), key = { row -> row.joinToString("|") { it.key } }) { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = dimens.horizontalPadding)
+                        .padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    row.forEach { item ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            PlaylistGridCard(
+                                item = item,
+                                onClick = {
+                                    when (item) {
+                                        is LibraryPlaylistItem.Local -> onPlaylistClick(item.playlist.id)
+                                        is LibraryPlaylistItem.Saved -> onSavedPlaylistClick(item.playlist.source, item.playlist.sourceId)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                    if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
         item {
@@ -424,32 +468,71 @@ private fun ImportBanner(onDismiss: () -> Unit, onImportClick: () -> Unit) {
     }
 }
 
+/** One row of the landing menu's quick-access card. [onClick] null renders a
+ * disabled row with a "Bald verfügbar" pill instead of a chevron - used only by
+ * "Folge ich", which has nowhere real to navigate to yet (see
+ * [LibraryHomeContent]'s kdoc). */
 @Composable
-private fun LibraryChevronRow(label: String, onClick: () -> Unit) {
-    val dimens = rememberResponsiveDimens()
+private fun QuickAccessRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    subtitle: String,
+    onClick: (() -> Unit)?,
+) {
+    val enabled = onClick != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = dimens.horizontalPadding, vertical = 13.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(if (enabled) Canopy.accent100 else Canopy.neutral200),
+            contentAlignment = Alignment.Center,
+        ) {
             Icon(
-                phosphorIcon("download-simple"),
+                icon,
                 contentDescription = null,
-                tint = Canopy.text,
-                modifier = Modifier.size(18.dp),
+                tint = if (enabled) Canopy.accent800 else Canopy.neutral500,
+                modifier = Modifier.size(17.dp),
             )
-            Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
         }
-        Icon(
-            phosphorIcon("caret-right"),
-            contentDescription = null,
-            tint = Canopy.neutral500,
-            modifier = Modifier.size(16.dp),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (enabled) Canopy.text else Canopy.neutral500,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Canopy.neutral500,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        if (enabled) {
+            Icon(
+                phosphorIcon("caret-right"),
+                contentDescription = null,
+                tint = Canopy.neutral500,
+                modifier = Modifier.size(16.dp),
+            )
+        } else {
+            Text(
+                "Bald verfügbar",
+                style = MaterialTheme.typography.labelMedium,
+                color = Canopy.neutral500,
+                modifier = Modifier
+                    .clip(CanopyPillShape)
+                    .border(1.dp, Canopy.divider, CanopyPillShape)
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
