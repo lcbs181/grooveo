@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +31,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -141,6 +147,7 @@ fun SearchScreen(
                     onArtistClick = viewModel::onArtistResultClicked,
                     onPlaylistClick = viewModel::onPlaylistResultClicked,
                     onHistoryTapped = viewModel::onHistoryQueryTapped,
+                    onHistoryDeleted = viewModel::onHistoryQueryDeleted,
                 )
             }
         }
@@ -262,6 +269,7 @@ private fun ResultsList(
     onArtistClick: (ArtistResultDto) -> Unit,
     onPlaylistClick: (source: String, sourceId: String) -> Unit,
     onHistoryTapped: (String) -> Unit,
+    onHistoryDeleted: (String) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -320,11 +328,59 @@ private fun ResultsList(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         uiState.searchHistory.forEach { q ->
-                            CanopyChip(label = q, active = false, onClick = { onHistoryTapped(q) })
+                            HistorySearchChip(
+                                label = q,
+                                onClick = { onHistoryTapped(q) },
+                                onDelete = { onHistoryDeleted(q) },
+                            )
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/** A "Zuletzt gesucht" chip: taps re-run that query, and a long-press surfaces a
+ * one-item "Löschen" menu (a plain [DropdownMenu] anchored to the chip, opened via
+ * `combinedClickable`'s `onLongClick` - the same trigger Android's own launcher/
+ * settings use for "remove this" on a small tappable chip, where there's no room
+ * for a persistent delete affordance and a swipe gesture would collide with the
+ * row's horizontal wrap). Not built on [CanopyChip] itself, since that component
+ * is shared by plenty of other chips (mood/genre filters) that have no delete
+ * concept at all - this is deliberately its own composable rather than a new
+ * optional parameter on a shared one. */
+@Composable
+private fun HistorySearchChip(
+    label: String,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            modifier = Modifier
+                .clip(CanopyPillShape)
+                .background(Canopy.surface)
+                .border(1.dp, Canopy.divider, CanopyPillShape)
+                .combinedClickable(onClick = onClick, onLongClick = { menuExpanded = true })
+                .padding(horizontal = 18.dp, vertical = 9.dp),
+        ) {
+            Text(
+                text = label,
+                color = Canopy.text,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+            )
+        }
+        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Löschen") },
+                leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent2) },
+                onClick = {
+                    menuExpanded = false
+                    onDelete()
+                },
+            )
         }
     }
 }
