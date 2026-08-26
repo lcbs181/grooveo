@@ -308,6 +308,12 @@ fun SettingsScreen(
                             onCheckedChange = viewModel::onShowNewUploadsChanged,
                         )
                         ToggleRow(
+                            title = "Anstößige Inhalte ausblenden",
+                            subtitle = "Versucht, Titel mit expliziten Begriffen aus Charts, Mixes und Vorschlägen herauszuhalten. Basiert auf dem Titel-/Künstlertext, nicht auf dem Bild - kein hundertprozentiger Schutz, kann auch mal einen unbedenklichen Titel treffen.",
+                            checked = uiState.contentSafetyFilter,
+                            onCheckedChange = viewModel::onContentSafetyFilterChanged,
+                        )
+                        ToggleRow(
                             title = "Hochauflösendes Audio",
                             subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert.",
                             checked = uiState.hiResAudio,

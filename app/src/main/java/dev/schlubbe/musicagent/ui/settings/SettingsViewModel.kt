@@ -47,6 +47,7 @@ data class SettingsUiState(
     val customEqGains: List<Float> = List(5) { 0f },
     val playerStyle: String = "waveform",
     val autoplayRadio: Boolean = false,
+    val contentSafetyFilter: Boolean = true,
     // 3D-Sound
     val sound3dPreset: Sound3dPreset = Sound3dPreset.DISABLED,
     // Downloads
@@ -116,6 +117,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.autoplayRadio.collect { enabled ->
                 _uiState.value = _uiState.value.copy(autoplayRadio = enabled)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.contentSafetyFilter.collect { enabled ->
+                _uiState.value = _uiState.value.copy(contentSafetyFilter = enabled)
             }
         }
         viewModelScope.launch {
@@ -206,6 +212,11 @@ class SettingsViewModel @Inject constructor(
     fun onAutoplayRadioChanged(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(autoplayRadio = enabled)
         viewModelScope.launch { settingsRepository.setAutoplayRadio(enabled) }
+    }
+
+    fun onContentSafetyFilterChanged(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(contentSafetyFilter = enabled)
+        viewModelScope.launch { settingsRepository.setContentSafetyFilter(enabled) }
     }
 
     fun onSound3dPresetChanged(preset: Sound3dPreset) {

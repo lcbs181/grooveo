@@ -67,6 +67,7 @@ class FeedRepository @Inject constructor(
     private val trackDao: TrackDao,
     private val likesRepository: LikesRepository,
     private val searchRepository: SearchRepository,
+    private val settingsRepository: SettingsRepository,
 ) {
     suspend fun getFeed(limit: Int = 20): List<FeedItem> {
         val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
@@ -99,7 +100,7 @@ class FeedRepository @Inject constructor(
             if (familiar.size >= familiarTarget) break
             val tracks = runCatching { searchRepository.search(artist, source = source, limit = 8) }
                 .getOrDefault(emptyList())
-                .filterForDiscovery()
+                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                 .filterNot { "${it.source}:${it.sourceId}" in seenIds }
             for (track in tracks) {
                 if (familiar.size >= familiarTarget) break
@@ -154,7 +155,7 @@ class FeedRepository @Inject constructor(
         for ((source, artist) in topArtists) {
             val tracks = runCatching { searchRepository.search(artist, source = source, limit = MIX_TRACKS_PER_ARTIST) }
                 .getOrDefault(emptyList())
-                .filterForDiscovery()
+                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                 .filterNot { "${it.source}:${it.sourceId}" in knownIds }
             discovered += tracks
         }
@@ -216,7 +217,7 @@ class FeedRepository @Inject constructor(
             if (result.size >= limit) break
             val tracks = runCatching { searchRepository.search(artist, source = source, limit = 10) }
                 .getOrDefault(emptyList())
-                .filterForDiscovery()
+                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                 .filterNot { "${it.source}:${it.sourceId}" in seen }
             for (track in tracks) {
                 if (result.size >= limit) break
@@ -235,7 +236,7 @@ class FeedRepository @Inject constructor(
                 if (result.size >= limit) break
                 val tracks = runCatching { searchRepository.search(artist, source = source, limit = 8) }
                     .getOrDefault(emptyList())
-                    .filterForDiscovery()
+                    .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                     .filterNot { "${it.source}:${it.sourceId}" in seen }
                 for (track in tracks) {
                     if (result.size >= limit) break

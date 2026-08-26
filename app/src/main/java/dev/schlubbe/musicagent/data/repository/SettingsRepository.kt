@@ -65,6 +65,12 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // keys behaves exactly as before rather than silently losing a source.
         val SOURCE_SOUNDCLOUD = booleanPreferencesKey("source_soundcloud")
         val SOURCE_YTMUSIC = booleanPreferencesKey("source_ytmusic")
+        // "Anstößige Inhalte ausblenden" (Startseite personalisieren) - see
+        // DiscoverySafetyFilter.kt for what this actually does and does not catch.
+        // Defaults to true (opt-out, not opt-in): the behaviour it replaced was
+        // already surfacing explicit thumbnails on Home unfiltered, so "on" is the
+        // safer default, with this switch as the escape hatch for a false positive.
+        val CONTENT_SAFETY_FILTER = booleanPreferencesKey("content_safety_filter")
     }
 
     val backendBaseUrl: Flow<String> = dataStore.data.map { it[Keys.BACKEND_BASE_URL] ?: "" }
@@ -104,6 +110,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         dataStore.data.map { it[Keys.HOME_SC_PROMO_DISMISSED] ?: false }
     val sourceSoundCloudEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_SOUNDCLOUD] ?: true }
     val sourceYtMusicEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_YTMUSIC] ?: true }
+    val contentSafetyFilter: Flow<Boolean> = dataStore.data.map { it[Keys.CONTENT_SAFETY_FILTER] ?: true }
 
     /** The two source toggles collapsed into the `source` string the repositories
      * already speak ("all" / "soundcloud" / "ytmusic"). Turning both off would
@@ -134,6 +141,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     private val sound3dPresetCache = MutableStateFlow("DISABLED")
     private val downloadsWifiOnlyCache = MutableStateFlow(false)
     private val autoplayRadioCache = MutableStateFlow(false)
+    private val contentSafetyFilterCache = MutableStateFlow(true)
 
     val backendBaseUrlCached: String get() = backendBaseUrlCache.value
     val apiKeyCached: String get() = apiKeyCache.value
@@ -144,6 +152,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val sound3dPresetCached: String get() = sound3dPresetCache.value
     val downloadsWifiOnlyCached: Boolean get() = downloadsWifiOnlyCache.value
     val autoplayRadioCached: Boolean get() = autoplayRadioCache.value
+    val contentSafetyFilterCached: Boolean get() = contentSafetyFilterCache.value
 
     init {
         scope.launch { backendBaseUrl.collect { backendBaseUrlCache.value = it } }
@@ -155,6 +164,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         scope.launch { sound3dPreset.collect { sound3dPresetCache.value = it } }
         scope.launch { downloadsWifiOnly.collect { downloadsWifiOnlyCache.value = it } }
         scope.launch { autoplayRadio.collect { autoplayRadioCache.value = it } }
+        scope.launch { contentSafetyFilter.collect { contentSafetyFilterCache.value = it } }
     }
 
     suspend fun setBackendBaseUrl(url: String) {
@@ -171,6 +181,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setDataSaverMode(enabled: Boolean) {
         dataStore.edit { it[Keys.DATA_SAVER_MODE] = enabled }
+    }
+
+    suspend fun setContentSafetyFilter(enabled: Boolean) {
+        dataStore.edit { it[Keys.CONTENT_SAFETY_FILTER] = enabled }
     }
 
     suspend fun setHomeScPromoDismissed(dismissed: Boolean) {

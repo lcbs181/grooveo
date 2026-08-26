@@ -74,6 +74,7 @@ data class BackupSettingsDto(
     val eqPreset: String,
     val playerStyle: String,
     val autoplayRadio: Boolean,
+    val contentSafetyFilter: Boolean = true,
     val sound3dPreset: String,
     val downloadsWifiOnly: Boolean,
     val notifyNewUploads: Boolean,

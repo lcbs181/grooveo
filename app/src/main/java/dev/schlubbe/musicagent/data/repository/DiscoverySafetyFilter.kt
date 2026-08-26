@@ -28,6 +28,14 @@ import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
  * searches in [dev.schlubbe.musicagent.ui.home.HomeViewModel] and
  * [FeedRepository] that pick content on the user's behalf without them having
  * typed anything.
+ *
+ * Substring matching on title/artist text is a blunt instrument - it cannot see
+ * what a thumbnail actually shows, and it can just as easily hide a legitimate
+ * track whose title or artist name happens to contain a matched substring in an
+ * unrelated context. Both directions are real failure modes for other users on
+ * other libraries, which is why this is gated by
+ * [SettingsRepository.contentSafetyFilterCached] (Startseite personalisieren)
+ * rather than being unconditional - every call site passes that flag in.
  */
 private val EXPLICIT_TERMS = listOf(
     "porn", "pornhub", "xvideos", "xnxx", "xhamster", "onlyfans",
@@ -50,8 +58,8 @@ private fun isSafeText(title: String, artist: String?): Boolean {
 }
 
 /** Filters [TrackResultDto.title]/[TrackResultDto.artist] against
- * [EXPLICIT_TERMS] - see the file-level kdoc for what this does and does not
- * cover. Apply at an algorithmic discovery surface, never at the user's own
- * search. */
-fun List<TrackResultDto>.filterForDiscovery(): List<TrackResultDto> =
-    filter { isSafeText(it.title, it.artist) }
+ * [EXPLICIT_TERMS] when [enabled] - see the file-level kdoc for what this does and
+ * does not cover, and why it's togglable. Apply at an algorithmic discovery
+ * surface, never at the user's own search. */
+fun List<TrackResultDto>.filterForDiscovery(enabled: Boolean): List<TrackResultDto> =
+    if (enabled) filter { isSafeText(it.title, it.artist) } else this
