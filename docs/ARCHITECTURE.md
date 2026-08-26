@@ -68,6 +68,45 @@ playback through a single shared `MediaController` wrapper,
 This is what keeps playback state (now-playing, queue, position) consistent
 across the whole app and the widget without manual synchronization.
 
+## Visualizer
+
+The Player screen's five audio-reactive visualizers (`ui/player/Visualizer.kt`) and the
+pulse variant's window-level confetti (`ui/player/AudioConfetti.kt`) are driven by real
+FFT data tapped from the audio ExoPlayer is actually decoding — not a decorative
+animation.
+
+**Why not `android.media.audiofx.Visualizer`:** that platform effect requires the
+`RECORD_AUDIO` permission for *any* session, not just the mix output. Asking a music
+player for microphone access to draw an overlay is a bad trade, so this app taps the
+PCM pipeline directly instead, via a Media3 `TeeAudioProcessor` spliced into the audio
+sink (`playback/PlaybackService.kt`) — no extra permission required.
+
+The pipeline, in `playback/AudioVisualizerController.kt` and
+`playback/visualizer/PcmRingBuffer.kt`:
+
+1. **Audio thread** — `TeeAudioProcessor.AudioBufferSink.handleBuffer` decodes each
+   buffer to mono float and copies it into a lock-free single-producer/single-consumer
+   ring (`PcmRingBuffer`). Nothing else runs here: no transform, no allocation, no
+   lock — that thread has a hard real-time deadline, and anything blocking it risks an
+   audible glitch.
+2. **Analysis thread** — a dedicated daemon thread drains the ring and runs a
+   2048-point FFT, reduced to 256 log-spaced frequency bands, an adaptive per-band
+   normalizer, and a time-domain kick detector (a cascaded low-pass + fast/slow
+   envelope-rise trigger — chosen over spectral flux because a 46ms FFT window is far
+   longer than a kick's ~10ms attack and smears the transient past recovery). The
+   result — spectrum plus bass/onset/level scalars — publishes as a `VisualizerFrame`.
+3. **Frame queue** — spectra are produced in audio-time bursts (however the audio sink
+   happens to buffer) but consumed once per display frame, through a small queue
+   (`pumpNextFrame`) that a `PlaybackService` coroutine drains at ~60Hz. Analysis and
+   display rate are deliberately decoupled by this queue.
+
+Each `Visualizer.kt` variant reads the published `VisualizerFrame` in a `Canvas` draw
+lambda. The particle sphere maps every point to its own frequency band (a Fibonacci
+lattice, so index is monotonic in latitude — bass at one pole, treble at the other) and
+batches its draw calls by colour/brightness bucket into a handful of native
+`drawPoints` calls, rather than one `drawCircle` per point, to stay under one
+display-frame's time budget at high point counts.
+
 ## Local storage
 
 Room (`data/local/`) backs the track metadata cache, likes, playlists, and
