@@ -17,22 +17,46 @@ import java.io.InputStream
  */
 class MediaStoreWriter(private val context: Context) {
 
+    /**
+     * [useDownloadsCollection] routes the insert through `MediaStore.Downloads`
+     * instead of `MediaStore.Audio.Media`, for a file whose MIME type the Audio
+     * collection's own validator won't accept - `ContentResolver.insert()` on
+     * `MediaStore.Audio.Media` throws `IllegalArgumentException` for anything
+     * outside its internal MIME allowlist (confirmed on device: this is exactly
+     * what made every SoundCloud HLS download fail, 100% of the time, before this
+     * existed - see DownloadWorker.downloadHls). `MediaStore.Downloads` has no such
+     * allowlist, at the cost of the file landing under `Download/` rather than
+     * `Music/` and not showing up in other apps' music-only views - an accepted
+     * trade for the rare track that offers no plain downloadable transcoding at
+     * all, now that [dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudStreamResolver]
+     * prefers one when it exists.
+     */
     suspend fun write(
         displayName: String,
         mimeType: String,
         input: InputStream,
         contentLength: Long,
+        useDownloadsCollection: Boolean = false,
         onProgress: suspend (Int) -> Unit,
     ): Uri = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
+        val collection: Uri
         val values = ContentValues().apply {
-            put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
-            put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
-            put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/PrivateMusicAgent")
-            put(MediaStore.Audio.Media.IS_PENDING, 1)
+            if (useDownloadsCollection) {
+                collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/PrivateMusicAgent")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            } else {
+                collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
+                put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/PrivateMusicAgent")
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
         }
 
-        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val uri = resolver.insert(collection, values) ?: throw IOException("MediaStore insert failed")
 
         try {

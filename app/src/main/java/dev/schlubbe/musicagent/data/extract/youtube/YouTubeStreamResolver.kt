@@ -24,7 +24,9 @@ class YouTubeStreamResolver @Inject constructor() : StreamResolver {
 
     override fun supports(source: String): Boolean = source == "ytmusic"
 
-    override suspend fun resolve(sourceId: String): ResolvedStream = withContext(Dispatchers.IO) {
+    // preferProgressive is a no-op here - YouTube audio streams are never HLS
+    // (isHls is always false below), so there is no alternative to prefer.
+    override suspend fun resolve(sourceId: String, preferProgressive: Boolean): ResolvedStream = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "resolve: starting for $sourceId")
 
