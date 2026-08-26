@@ -36,11 +36,11 @@ class StreamResolverRegistry @Inject constructor(
      * mid-request) than the old stable backend was, and a single retry clears most of
      * those. Throws (same as before) if both attempts fail; logs the actual cause each
      * time so a repeat report is diagnosable from logcat. */
-    suspend fun resolve(source: String, sourceId: String): ResolvedStream {
+    suspend fun resolve(source: String, sourceId: String, preferProgressive: Boolean = false): ResolvedStream {
         var lastError: Throwable? = null
         for (attempt in 1..2) {
             val result = semaphore.withPermit {
-                runCatching { resolveOnce(source, sourceId) }
+                runCatching { resolveOnce(source, sourceId, preferProgressive) }
             }
             result.onSuccess { return it }
             val error = result.exceptionOrNull()!!
@@ -53,9 +53,9 @@ class StreamResolverRegistry @Inject constructor(
         throw lastError ?: IllegalStateException("resolve failed for $source:$sourceId")
     }
 
-    private suspend fun resolveOnce(source: String, sourceId: String): ResolvedStream = when {
-        soundCloud.supports(source) -> soundCloud.resolve(sourceId)
-        youTube.supports(source) -> youTube.resolve(sourceId)
+    private suspend fun resolveOnce(source: String, sourceId: String, preferProgressive: Boolean): ResolvedStream = when {
+        soundCloud.supports(source) -> soundCloud.resolve(sourceId, preferProgressive)
+        youTube.supports(source) -> youTube.resolve(sourceId, preferProgressive)
         else -> error("unknown source: $source")
     }
 }

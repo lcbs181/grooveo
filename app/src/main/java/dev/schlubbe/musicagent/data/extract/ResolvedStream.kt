@@ -14,5 +14,11 @@ data class ResolvedStream(
 
 interface StreamResolver {
     fun supports(source: String): Boolean
-    suspend fun resolve(sourceId: String): ResolvedStream
+
+    /** [preferProgressive] asks for a single directly-downloadable file over a
+     * segmented HLS stream where the source offers both, for callers (downloads)
+     * that need a plain resumable byte stream rather than Media3's own HLS
+     * handling. Resolvers for a source that never offers HLS (YouTube) simply
+     * ignore it. */
+    suspend fun resolve(sourceId: String, preferProgressive: Boolean = false): ResolvedStream
 }

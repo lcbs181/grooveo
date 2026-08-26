@@ -9,6 +9,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
+import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudDrmOnlyException
 import dev.schlubbe.musicagent.data.extract.di.ExtractionHttpClient
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
@@ -27,7 +28,15 @@ import java.net.URI
  * [DownloadEntity] state and the [androidx.work.ListenableWorker.Result]. */
 private sealed class TransferOutcome {
     abstract val totalBytes: Long?
-    data class Completed(val mimeType: String, override val totalBytes: Long? = null) : TransferOutcome()
+    // useDownloadsCollection: set only by downloadHls() - see MediaStoreWriter's
+    // useDownloadsCollection parameter for why a concatenated HLS/MPEG-TS file
+    // can't go through the ordinary Audio-collection insert every other
+    // downloaded track uses.
+    data class Completed(
+        val mimeType: String,
+        override val totalBytes: Long? = null,
+        val useDownloadsCollection: Boolean = false,
+    ) : TransferOutcome()
     data class Paused(val bytesSoFar: Long, val pct: Int, override val totalBytes: Long? = null) : TransferOutcome()
     data class Failed(val bytesSoFar: Long, val retryable: Boolean, override val totalBytes: Long? = null) : TransferOutcome()
 }
@@ -67,8 +76,22 @@ class DownloadWorker @AssistedInject constructor(
             ),
         )
 
+        // preferProgressive = true: for SoundCloud, this flips the resolver's
+        // candidate order to try the plain single-file transcoding before HLS - see
+        // SoundCloudStreamResolver.resolve for why a download specifically wants
+        // that (no segment-concatenation step, trivially byte-range-resumable, and
+        // MediaStore accepts the resulting file with no MIME-type workaround).
         val resolved = try {
-            streamResolverRegistry.resolve(source, sourceId)
+            streamResolverRegistry.resolve(source, sourceId, preferProgressive = true)
+        } catch (e: SoundCloudDrmOnlyException) {
+            // Permanent, not transient - StreamResolverRegistry already gave up on
+            // this without a second attempt for the same reason. Retrying a download
+            // job for it would just repeat the identical failure forever (observed
+            // on device: work specs backed off to attempt 9-15, next runs hours out).
+            downloadDao.upsert(
+                DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, createdAt, tempFile.absolutePath, startOffset),
+            )
+            return Result.failure()
         } catch (e: Exception) {
             downloadDao.upsert(
                 DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, createdAt, tempFile.absolutePath, startOffset),
@@ -103,6 +126,7 @@ class DownloadWorker @AssistedInject constructor(
                         mimeType = outcome.mimeType,
                         input = tempFile.inputStream(),
                         contentLength = tempFile.length(),
+                        useDownloadsCollection = outcome.useDownloadsCollection,
                         onProgress = {},
                     )
                     tempFile.delete()
@@ -111,7 +135,11 @@ class DownloadWorker @AssistedInject constructor(
                         DownloadEntity(
                             trackId = trackId,
                             mediaStoreUri = uri.toString(),
-                            relativePath = "Music/PrivateMusicAgent",
+                            relativePath = if (outcome.useDownloadsCollection) {
+                                "Download/PrivateMusicAgent"
+                            } else {
+                                "Music/PrivateMusicAgent"
+                            },
                             state = DownloadState.COMPLETED,
                             progressPct = 100,
                             createdAt = createdAt,
@@ -184,7 +212,13 @@ class DownloadWorker @AssistedInject constructor(
                     return TransferOutcome.Completed(mimeType = "audio/mp4", totalBytes = response.body.contentLength().takeIf { it > 0 })
                 }
                 if (!response.isSuccessful) {
-                    return TransferOutcome.Failed(resumeOffset, retryable = response.code in 500..599, totalBytes = response.body.contentLength().takeIf { it > 0 })
+                    // 429 (rate limited) is exactly the outcome expected from
+                    // downloading a whole playlist at once - it is transient, not a
+                    // permanent failure, and treating it as one used to turn the
+                    // very first rate-limit hit into a one-shot failure the user had
+                    // to manually retry per track.
+                    val retryable = response.code in 500..599 || response.code == 429
+                    return TransferOutcome.Failed(resumeOffset, retryable, totalBytes = response.body.contentLength().takeIf { it > 0 })
                 }
 
                 // The server may ignore our Range header and send the whole file back
@@ -286,11 +320,20 @@ class DownloadWorker @AssistedInject constructor(
                     }
                 }
             }
-            // "audio/mp2t" rather than the more common "video/mp2t" registration -
-            // this is audio-only MPEG-TS and MediaStoreWriter always inserts into the
-            // Audio collection regardless, but external players/file managers that
-            // filter by an "audio/*" MIME prefix would otherwise skip this file.
-            TransferOutcome.Completed(mimeType = "audio/mp2t", totalBytes = tempFile.length())
+            // "video/mp2t", not "audio/mp2t": Android's own MIME registry has no
+            // entry for the latter, and MediaStore's insert() rejects an unrecognised
+            // MIME type outright with IllegalArgumentException - confirmed against
+            // device logcat, where every SoundCloud download that resolved to HLS
+            // failed at exactly this step, 100% of the time, then retried forever
+            // (WorkManager backoff observed climbing past attempt 15, next run hours
+            // out) without ever being able to succeed. useDownloadsCollection = true
+            // routes this into MediaStore.Downloads instead of MediaStore.Audio -
+            // see MediaStoreWriter for why the Audio collection can't take arbitrary
+            // MIME types the way Downloads can. As of this fix HLS is also no longer
+            // the common case for SoundCloud downloads at all (see the
+            // preferProgressive resolve above); this path only remains for the
+            // (rarer) tracks that genuinely offer no progressive transcoding.
+            TransferOutcome.Completed(mimeType = "video/mp2t", totalBytes = tempFile.length(), useDownloadsCollection = true)
         } catch (e: IOException) {
             TransferOutcome.Failed(tempFile.length(), retryable = true)
         }

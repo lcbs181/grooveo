@@ -40,7 +40,7 @@ class SoundCloudStreamResolver @Inject constructor(
 
     override fun supports(source: String): Boolean = source == "soundcloud"
 
-    override suspend fun resolve(sourceId: String): ResolvedStream {
+    override suspend fun resolve(sourceId: String, preferProgressive: Boolean): ResolvedStream {
         val startTime = System.currentTimeMillis()
         Log.d(TAG, "resolve: starting for $sourceId")
 
@@ -62,10 +62,25 @@ class SoundCloudStreamResolver @Inject constructor(
             error("SoundCloud track '$sourceId' has zero transcodings (private/deleted/geo-blocked/premium-only?)")
         }
 
-        val candidates = listOfNotNull(
-            transcodings.firstOrNull { it.protocol() == "hls" },
-            transcodings.firstOrNull { it.protocol() == "progressive" },
-        )
+        // Ordered so the *first* successful candidate below is the one actually
+        // used (see the parallel-resolve loop's own comment): for playback, HLS
+        // first, since Media3 handles it natively with real segment-accurate
+        // seeking. For downloads (preferProgressive), the order flips - a single
+        // plain file needs no segment-concatenation step at all and is trivially
+        // byte-range-resumable, whereas HLS has to be fetched segment-by-segment
+        // and concatenated into a raw MPEG-TS blob (see DownloadWorker.downloadHls)
+        // that most of the OS's own MediaStore MIME-type validation doesn't
+        // recognise as audio. This mirrors what actual third-party SoundCloud
+        // downloaders (yt-dlp's extractor, scdl) do: prefer the progressive/http
+        // transcoding whenever the track offers one, and only fall back to HLS
+        // for the (rarer) tracks that don't.
+        val progressive = transcodings.firstOrNull { it.protocol() == "progressive" }
+        val hls = transcodings.firstOrNull { it.protocol() == "hls" }
+        val candidates = if (preferProgressive) {
+            listOfNotNull(progressive, hls)
+        } else {
+            listOfNotNull(hls, progressive)
+        }
         if (candidates.isEmpty()) {
             throw SoundCloudDrmOnlyException(
                 "SoundCloud track '$sourceId' only has DRM-encrypted transcodings - not playable on-device",
