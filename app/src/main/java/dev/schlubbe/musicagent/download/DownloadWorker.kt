@@ -26,6 +26,11 @@ import java.net.URI
 /** Outcome of a single transfer attempt (progressive Range-resume or HLS segment
  * concatenation) - [DownloadWorker.doWork] turns this into the persisted
  * [DownloadEntity] state and the [androidx.work.ListenableWorker.Result]. */
+/** Extracts the quoted URI out of an `#EXT-X-MAP:URI="..."` playlist tag - the
+ * initialization segment for a fragmented-MP4 HLS stream. See
+ * [DownloadWorker.downloadHls]. */
+private val EXT_X_MAP_URI_REGEX = Regex("#EXT-X-MAP:.*URI=\"([^\"]+)\"")
+
 private sealed class TransferOutcome {
     abstract val totalBytes: Long?
     // useDownloadsCollection: set only by downloadHls() - see MediaStoreWriter's
@@ -263,13 +268,39 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
-    /** SoundCloud's HLS transcodings resolve to a .m3u8 media playlist of short
+    /**
+     * SoundCloud's HLS transcodings resolve to a .m3u8 media playlist of short
      * (a few seconds each) segments, not one downloadable file - fetches the
-     * playlist, then each segment in order, concatenating them into one local file
-     * (playable via Media3's own MPEG-TS extractor, same as any other local file).
-     * Unlike [downloadProgressive], a pause/retry here always restarts from segment
-     * 0 - individual segments aren't byte-range-addressable as a single persisted
-     * offset, but since each is only a few seconds, redoing them is cheap. */
+     * playlist, then each segment in order, concatenating them into one local file.
+     *
+     * The segments are fragmented MP4 ("CMAF"), not the raw MPEG-TS this used to
+     * assume - confirmed by fetching a real playlist and segment directly: media
+     * segment URLs end in `.m4s`, their bytes start with an ISO-BMFF `styp` box
+     * (`\x00\x00\x00\x18stypmsdh...`), and the playlist carries an
+     * `#EXT-X-MAP:URI="...init.mp4..."` line - the initialization segment that
+     * carries the `ftyp`/`moov` boxes every fragment after it depends on. The
+     * previous version filtered out *all* `#`-prefixed lines, silently discarding
+     * that line along with the real comments, and concatenated only the bare
+     * `moof`/`mdat` fragments with no initialization box at all - not a valid MP4
+     * by any player's standard, regardless of what MIME type or file extension it
+     * was saved under. Prepending the init segment first is standard practice for
+     * reconstructing an fMP4/CMAF HLS stream into one playable file (the same
+     * approach `ffmpeg -c copy` uses under the hood) - and once assembled that way
+     * the result is a completely ordinary, standard .m4a: no MIME-type workaround
+     * needed, same "audio/mp4" MediaStore.Audio path a progressive download uses.
+     *
+     * A playlist with no `#EXT-X-MAP` (checked rather than assumed, in case some
+     * transcoding still uses the older raw-MPEG-TS delivery this originally
+     * targeted) falls back to the old behaviour: plain concatenation, saved as
+     * "video/mp2t" through MediaStore.Downloads rather than MediaStore.Audio,
+     * since Android's MediaStore has no MIME-type entry for "audio/mp2t" and
+     * rejects it outright - confirmed on device, this is what made every
+     * SoundCloud HLS download fail 100% of the time before either fix existed.
+     *
+     * Unlike [downloadProgressive], a pause/retry here always restarts from the
+     * init segment - individual segments aren't byte-range-addressable as a single
+     * persisted offset, but since each is only a few seconds, redoing them is
+     * cheap. */
     private suspend fun downloadHls(
         resolved: ResolvedStream,
         tempFile: File,
@@ -292,6 +323,10 @@ class DownloadWorker @AssistedInject constructor(
                 return TransferOutcome.Failed(0, retryable = false)
             }
 
+            val initSegmentUrl = EXT_X_MAP_URI_REGEX.find(playlistText)
+                ?.groupValues?.get(1)
+                ?.let { uri -> URI(resolved.url).resolve(uri).toString() }
+
             val segmentUrls = playlistText.lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && !it.startsWith("#") }
@@ -301,6 +336,18 @@ class DownloadWorker @AssistedInject constructor(
 
             FileOutputStream(tempFile, false).use { output ->
                 var lastPct = -1
+
+                if (initSegmentUrl != null) {
+                    val initRequest = Request.Builder().url(initSegmentUrl)
+                    resolved.httpHeaders.forEach { (key, value) -> initRequest.addHeader(key, value) }
+                    okHttpClient.newCall(initRequest.build()).execute().use { initResponse ->
+                        if (!initResponse.isSuccessful) {
+                            throw IOException("HLS init segment failed: HTTP ${initResponse.code}")
+                        }
+                        initResponse.body.byteStream().use { it.copyTo(output) }
+                    }
+                }
+
                 for ((index, segmentUrl) in segmentUrls.withIndex()) {
                     if (isStopped) return TransferOutcome.Paused(tempFile.length(), lastPct)
 
@@ -320,20 +367,12 @@ class DownloadWorker @AssistedInject constructor(
                     }
                 }
             }
-            // "video/mp2t", not "audio/mp2t": Android's own MIME registry has no
-            // entry for the latter, and MediaStore's insert() rejects an unrecognised
-            // MIME type outright with IllegalArgumentException - confirmed against
-            // device logcat, where every SoundCloud download that resolved to HLS
-            // failed at exactly this step, 100% of the time, then retried forever
-            // (WorkManager backoff observed climbing past attempt 15, next run hours
-            // out) without ever being able to succeed. useDownloadsCollection = true
-            // routes this into MediaStore.Downloads instead of MediaStore.Audio -
-            // see MediaStoreWriter for why the Audio collection can't take arbitrary
-            // MIME types the way Downloads can. As of this fix HLS is also no longer
-            // the common case for SoundCloud downloads at all (see the
-            // preferProgressive resolve above); this path only remains for the
-            // (rarer) tracks that genuinely offer no progressive transcoding.
-            TransferOutcome.Completed(mimeType = "video/mp2t", totalBytes = tempFile.length(), useDownloadsCollection = true)
+
+            if (initSegmentUrl != null) {
+                TransferOutcome.Completed(mimeType = "audio/mp4", totalBytes = tempFile.length())
+            } else {
+                TransferOutcome.Completed(mimeType = "video/mp2t", totalBytes = tempFile.length(), useDownloadsCollection = true)
+            }
         } catch (e: IOException) {
             TransferOutcome.Failed(tempFile.length(), retryable = true)
         }
