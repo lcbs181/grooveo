@@ -14,6 +14,7 @@ import dev.schlubbe.musicagent.data.repository.EventReporter
 import dev.schlubbe.musicagent.data.repository.FeedItem
 import dev.schlubbe.musicagent.data.repository.FeedRepository
 import dev.schlubbe.musicagent.data.repository.FollowRepository
+import dev.schlubbe.musicagent.data.repository.filterForDiscovery
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
@@ -39,6 +40,18 @@ private const val CONTINUE_GRID_LIMIT = 4
 private const val MOOD_MIX_SEARCH_LIMIT = 25
 private const val STATION_POOL_LIMIT = 25
 private const val GENRE_SHELF_LIMIT = 3
+
+/** How many charts tracks are actually shown on Home. */
+private const val CHART_DISPLAY_COUNT = 20
+
+/** How many trending tracks are actually fetched, well beyond [CHART_DISPLAY_COUNT] -
+ * see [HomeViewModel.loadCharts] for why: YouTube Music's own "trending" endpoint
+ * moves slowly day to day, so displaying the literal top-20 unchanged made the Home
+ * screen look frozen on repeat visits. Over-fetching gives a real pool to rotate a
+ * display window across via [rotateForDay], so the visible slice - and its order -
+ * genuinely differs from one day to the next, using tracks YouTube itself actually
+ * returned as trending rather than anything fabricated. */
+private const val CHART_OVERFETCH_COUNT = 60
 
 /** Home's "Trends nach Genre" chips. Unlike [MoodFilter] (a pure keyword search,
  * since no mood metadata exists anywhere), these are matched against
@@ -159,6 +172,17 @@ private fun easterSunday(year: Int): LocalDate {
 private fun <T> pickForDay(date: LocalDate, pool: List<T>): T {
     val index = ((date.toEpochDay() % pool.size) + pool.size).toInt() % pool.size
     return pool[index]
+}
+
+/** Same "changes once a day, not once a recomposition" contract as [pickForDay],
+ * but picks a rotating *window* of [windowSize] items rather than a single one -
+ * [date] seeds a deterministic shuffle of [pool], so every device sees the same
+ * slice on the same day (nothing flickers between two screens open at once) and a
+ * fresh slice the next day, without needing new data from upstream. See
+ * [HomeViewModel.loadCharts]. */
+private fun <T> rotateForDay(date: LocalDate, pool: List<T>, windowSize: Int): List<T> {
+    if (pool.size <= windowSize) return pool
+    return pool.shuffled(java.util.Random(date.toEpochDay())).take(windowSize)
 }
 
 /** Exact-date German holidays (Neujahr/Heiligabend/Weihnachten/Silvester) plus the
@@ -486,13 +510,18 @@ class HomeViewModel @Inject constructor(
     private fun loadCharts() {
         _uiState.value = _uiState.value.copy(isChartsLoading = true)
         viewModelScope.launch {
-            runCatching { searchRepository.getTrending(source = "ytmusic") }
+            runCatching { searchRepository.getTrending(limit = CHART_OVERFETCH_COUNT, source = "ytmusic") }
                 .onSuccess { tracks ->
                     _uiState.value = _uiState.value.copy(
-                        charts = tracks,
+                        // Rotated: see rotateForDay and CHART_OVERFETCH_COUNT for why
+                        // this isn't simply the literal top CHART_DISPLAY_COUNT.
+                        charts = rotateForDay(LocalDate.now(), tracks, CHART_DISPLAY_COUNT),
                         isChartsLoading = false,
-                        // "Im Fokus": purely editorial/curated again, no algorithmic
-                        // card mixed in (that now lives in "Deine Mixes", see
+                        // "Im Fokus": the true, unrotated top of the chart - this one
+                        // stays literal (not shuffled) since it's presented as "what's
+                        // actually big right now", not a rotating discovery shelf.
+                        // Purely editorial/curated otherwise, no algorithmic card
+                        // mixed in (that now lives in "Deine Mixes", see
                         // loadMixCards()).
                         featuredItems = tracks.take(FEATURED_CHART_COUNT),
                     )
@@ -532,8 +561,10 @@ class HomeViewModel @Inject constructor(
             val focusPool = runCatching { feedRepository.getPersonalizedMix() }.getOrDefault(emptyList())
             val chillPool = runCatching { searchRepository.search(MoodFilter.CHILL.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
                 .getOrDefault(emptyList())
+                .filterForDiscovery()
             val partyPool = runCatching { searchRepository.search(MoodFilter.PARTY.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
                 .getOrDefault(emptyList())
+                .filterForDiscovery()
 
             val cards = buildList {
                 if (focusPool.size >= MIX_POOL_MINIMUM) {
@@ -681,6 +712,7 @@ class HomeViewModel @Inject constructor(
             } else {
                 runCatching { searchRepository.search(mood.searchKeyword, limit = 25) }
                     .getOrDefault(emptyList())
+                    .filterForDiscovery()
                     .shuffled()
             }
             _uiState.value = _uiState.value.copy(isMixLoading = false)
@@ -723,6 +755,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val tracks = runCatching { searchRepository.search(artist.name, source = artist.source, limit = STATION_POOL_LIMIT) }
                 .getOrDefault(emptyList())
+                .filterForDiscovery()
                 .shuffled()
             if (tracks.isNotEmpty()) playerController.playQueue(tracks, 0)
         }
