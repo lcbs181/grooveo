@@ -230,6 +230,7 @@ private fun LibraryHomeContent(
                     onClick = onOpenSettings,
                     shape = CircleShape,
                     variant = CanopyButtonVariant.Secondary,
+                    contentDescription = "Einstellungen",
                 )
             }
         }
@@ -399,6 +400,7 @@ private fun ImportBanner(onDismiss: () -> Unit, onImportClick: () -> Unit) {
             variant = CanopyButtonVariant.Ghost,
             size = 26.dp,
             iconSize = 14.dp,
+            contentDescription = "Schließen",
             modifier = Modifier.align(Alignment.TopEnd),
         )
         Column(modifier = Modifier.padding(end = 26.dp)) {
@@ -500,7 +502,7 @@ private fun HistoryRow(
         },
         trailingContent = {
             Box {
-                CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
                         text = { Text("Zu Playlist hinzufügen") },
@@ -553,7 +555,7 @@ private fun LibrarySubViewHeader(title: String, onBack: () -> Unit) {
             .padding(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onBack, iconSize = 20.dp)
+        CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onBack, iconSize = 20.dp, contentDescription = "Zurück")
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
     }
 }
@@ -685,9 +687,10 @@ private fun DownloadRow(
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                             onLikeClick()
                         },
+                        contentDescription = if (isLiked) "Gefällt mir entfernen" else "Gefällt mir",
                     )
                     Box {
-                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
@@ -715,13 +718,13 @@ private fun DownloadRow(
                 }
             }
             DownloadState.DOWNLOADING -> {
-                { CanopyIconButton(icon = phosphorIcon("pause"), onClick = onPauseClick) }
+                { CanopyIconButton(icon = phosphorIcon("pause"), onClick = onPauseClick, contentDescription = "Download pausieren") }
             }
             DownloadState.PAUSED -> {
-                { CanopyIconButton(icon = phosphorIcon("play"), onClick = onResumeClick) }
+                { CanopyIconButton(icon = phosphorIcon("play"), onClick = onResumeClick, contentDescription = "Download fortsetzen") }
             }
             DownloadState.FAILED -> {
-                { CanopyIconButton(icon = phosphorIcon("arrow-clockwise"), onClick = onRetryClick) }
+                { CanopyIconButton(icon = phosphorIcon("arrow-clockwise"), onClick = onRetryClick, contentDescription = "Erneut versuchen") }
             }
             DownloadState.QUEUED -> null
         },
@@ -787,9 +790,10 @@ private fun LikeRow(
                             haptic.performHapticFeedback(HapticFeedbackType.ToggleOff)
                             onUnlikeClick()
                         },
+                        contentDescription = "Gefällt mir entfernen",
                     )
                     Box {
-                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
+                        CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },

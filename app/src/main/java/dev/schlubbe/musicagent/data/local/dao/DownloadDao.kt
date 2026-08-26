@@ -15,6 +15,9 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE trackId = :trackId")
     suspend fun getByTrackId(trackId: String): DownloadEntity?
 
+    @Query("SELECT * FROM downloads WHERE trackId = :trackId")
+    fun observeByTrackId(trackId: String): Flow<DownloadEntity?>
+
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<DownloadEntity>>
 

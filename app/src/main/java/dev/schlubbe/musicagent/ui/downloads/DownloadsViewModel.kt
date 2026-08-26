@@ -13,7 +13,9 @@ import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.download.DownloadWorker
+import dev.schlubbe.musicagent.playback.PlayerController
 import dev.schlubbe.musicagent.ui.library.DownloadUiItem
+import dev.schlubbe.musicagent.ui.library.toTrackResultDto
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +40,7 @@ class DownloadsViewModel @Inject constructor(
     private val workManager: WorkManager,
     private val downloadRepository: DownloadRepository,
     private val settingsRepository: SettingsRepository,
+    private val playerController: PlayerController,
 ) : ViewModel() {
 
     // Same live-progress composition LibraryViewModel uses for its Downloads
@@ -73,6 +76,21 @@ class DownloadsViewModel @Inject constructor(
         downloads.value
             .filter { it.entity.state == DownloadState.DOWNLOADING || it.entity.state == DownloadState.QUEUED }
             .forEach { downloadRepository.pauseDownload(it.entity.trackId) }
+    }
+
+    // Mirrors LibraryViewModel.playDownload - kept per-file rather than shared per
+    // this codebase's existing convention for small ViewModel-local glue (see the
+    // toLiveFlow() note below).
+    fun playDownload(item: DownloadUiItem) {
+        val uri = item.entity.mediaStoreUri ?: return
+        viewModelScope.launch {
+            val track = item.track?.toTrackResultDto()
+            if (track != null) {
+                playerController.playLocalDownload(track, uri)
+            } else {
+                playerController.playFromUri(uri)
+            }
+        }
     }
 
     fun resume(trackId: String) = downloadRepository.resumeDownload(trackId)

@@ -298,7 +298,7 @@ fun MusicAgentNavGraph(
                 )
             }
             composable(Routes.DOWNLOADS) {
-                DownloadsScreen()
+                DownloadsScreen(onDownloadPlayed = { navController.navigate(Routes.PLAYER) })
             }
             composable(Routes.CONNECT) {
                 ConnectScreen(onNavigateBack = { navController.popBackStack() })

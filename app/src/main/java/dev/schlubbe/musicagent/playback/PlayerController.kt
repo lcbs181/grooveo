@@ -35,6 +35,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -1010,11 +1011,25 @@ class PlayerController @Inject constructor(
         }
     }
 
+    // Reactive, not a one-shot check: a track can start streaming, then finish
+    // downloading in the background while it's still playing (or already playing
+    // when the user taps "download" from the Player screen itself) - without
+    // observing the DAO, hasLocalDownload only ever got refreshed on the *next*
+    // track transition, so the "Offline verfügbar" toggle stayed stuck on "Zum
+    // Offline-Hören herunterladen" until the user left and reopened the Player.
+    // Cancelled and restarted per track (see onMediaItemTransition/playTrack) so a
+    // late emission for the *previous* track can never land after currentTrack has
+    // already moved on.
+    private var downloadAvailabilityJob: Job? = null
+
     private fun refreshDownloadAvailability(track: TrackResultDto) {
-        scope.launch {
-            val hasDownload = localDownloadUri(track) != null
-            if (currentTrack === track) {
-                _playbackState.value = _playbackState.value.copy(hasLocalDownload = hasDownload)
+        downloadAvailabilityJob?.cancel()
+        downloadAvailabilityJob = scope.launch {
+            downloadDao.observeByTrackId("${track.source}:${track.sourceId}").collectLatest { download ->
+                val hasDownload = download != null && download.state == DownloadState.COMPLETED
+                if (currentTrack === track) {
+                    _playbackState.value = _playbackState.value.copy(hasLocalDownload = hasDownload)
+                }
             }
         }
     }
