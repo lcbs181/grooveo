@@ -89,7 +89,12 @@ class SearchRepository @Inject constructor(
 
     /** Global trending charts, independent of any local history - same source
      * convention as [search] (defaults to combining both, but Charts/Für-dich now
-     * call this with source="ytmusic" - see HomeViewModel/FeedRepository). */
+     * call this with source="ytmusic" - see HomeViewModel/FeedRepository).
+     *
+     * Filtered through [filterForDiscovery] - unlike [search], this is never
+     * reachable from anything the user typed themselves, only from Home's own
+     * charts/feed logic picking content on their behalf, so it is safe (and
+     * necessary - see that filter's kdoc) to hold explicit results back here. */
     suspend fun getTrending(limit: Int = 20, source: String = "all"): List<TrackResultDto> = when (source) {
         "soundcloud" -> soundCloud.getTrending(limit)
         "ytmusic" -> youTube.getTrending(limit)
@@ -98,7 +103,7 @@ class SearchRepository @Inject constructor(
             val yt = async { runCatching { youTube.getTrending(limit) }.getOrDefault(emptyList()) }
             sc.await() + yt.await()
         }
-    }
+    }.filterForDiscovery()
 
     /** Tracks for one genre, backing Home's "Trends nach Genre" shelf.
      *
@@ -114,8 +119,9 @@ class SearchRepository @Inject constructor(
      * YouTube Music (TrackResultDto.genre is always null there), so YT results
      * could never pass the filter and would only dilute the shelf. */
     suspend fun getTrendingByGenre(genreTerm: String, limit: Int = 12): List<TrackResultDto> {
-        // Over-fetch: only a fraction of any result page carries a matching genre.
-        val pool = soundCloud.search(genreTerm, limit = limit * 8)
+        // Over-fetch: only a fraction of any result page carries a matching genre,
+        // and filterForDiscovery below removes a further slice.
+        val pool = soundCloud.search(genreTerm, limit = limit * 8).filterForDiscovery()
         val wanted = normalizeGenre(genreTerm)
         val tagged = pool.filter { it.genre?.let { g -> normalizeGenre(g).contains(wanted) } == true }
         // Top up from the unfiltered pool rather than showing an empty shelf when

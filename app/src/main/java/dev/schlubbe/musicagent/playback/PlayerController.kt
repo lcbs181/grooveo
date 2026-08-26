@@ -21,6 +21,7 @@ import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.EventReporter
+import dev.schlubbe.musicagent.data.repository.FeedRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,6 +47,25 @@ private const val TAG = "PlayerController"
 private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – DRM-geschützt und kann von dieser App nicht abgespielt werden."
 private const val PLAYBACK_ERROR_MESSAGE = "Wiedergabe unterbrochen – Verbindung prüfen und erneut versuchen."
 private const val MAX_PLAYBACK_ERROR_RETRIES = 2
+
+/** Once this few tracks remain after the one currently playing, [PlayerController]
+ * starts fetching predicted continuations in the background - see [PlayerController.extendQueue].
+ * High enough that a slow network resolve has time to finish before the listener
+ * genuinely runs out of queue; low enough that a short explicit queue (a 4-track
+ * playlist) doesn't immediately trigger prediction before the user has even heard
+ * what they actually chose. */
+private const val EXTEND_LOOKAHEAD_TRACKS = 3
+
+/** How many predicted tracks [PlayerController.extendQueue] tries to resolve and
+ * append per pass. Deliberately more than [EXTEND_LOOKAHEAD_TRACKS] so one
+ * successful pass buys several transitions' worth of headroom rather than firing
+ * on almost every track. */
+private const val EXTEND_BATCH_SIZE = 8
+
+/** How many of the most recently played tracks count as "the session" handed to
+ * [FeedRepository.predictNext] - see that function's own kdoc for why this is
+ * weighted so heavily over the user's lifetime history. */
+private const val SESSION_CONTEXT_SIZE = 5
 
 data class PlaybackUiState(
     val isPlaying: Boolean = false,
@@ -98,6 +120,7 @@ class PlayerController @Inject constructor(
     private val downloadDao: DownloadDao,
     private val streamResolverRegistry: StreamResolverRegistry,
     private val searchRepository: SearchRepository,
+    private val feedRepository: FeedRepository,
 ) {
     private var controller: MediaController? = null
 
@@ -166,6 +189,9 @@ class PlayerController @Inject constructor(
     // triggered from the (non-suspend) Player.Listener callbacks below can use it
     // without needing a ViewModel's viewModelScope in hand.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Guards extendQueue() against two passes running at once - see that function.
+    private val extendQueueMutex = Mutex()
 
     // Set right before we call replaceMediaItem()+seekTo() on the *current* index (see
     // toggleSource), so the resulting onMediaItemTransition callback is consumed as a
@@ -311,6 +337,7 @@ class PlayerController @Inject constructor(
                             isUnavailable = true,
                             unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
                         )
+                        scope.launch { extendQueue() }
                         return
                     }
                 }
@@ -350,6 +377,7 @@ class PlayerController @Inject constructor(
                     unavailableMessage = null,
                 )
                 refreshDownloadAvailability(newTrack)
+                scope.launch { extendQueue() }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -738,6 +766,18 @@ class PlayerController @Inject constructor(
      * diverge. */
     suspend fun skipToNext() {
         ensureConnected()
+        val next = nextLogicalIndex()
+        if (next != null) {
+            moveToLogicalIndex(next)
+            return
+        }
+        // Genuinely at the end with nothing already appended. The proactive extend in
+        // onMediaItemTransition should normally have prevented this - it fires
+        // EXTEND_LOOKAHEAD_TRACKS early specifically so this never has to block on
+        // network - but a slow resolve can still lose that race. One direct, awaited
+        // attempt here means pressing skip at the end of a queue still does
+        // something, rather than silently doing nothing.
+        extendQueue()
         nextLogicalIndex()?.let { moveToLogicalIndex(it) }
     }
 
@@ -1056,6 +1096,67 @@ class PlayerController @Inject constructor(
         // The requested start track is always prepended first above, so it's always
         // at position 0 in this (non-fallback) branch.
         resolutions to 0
+    }
+
+    /**
+     * Infinite autoplay: once few enough tracks remain in the logical queue (see
+     * [EXTEND_LOOKAHEAD_TRACKS]), fetches predicted continuations from
+     * [FeedRepository.predictNext] - seeded by the actual tail of what has been
+     * playing, i.e. genuinely "the next songs after wherever you started", not a
+     * generic recommendation - resolves their streams, and appends the ones that
+     * succeed to both ExoPlayer's own item list and the logical queue, the same
+     * append pattern [addToQueue] uses for a single track.
+     *
+     * A candidate that fails to resolve (dead stream, DRM-only, ...) is silently
+     * dropped rather than surfaced: unlike a track the user explicitly asked to
+     * queue, a single failed background prediction is not something they should
+     * ever have to see. Skipped entirely in Datensparmodus - silently streaming new,
+     * undownloaded content in the background is exactly what that setting exists to
+     * prevent, the same restriction [addToQueue] already applies per-track.
+     *
+     * [extendQueueMutex] serializes this against itself: the proactive call from
+     * [onMediaItemTransition] and the awaited fallback in [skipToNext] can otherwise
+     * both decide "the queue is low" from the same stale read and each fetch and
+     * append their own batch.
+     */
+    private suspend fun extendQueue() {
+        if (settingsRepository.dataSaverModeCached) return
+        extendQueueMutex.withLock {
+            if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock
+            val remaining = currentQueue.size - 1 - currentQueueIndex
+            if (remaining > EXTEND_LOOKAHEAD_TRACKS) return@withLock
+
+            val myGeneration = playRequestGeneration
+            val recentContext = (currentQueueIndex downTo 0).asSequence()
+                .mapNotNull { currentQueue.getOrNull(it) }
+                .take(SESSION_CONTEXT_SIZE)
+                .toList()
+            val excludeIds = currentQueue.mapTo(mutableSetOf()) { "${it.source}:${it.sourceId}" }
+
+            val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE) }
+                .getOrDefault(emptyList())
+            if (predicted.isEmpty()) return@withLock
+
+            val resolved = coroutineScope {
+                predicted.map { track -> async { track to resolveWithRetry(track) } }.awaitAll()
+            }.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
+            if (resolved.isEmpty()) return@withLock
+
+            // The queue this batch was built for may have been replaced by a fresh
+            // playQueue() while resolving was in flight - discard rather than glue a
+            // stale prediction onto an unrelated new session.
+            if (myGeneration != playRequestGeneration) return@withLock
+
+            val mediaController = ensureConnected()
+            var exoIndex = mediaController.mediaItemCount
+            resolved.forEach { (track, stream) ->
+                mediaController.addMediaItem(buildMediaItem(track, stream))
+                currentQueue = currentQueue + track
+                exoIndexForLogical = exoIndexForLogical + exoIndex
+                exoIndex++
+            }
+            _playbackState.value = _playbackState.value.copy(queue = currentQueue)
+        }
     }
 
     private fun toResolution(track: TrackResultDto, result: Result<ResolvedStream>): TrackResolution? = when {
