@@ -32,9 +32,14 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
-        "chart-bar",
-        "Visualizer reagieren jetzt wirklich auf den Ton",
-        "Bisher haben die Visualizer nur eine feste Animation abgespielt - sie waren technisch nie mit dem Ton verbunden. Jetzt wird das laufende Audio in Echtzeit analysiert: der Orb-Ring wächst mit dem Bass, in der Partikel-Kugel schlägt jeder Punkt auf seine eigene Frequenz aus, und Pulse sprüht Konfetti, je lauter es wird.",
+        "queue",
+        "\"Zur Warteschlange hinzufügen\" spielt jetzt wirklich als nächstes",
+        "Hinzugefügte Titel landeten bisher am Ende der Warteschlange statt direkt danach dran zu sein. Jetzt spielt ein hinzugefügter Song wirklich als nächstes, wie der Name es verspricht.",
+    ),
+    WhatsNewItem(
+        "circles-three",
+        "Visualizer: spürbar schneller und treffen jetzt den Beat",
+        "Die Visualizer liefen bisher mit gut 8 statt 60 Bildern pro Sekunde und reagierten kaum auf einzelne Kicks - das ist behoben. Alle fünf Visualizer laufen jetzt flüssig, die Partikel-Kugel hat viele mehr, kleinere Punkte mit je eigener Frequenz, und der Wellen-Visualizer ist einem kreisförmigen Spektrum gewichen. Bei Pulse spritzt das Konfetti jetzt spürbar auf den Beat statt gleichmäßig zu sprühen.",
     ),
     WhatsNewItem(
         "cloud",
