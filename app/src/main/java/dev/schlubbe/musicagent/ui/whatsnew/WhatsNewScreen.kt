@@ -33,8 +33,8 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 private val ITEMS = listOf(
     WhatsNewItem(
         "sparkle",
-        "Die Wiedergabe hört jetzt nie mehr einfach auf",
-        "Wenn eine Playlist, ein Künstler oder eine Suche zu Ende gespielt ist, schlägt Grooveo jetzt selbst passende nächste Titel vor - basierend auf dem, was du gerade gehört hast, nicht auf einer allgemeinen Empfehlung. Die \"Für dich\"-Vorschläge sollten dabei auch treffsicherer sein, und ein anstößiges Bild auf der Party-Kachel auf Start ist entfernt.",
+        "Bessere Vorschläge, und ein Filter dafür in den Einstellungen",
+        "\"Automatische Weiterempfehlung\" (Wiedergabe-Einstellungen) schlägt jetzt passende nächste Titel vor, wenn eine Warteschlange endet - basierend auf dem, was du gerade gehört hast, nicht auf einer zufälligen Liste. Die \"Für dich\"-Vorschläge sollten insgesamt treffsicherer sein. Neu unter \"Startseite personalisieren\": ein Schalter, der versucht, anstößige Titelbilder aus Charts und Mixes herauszuhalten - standardmäßig an, abschaltbar falls er mal einen falschen Titel erwischt.",
     ),
     WhatsNewItem(
         "queue",
