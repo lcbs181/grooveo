@@ -32,6 +32,11 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "sparkle",
+        "Die Wiedergabe hört jetzt nie mehr einfach auf",
+        "Wenn eine Playlist, ein Künstler oder eine Suche zu Ende gespielt ist, schlägt Grooveo jetzt selbst passende nächste Titel vor - basierend auf dem, was du gerade gehört hast, nicht auf einer allgemeinen Empfehlung. Die \"Für dich\"-Vorschläge sollten dabei auch treffsicherer sein, und ein anstößiges Bild auf der Party-Kachel auf Start ist entfernt.",
+    ),
+    WhatsNewItem(
         "queue",
         "\"Zur Warteschlange hinzufügen\" spielt jetzt wirklich als nächstes",
         "Hinzugefügte Titel landeten bisher am Ende der Warteschlange statt direkt danach dran zu sein. Jetzt spielt ein hinzugefügter Song wirklich als nächstes, wie der Name es verspricht.",
