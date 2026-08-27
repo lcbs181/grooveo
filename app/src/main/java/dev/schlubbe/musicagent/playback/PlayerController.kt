@@ -24,6 +24,7 @@ import dev.schlubbe.musicagent.data.repository.EventReporter
 import dev.schlubbe.musicagent.data.repository.FeedRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -493,6 +494,13 @@ class PlayerController @Inject constructor(
                         "Keiner der Titel konnte aufgelöst werden."
                     },
                 )
+                // Nothing here actually loaded - roll the "show the tapped track
+                // immediately" update above back to whatever's still really playing,
+                // instead of leaving the screen pointed at a track that never started
+                // (the "title changes, but the old track is what actually plays"
+                // report this was reproduced from - most commonly hit via data-saver
+                // mode refusing a non-downloaded track, not a genuine resolve failure).
+                restoreStateToCurrentTrack()
                 return
             }
 
@@ -517,12 +525,19 @@ class PlayerController @Inject constructor(
             currentTrack = startTrack
             currentTrackCompleted = false
 
+            // Not just `dataSaver`: outside data-saver mode, resolvePreferLocal() can
+            // still hand back a local download's uri when one exists, so whether
+            // *this* start track actually ended up playing locally has to come from
+            // its own resolved uri, not the mode flag.
+            val startIsLocal = (resolutions[newQueueIndex] as? TrackResolution.Playable)
+                ?.let { isLocalUri(it.resolved.url) } ?: false
+
             _playbackState.value = _playbackState.value.copy(
                 durationMs = (startTrack.durationSec ?: 0) * 1000L,
                 currentTrackId = "${startTrack.source}:${startTrack.sourceId}",
                 queue = queueTracks,
                 queueIndex = newQueueIndex,
-                isLocalPlayback = dataSaver,
+                isLocalPlayback = startIsLocal,
                 isUnavailable = false,
                 unavailableMessage = null,
             )
@@ -554,6 +569,21 @@ class PlayerController @Inject constructor(
                 )
             }
             refreshDownloadAvailability(startTrack)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Anything unexpected here (a resolve throwing outside the Result-wrapped
+            // paths, a MediaController command failing) used to propagate silently:
+            // the "show the tapped track's info immediately" update above had already
+            // landed, so the screen was left displaying the track that failed to load
+            // while whatever was loaded before kept playing underneath it - "the new
+            // track's title shows, but pressing play still plays the old one", with no
+            // error anywhere. Log it (so a recurrence is actually diagnosable) and put
+            // the UI back in sync with what's really still loaded, rather than leaving
+            // it pointed at a track that never became real.
+            Log.e(TAG, "playQueue failed for $requestedKey", e)
+            showToast(resolveFailureMessage(requestedStartTrack.title, e))
+            restoreStateToCurrentTrack()
         } finally {
             if (pendingTrackKey == requestedKey) pendingTrackKey = null
             // Only the latest request may clear the loading flags - a stale request
@@ -918,8 +948,12 @@ class PlayerController @Inject constructor(
     // touching the rest of the queue.
     private fun isCurrentItemLocal(): Boolean {
         val scheme = controller?.currentMediaItem?.localConfiguration?.uri?.scheme
-        return scheme != null && scheme != "http" && scheme != "https"
+        return isLocalScheme(scheme)
     }
+
+    private fun isLocalUri(uri: String): Boolean = isLocalScheme(Uri.parse(uri).scheme)
+
+    private fun isLocalScheme(scheme: String?): Boolean = scheme != null && scheme != "http" && scheme != "https"
 
     private suspend fun localDownloadUri(track: TrackResultDto): String? {
         val download = downloadDao.getByTrackId("${track.source}:${track.sourceId}") ?: return null
@@ -935,6 +969,40 @@ class PlayerController @Inject constructor(
      * unhelpful "nicht aufgelöst" toast for both. */
     private suspend fun resolveWithRetry(track: TrackResultDto): Result<ResolvedStream> =
         runCatching { streamResolverRegistry.resolve(track.source, track.sourceId) }
+
+    /** Prefers an already-downloaded local copy over the network stream when both are
+     * available - the default behavior for starting playback from Search/Library:
+     * pressing a downloaded track should play what's already on the device instead
+     * of re-streaming it, falling back to [resolveWithRetry] only when no local copy
+     * exists. Deliberately NOT used by [toggleSource]'s "switch to stream" branch,
+     * which needs [resolveWithRetry] to actually mean the stream - short-circuiting
+     * that to the local file too would make toggling away from local playback a
+     * no-op. */
+    private suspend fun resolvePreferLocal(track: TrackResultDto): Result<ResolvedStream> {
+        val localUri = localDownloadUri(track)
+        return if (localUri != null) {
+            Result.success(ResolvedStream(url = localUri, isHls = false))
+        } else {
+            resolveWithRetry(track)
+        }
+    }
+
+    /** Puts the UI back in sync with [currentTrack] - the item actually still loaded
+     * in the MediaController - after a [playQueue] request fails partway through,
+     * undoing its own early "show the tapped track immediately" optimism (see that
+     * function's kdoc) rather than leaving the screen pointed at a track that never
+     * became real. */
+    private fun restoreStateToCurrentTrack() {
+        currentTrack?.let { stillLoaded ->
+            _playbackState.value = _playbackState.value.copy(
+                title = stillLoaded.title,
+                artist = stillLoaded.artist,
+                artworkUrl = stillLoaded.thumbnailUrl,
+                durationMs = (stillLoaded.durationSec ?: 0) * 1000L,
+                currentTrackId = "${stillLoaded.source}:${stillLoaded.sourceId}",
+            )
+        }
+    }
 
     private fun resolveFailureMessage(title: String, error: Throwable?): String =
         if (error is SoundCloudDrmOnlyException) {
@@ -1082,7 +1150,7 @@ class PlayerController @Inject constructor(
         // Priority 1: Resolve the requested track first (blocking) so we can start
         // playback immediately - users need to hear sound fast, not wait for a
         // whole queue to load.
-        val startResult = resolveWithRetry(requestedStartTrack)
+        val startResult = resolvePreferLocal(requestedStartTrack)
         val startResolution: TrackResolution? = when {
             startResult.isSuccess -> {
                 val elapsed = System.currentTimeMillis() - startTime
@@ -1106,7 +1174,7 @@ class PlayerController @Inject constructor(
             // index, not by value-equality (see this function's kdoc).
             Log.w(TAG, "resolveStreams: falling back to full-queue resolve")
             val resolved = tracks.mapIndexed { i, track ->
-                async { i to (track to resolveWithRetry(track)) }
+                async { i to (track to resolvePreferLocal(track)) }
             }.awaitAll()
             val error = resolved.firstOrNull { (i, _) -> i == startIndex }?.second?.second?.exceptionOrNull()
             showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
@@ -1125,7 +1193,7 @@ class PlayerController @Inject constructor(
         // the one copy actually at [startIndex], not every occurrence.
         val backgroundResults = tracks.withIndex()
             .filter { it.index != startIndex }
-            .map { (_, track) -> async { track to resolveWithRetry(track) } }
+            .map { (_, track) -> async { track to resolvePreferLocal(track) } }
             .awaitAll()
         val totalElapsed = System.currentTimeMillis() - startTime
         Log.d(TAG, "resolveStreams: all tracks done in ${totalElapsed}ms (start: fast, rest: background)")

@@ -32,6 +32,11 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "download-simple",
+        "Heruntergeladene Titel spielen jetzt offline",
+        "Ein Titel aus der Suche oder der Bibliothek antippen, spielte bisher immer den Stream - selbst wenn er längst heruntergeladen war. Jetzt wird automatisch die heruntergeladene Version verwendet, wenn eine vorhanden ist, und nur sonst gestreamt.",
+    ),
+    WhatsNewItem(
         "stack",
         "Bibliothek neu gegliedert",
         "Favoriten, Playlists und Downloads sind jetzt eigene Unterseiten mit Live-Anzahl statt Kacheln zum Umschalten - übersichtlicher, näher am gewohnten SoundCloud-Aufbau. \"Kürzlich abgespielt\" und der Wiedergabeverlauf stehen direkt auf der Startseite der Bibliothek.",
