@@ -50,7 +50,7 @@ description of what you tested in the PR) is the current bar.
   run ktlint/detekt yet — match existing formatting rather than introducing a
   new style within one file).
 - Compose UI: keep new screens/components consistent with the existing
-  Nocturne design system (`ui/theme/`, `ui/components/`) rather than
+  Canopy design system (`ui/theme/`, `ui/components/`) rather than
   introducing ad-hoc styling. If you're implementing a design that doesn't
   exist as a token yet, add the token rather than hardcoding a one-off value.
 - Comments should explain *why*, not *what* — only add one where the reasoning
