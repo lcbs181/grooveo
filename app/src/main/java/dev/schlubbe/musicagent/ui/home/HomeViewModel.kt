@@ -569,6 +569,17 @@ class HomeViewModel @Inject constructor(
      *   fill the card. */
     private fun loadMixCards() {
         viewModelScope.launch {
+            // Genre-tagged first, same reasoning as the party pool below (real
+            // uploader-set genre metadata is a more legitimate population than a
+            // free-text keyword match) - falls back to a plain search only if
+            // Hardstyle coverage is too sparse to fill the card.
+            val gymPool = runCatching { searchRepository.getTrendingByGenre("Hardstyle", limit = MOOD_MIX_SEARCH_LIMIT) }
+                .getOrDefault(emptyList())
+                .ifEmpty {
+                    runCatching { searchRepository.search("gym hardstyle mix", limit = MOOD_MIX_SEARCH_LIMIT) }
+                        .getOrDefault(emptyList())
+                        .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+                }
             val focusPool = runCatching { feedRepository.getPersonalizedMix() }.getOrDefault(emptyList())
             val chillPool = runCatching { searchRepository.search(MoodFilter.CHILL.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
                 .getOrDefault(emptyList())
@@ -586,6 +597,17 @@ class HomeViewModel @Inject constructor(
                 }
 
             val cards = buildList {
+                if (gymPool.isNotEmpty()) {
+                    add(
+                        MixCard(
+                            badge = "GYM",
+                            title = "Gym Hardstyle Mix🔱",
+                            subtitle = "Power fürs Training",
+                            thumbnailUrl = gymPool.firstOrNull { it.thumbnailUrl != null }?.thumbnailUrl,
+                            pool = gymPool,
+                        ),
+                    )
+                }
                 if (focusPool.size >= MIX_POOL_MINIMUM) {
                     add(
                         MixCard(
