@@ -26,7 +26,7 @@ app/src/main/java/dev/schlubbe/musicagent/
 ├── widget/                home-screen widget (Jetpack Glance)
 └── ui/
     ├── navigation/        NavGraph, single-Activity navigation
-    ├── theme/             Nocturne design system: colors, type, tokens
+    ├── theme/             Canopy design system: colors, type, tokens
     ├── components/        shared composables (buttons, cards, etc.)
     ├── icons/              Phosphor icon lookup
     ├── home/, search/, library/, playlist/, artist/, player/,
@@ -124,8 +124,8 @@ cut.
 
 ## Design system
 
-`ui/theme/` implements "Nocturne" — the dark, purple-accented design system
-used throughout the app (and the widget, via duplicated plain `Color`
-constants in `widget/PlaybackWidget.kt`, since Glance widgets can't reference
-Compose's `MaterialTheme`). Icons come from Phosphor Icons
-(`ui/icons/`, `com.adamglin:phosphor-icon`).
+`ui/theme/` implements "Canopy" — the forest-green/coral design system (both
+light and dark palettes) used throughout the app (and the widget, via
+duplicated plain `Color` constants in `widget/PlaybackWidget.kt`, since
+Glance widgets can't reference Compose's `MaterialTheme`). Icons come from
+Phosphor Icons (`ui/icons/`, `com.adamglin:phosphor-icon`).
