@@ -32,6 +32,11 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 private val ITEMS = listOf(
     WhatsNewItem(
+        "pulse",
+        "Neuer Mix: Gym Hardstyle🔱",
+        "\"Für dich abgemischt\" hat jetzt einen vierten Mix ganz vorne: Hardstyle für dein Training, zusammengestellt aus echten SoundCloud-Uploads mit dem Hardstyle-Tag.",
+    ),
+    WhatsNewItem(
         "download-simple",
         "Heruntergeladene Titel spielen jetzt offline",
         "Ein Titel aus der Suche oder der Bibliothek antippen, spielte bisher immer den Stream - selbst wenn er längst heruntergeladen war. Jetzt wird automatisch die heruntergeladene Version verwendet, wenn eine vorhanden ist, und nur sonst gestreamt.",
