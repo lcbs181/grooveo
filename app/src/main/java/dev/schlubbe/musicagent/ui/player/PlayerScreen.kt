@@ -120,11 +120,13 @@ private data class VizOption(val id: String, val icon: String)
 private val VizOptions = listOf(
     VizOption("circle", "vinyl-record"),
     VizOption("bars", "chart-bar"),
+    // The particle orb is the default variant (see PlayerController._vizVariant),
+    // so it sits in the middle of the row rather than off to one side.
+    VizOption("particles", "sphere"),
     // Design's icon here is "ph-circle-half", which isn't in PhosphorIcon.kt's map
     // (its fallback would silently render a warning-circle glyph) -- "circles-three"
     // is the closest mapped stand-in for a circular/orb concept.
     VizOption("orb", "circles-three"),
-    VizOption("particles", "sphere"),
     VizOption("pulse", "broadcast"),
 )
 
