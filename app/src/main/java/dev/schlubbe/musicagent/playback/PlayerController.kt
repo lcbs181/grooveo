@@ -122,7 +122,7 @@ class PlayerController @Inject constructor(
     // The Player screen's chosen Visualizer style - a singleton field (not
     // per-screen remembered state) so it survives closing and reopening the
     // Player, the same way the queue/current track already do.
-    private val _vizVariant = MutableStateFlow("orb")
+    private val _vizVariant = MutableStateFlow("particles")
     val vizVariant: StateFlow<String> = _vizVariant.asStateFlow()
     fun setVizVariant(variant: String) {
         _vizVariant.value = variant
