@@ -583,6 +583,7 @@ fun PlayerScreen(
             ) {
                 CanopyIconButton(
                     icon = phosphorIcon("shuffle"),
+                    contentDescription = if (playbackState.shuffleEnabled) "Zufallswiedergabe aus" else "Zufallswiedergabe an",
                     onClick = {
                         haptic.performHapticFeedback(
                             if (playbackState.shuffleEnabled) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
@@ -594,6 +595,7 @@ fun PlayerScreen(
                 )
                 CanopyIconButton(
                     icon = phosphorIcon("skip-back"),
+                    contentDescription = "Vorheriger Titel",
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
                         viewModel.skipToPrevious()
@@ -636,6 +638,7 @@ fun PlayerScreen(
                 }
                 CanopyIconButton(
                     icon = phosphorIcon("skip-forward"),
+                    contentDescription = "Nächster Titel",
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
                         viewModel.skipToNext()
@@ -645,6 +648,11 @@ fun PlayerScreen(
                 )
                 CanopyIconButton(
                     icon = phosphorIcon(if (playbackState.repeatMode == Player.REPEAT_MODE_ONE) "repeat-once" else "repeat"),
+                    contentDescription = when (playbackState.repeatMode) {
+                        Player.REPEAT_MODE_ALL -> "Wiederholen: alle"
+                        Player.REPEAT_MODE_ONE -> "Wiederholen: ein Titel"
+                        else -> "Wiederholen: aus"
+                    },
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                         viewModel.cycleRepeatMode()
@@ -793,11 +801,25 @@ fun PlayerScreen(
             }
 
             if (upNext.isNotEmpty()) {
-                CanopySectionHeader(title = "Als Nächstes", modifier = Modifier.padding(top = 22.dp))
+                CanopySectionHeader(
+                    title = "Als Nächstes",
+                    action = "Leeren",
+                    onActionClick = viewModel::clearUpNext,
+                    modifier = Modifier.padding(top = 22.dp),
+                )
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                     upNext.forEachIndexed { i, track ->
                         val queueIndex = playbackState.queueIndex + 1 + i
-                        UpNextRow(track = track, onClick = { viewModel.playQueueItem(queueIndex) })
+                        val firstUpcoming = playbackState.queueIndex + 1
+                        val lastUpcoming = playbackState.queueIndex + upNext.size
+                        UpNextRow(
+                            track = track,
+                            onClick = { viewModel.playQueueItem(queueIndex) },
+                            onPlayNext = { viewModel.moveInQueue(queueIndex, firstUpcoming) }.takeIf { queueIndex > firstUpcoming },
+                            onMoveUp = { viewModel.moveInQueue(queueIndex, queueIndex - 1) }.takeIf { queueIndex > firstUpcoming },
+                            onMoveDown = { viewModel.moveInQueue(queueIndex, queueIndex + 1) }.takeIf { queueIndex < lastUpcoming },
+                            onRemove = { viewModel.removeFromQueue(queueIndex) },
+                        )
                     }
                 }
             } else {
@@ -874,9 +896,42 @@ private fun SleepTimerDialog(
 }
 
 @Composable
-private fun UpNextRow(track: TrackResultDto, onClick: () -> Unit) {
+private fun UpNextRow(
+    track: TrackResultDto,
+    onClick: () -> Unit,
+    onPlayNext: (() -> Unit)?,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
+    onRemove: () -> Unit,
+) {
     val dimens = rememberResponsiveDimens()
+    var menuExpanded by remember { mutableStateOf(false) }
     ListItem(
+        trailingContent = {
+            Box {
+                CanopyIconButton(
+                    icon = phosphorIcon("dots-three-vertical"),
+                    onClick = { menuExpanded = true },
+                    size = 36.dp,
+                    contentDescription = "Warteschlange bearbeiten",
+                )
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    @Composable
+                    fun item(label: String, icon: String, action: (() -> Unit)?) {
+                        if (action == null) return
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            leadingIcon = { Icon(phosphorIcon(icon), contentDescription = null, tint = Canopy.accent) },
+                            onClick = { menuExpanded = false; action() },
+                        )
+                    }
+                    item("Als Nächstes spielen", "skip-forward", onPlayNext)
+                    item("Nach oben", "caret-up", onMoveUp)
+                    item("Nach unten", "caret-down", onMoveDown)
+                    item("Aus Warteschlange entfernen", "x", onRemove)
+                }
+            }
+        },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail) },
         headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },

@@ -16,6 +16,7 @@ import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.CaretLeft
 import com.adamglin.phosphoricons.regular.CaretRight
 import com.adamglin.phosphoricons.regular.CaretDown
+import com.adamglin.phosphoricons.regular.CaretUp
 import com.adamglin.phosphoricons.regular.PencilSimple
 import com.adamglin.phosphoricons.regular.GearSix
 import com.adamglin.phosphoricons.regular.User
@@ -190,6 +191,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "caret-left" -> PhosphorIcons.Regular.CaretLeft
         "caret-right" -> PhosphorIcons.Regular.CaretRight
         "caret-down" -> PhosphorIcons.Regular.CaretDown
+        "caret-up" -> PhosphorIcons.Regular.CaretUp
         "pencil-simple" -> PhosphorIcons.Regular.PencilSimple
         "gear-six" -> PhosphorIcons.Regular.GearSix
         "user" -> PhosphorIcons.Regular.User

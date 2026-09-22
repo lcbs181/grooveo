@@ -142,6 +142,18 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { playerController.skipToQueueIndex(index) }
     }
 
+    fun removeFromQueue(index: Int) {
+        viewModelScope.launch { playerController.removeFromQueue(index) }
+    }
+
+    fun moveInQueue(from: Int, to: Int) {
+        viewModelScope.launch { playerController.moveInQueue(from, to) }
+    }
+
+    fun clearUpNext() {
+        viewModelScope.launch { playerController.clearUpNext() }
+    }
+
     fun toggleLike() {
         val track = playerController.nowPlayingTrack() ?: return
         viewModelScope.launch { runCatching { likesRepository.toggle(track) } }
