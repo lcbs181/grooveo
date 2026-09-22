@@ -13,6 +13,13 @@ import javax.inject.Singleton
 
 data class FeedItem(val track: TrackResultDto, val reason: String)
 
+/** [isTasteBased] is true only while [FeedRepository.getFeed] had no real play/
+ * like history to work from and fell back to onboarding's genre/artist picks
+ * instead of local affinity - see that function. Lets HomeViewModel show an
+ * honest "Mehr für dich" subline instead of always claiming it's calculated
+ * from device history. */
+data class FeedResult(val items: List<FeedItem>, val isTasteBased: Boolean)
+
 /** Local counterpart to [dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto]
  * (TrackOutDto's version) - needed here (rather than reusing HomeViewModel's private
  * copy) since [FeedRepository.getPersonalizedMix] mixes cached [TrackEntity] rows
@@ -69,9 +76,14 @@ class FeedRepository @Inject constructor(
     private val searchRepository: SearchRepository,
     private val settingsRepository: SettingsRepository,
 ) {
-    suspend fun getFeed(limit: Int = 20): List<FeedItem> {
+    suspend fun getFeed(
+        limit: Int = 20,
+        preferredGenres: Set<String> = emptySet(),
+        preferredArtists: List<String> = emptyList(),
+    ): FeedResult {
         val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
         val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
+        val hasHistory = recentlyPlayed.isNotEmpty() || likes.isNotEmpty()
 
         val excludeIds = (recentlyPlayed.map { it.id } + likes.map { it.track.id }).toSet()
 
@@ -96,17 +108,56 @@ class FeedRepository @Inject constructor(
         val seenIds = excludeIds.toMutableSet()
         val familiar = mutableListOf<FeedItem>()
 
-        for ((source, artist) in topArtists) {
-            if (familiar.size >= familiarTarget) break
-            val tracks = runCatching { searchRepository.search(artist, source = source, limit = 8) }
-                .getOrDefault(emptyList())
-                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
-                .filterNot { "${it.source}:${it.sourceId}" in seenIds }
-            for (track in tracks) {
+        // A brand new install has no history to build "familiar" from at all -
+        // topArtists comes back empty, and without this the whole shelf used to
+        // fall straight through to tier 2 below (ytmusic global trending), which
+        // is what "Mehr für dich" was showing under a "calculated from your
+        // history and likes" subtitle it hadn't earned yet. Onboarding's taste
+        // picks are the honest substitute signal for exactly this case - only
+        // actually claimed once they've contributed a real item, not just
+        // attempted (a search that comes back empty shouldn't mislabel a shelf
+        // that's 100% trending fallback underneath).
+        var isTasteBased = false
+
+        if (hasHistory) {
+            for ((source, artist) in topArtists) {
                 if (familiar.size >= familiarTarget) break
-                familiar += FeedItem(track, "Weil du $artist magst")
-                seenIds += "${track.source}:${track.sourceId}"
+                val tracks = runCatching { searchRepository.search(artist, source = source, limit = 8) }
+                    .getOrDefault(emptyList())
+                    .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+                    .filterNot { "${it.source}:${it.sourceId}" in seenIds }
+                for (track in tracks) {
+                    if (familiar.size >= familiarTarget) break
+                    familiar += FeedItem(track, "Weil du $artist magst")
+                    seenIds += "${track.source}:${track.sourceId}"
+                }
             }
+        } else if (preferredGenres.isNotEmpty() || preferredArtists.isNotEmpty()) {
+            for (artist in preferredArtists) {
+                if (familiar.size >= familiarTarget) break
+                val tracks = runCatching { searchRepository.search(artist, limit = 8) }
+                    .getOrDefault(emptyList())
+                    .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+                    .filterNot { "${it.source}:${it.sourceId}" in seenIds }
+                for (track in tracks) {
+                    if (familiar.size >= familiarTarget) break
+                    familiar += FeedItem(track, "Weil du $artist magst")
+                    seenIds += "${track.source}:${track.sourceId}"
+                }
+            }
+            for (genre in preferredGenres) {
+                if (familiar.size >= familiarTarget) break
+                // Already filterForDiscovery-filtered internally.
+                val tracks = runCatching { searchRepository.getTrendingByGenre(genre, limit = 8) }
+                    .getOrDefault(emptyList())
+                    .filterNot { "${it.source}:${it.sourceId}" in seenIds }
+                for (track in tracks) {
+                    if (familiar.size >= familiarTarget) break
+                    familiar += FeedItem(track, "Weil du auf $genre stehst")
+                    seenIds += "${track.source}:${track.sourceId}"
+                }
+            }
+            isTasteBased = familiar.isNotEmpty()
         }
 
         val novelTarget = limit - familiar.size
@@ -122,7 +173,7 @@ class FeedRepository @Inject constructor(
             emptyList()
         }
 
-        return diversify(interleave(familiar, novel))
+        return FeedResult(diversify(interleave(familiar, novel)), isTasteBased)
     }
 
     /** Powers Home's "Deine Mixes" personalized "Fokus-Mix" card (formerly "Im
@@ -136,13 +187,21 @@ class FeedRepository @Inject constructor(
      * already like" is exactly the point (unlike the feed's "something new" half).
      * Both sources contribute (getFeed's ytmusic-only restriction is about keeping a
      * *reason* like "Weil du X magst" trustworthy - a shuffle pool has no such
-     * per-item reason to get wrong). Returns an empty pool when there's no history/
-     * likes to build from at all, so the caller can hide the card instead of showing
-     * an unlabeled shuffle of nothing. */
-    suspend fun getPersonalizedMix(limit: Int = 40): List<TrackResultDto> {
+     * per-item reason to get wrong). With no history/likes to build from at all,
+     * falls back to onboarding's genre/artist picks (same substitute signal as
+     * [getFeed]'s own no-history branch) rather than an empty pool, so a brand
+     * new user still gets a "Fokus-Mix" card instead of Home just not showing
+     * one; only truly empty (no history *and* no picks) hides the card. */
+    suspend fun getPersonalizedMix(
+        limit: Int = 40,
+        preferredGenres: Set<String> = emptySet(),
+        preferredArtists: List<String> = emptyList(),
+    ): List<TrackResultDto> {
         val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
         val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
-        if (recentlyPlayed.isEmpty() && likes.isEmpty()) return emptyList()
+        if (recentlyPlayed.isEmpty() && likes.isEmpty()) {
+            return getTastePool(limit, preferredGenres, preferredArtists)
+        }
 
         val affinity = buildArtistAffinity(recentlyPlayed, likes)
         val topArtists = affinity.entries
@@ -256,6 +315,29 @@ class FeedRepository @Inject constructor(
         }
 
         return diversifyTracks(result)
+    }
+
+    /** [getPersonalizedMix]'s no-history fallback: a shuffled pool from onboarding's
+     * genre/artist picks instead of the real affinity there's nothing yet to build.
+     * Empty picks (declined/skipped onboarding, or nothing set) fall through to an
+     * empty pool, same as before this existed. */
+    private suspend fun getTastePool(
+        limit: Int,
+        preferredGenres: Set<String>,
+        preferredArtists: List<String>,
+    ): List<TrackResultDto> {
+        if (preferredGenres.isEmpty() && preferredArtists.isEmpty()) return emptyList()
+        val pool = mutableListOf<TrackResultDto>()
+        for (artist in preferredArtists) {
+            pool += runCatching { searchRepository.search(artist, limit = MIX_TRACKS_PER_ARTIST) }.getOrDefault(emptyList())
+        }
+        for (genre in preferredGenres) {
+            pool += runCatching { searchRepository.getTrendingByGenre(genre, limit = MIX_TRACKS_PER_ARTIST) }.getOrDefault(emptyList())
+        }
+        return pool.filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+            .distinctBy { "${it.source}:${it.sourceId}" }
+            .shuffled()
+            .take(limit)
     }
 
     private fun buildArtistAffinity(

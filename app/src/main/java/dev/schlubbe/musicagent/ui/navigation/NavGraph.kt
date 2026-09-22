@@ -64,6 +64,7 @@ import dev.schlubbe.musicagent.ui.search.SearchScreen
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingScreen
 import dev.schlubbe.musicagent.ui.onboarding.OnboardingViewModel
+import dev.schlubbe.musicagent.ui.onboarding.TastePickerScreen
 import dev.schlubbe.musicagent.ui.settings.EqualizerScreen
 import dev.schlubbe.musicagent.ui.settings.SettingsScreen
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -86,6 +87,7 @@ object Routes {
     const val DOWNLOADS = "downloads"
     const val CONNECT = "connect_pc"
     const val EQUALIZER = "equalizer"
+    const val TASTE_PICKER = "taste_picker"
     const val WHATS_NEW = "whats_new"
     const val PLAYLIST_DETAIL = "playlist/{playlistId}"
     const val ARTIST_DETAIL = "artist/{source}/{sourceId}"
@@ -121,6 +123,7 @@ private val BOTTOM_BAR_HIDDEN_ROUTES = setOf(
     Routes.SETTINGS,
     Routes.EQUALIZER,
     Routes.CONNECT,
+    Routes.TASTE_PICKER,
 )
 
 @Composable
@@ -297,7 +300,11 @@ fun MusicAgentNavGraph(
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
                     onNavigateToEqualizer = { navController.navigate(Routes.EQUALIZER) },
                     onConnectPcClick = { navController.navigate(Routes.CONNECT) },
+                    onTastePickerClick = { navController.navigate(Routes.TASTE_PICKER) },
                 )
+            }
+            composable(Routes.TASTE_PICKER) {
+                TastePickerScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(Routes.WHATS_NEW) {
                 WhatsNewScreen(onDone = { navController.popBackStack() })

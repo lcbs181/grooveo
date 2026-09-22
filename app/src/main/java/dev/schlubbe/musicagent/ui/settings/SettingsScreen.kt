@@ -85,6 +85,7 @@ fun SettingsScreen(
     onWhatsNewClick: () -> Unit = {},
     onNavigateToEqualizer: () -> Unit = {},
     onConnectPcClick: () -> Unit = {},
+    onTastePickerClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
@@ -151,6 +152,12 @@ fun SettingsScreen(
                                 if (on) showSound3dSheet = true else viewModel.onSound3dPresetChanged(Sound3dPreset.DISABLED)
                             },
                             onClick = { showSound3dSheet = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("sparkle"),
+                            title = "Musikgeschmack anpassen",
+                            subtitle = "Genres & Künstler für Home-Vorschläge",
+                            onClick = onTastePickerClick,
                         )
                     }
                 }

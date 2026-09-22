@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.schlubbe.musicagent.playback.EqPreset
@@ -71,6 +72,13 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // already surfacing explicit thumbnails on Home unfiltered, so "on" is the
         // safer default, with this switch as the escape hatch for a false positive.
         val CONTENT_SAFETY_FILTER = booleanPreferencesKey("content_safety_filter")
+        // Onboarding's "Was hörst du gern?" taste picker (step 2) - drives Home's
+        // "Mehr für dich" fallback and "Trends nach Genre" ordering for a user with
+        // no play/like history yet. Also reachable post-onboarding via Settings'
+        // "Musikgeschmack anpassen". Artists are comma-joined, same pattern as
+        // CUSTOM_EQ_GAINS above, since DataStore has no native string-list type.
+        val PREFERRED_GENRES = stringSetPreferencesKey("preferred_genres")
+        val PREFERRED_ARTISTS = stringPreferencesKey("preferred_artists")
     }
 
     val backendBaseUrl: Flow<String> = dataStore.data.map { it[Keys.BACKEND_BASE_URL] ?: "" }
@@ -111,6 +119,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val sourceSoundCloudEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_SOUNDCLOUD] ?: true }
     val sourceYtMusicEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_YTMUSIC] ?: true }
     val contentSafetyFilter: Flow<Boolean> = dataStore.data.map { it[Keys.CONTENT_SAFETY_FILTER] ?: true }
+    val preferredGenres: Flow<Set<String>> = dataStore.data.map { it[Keys.PREFERRED_GENRES] ?: emptySet() }
+    val preferredArtists: Flow<List<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.PREFERRED_ARTISTS]?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+    }
 
     /** The two source toggles collapsed into the `source` string the repositories
      * already speak ("all" / "soundcloud" / "ytmusic"). Turning both off would
@@ -261,5 +273,13 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setLibraryImportBannerDismissed(dismissed: Boolean) {
         dataStore.edit { it[Keys.LIBRARY_IMPORT_BANNER_DISMISSED] = dismissed }
+    }
+
+    suspend fun setPreferredGenres(genres: Set<String>) {
+        dataStore.edit { it[Keys.PREFERRED_GENRES] = genres }
+    }
+
+    suspend fun setPreferredArtists(artists: List<String>) {
+        dataStore.edit { it[Keys.PREFERRED_ARTISTS] = artists.joinToString(",") }
     }
 }
