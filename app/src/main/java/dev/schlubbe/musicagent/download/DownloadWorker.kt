@@ -192,80 +192,86 @@ class DownloadWorker @AssistedInject constructor(
     }
 
     /** Direct single-file download (YouTube always, SoundCloud when its
-     * "progressive" transcoding is what resolved) - byte-range resumable via a
-     * `Range` header when [startOffset] > 0. */
+     * "progressive" transcoding is what resolved), fetched as a series of
+     * [CHUNK_BYTES]-sized `Range` requests rather than one long response:
+     * googlevideo serves the first part of any single request at full speed and then
+     * throttles it to roughly playback speed, which made a 5 MB track take about two
+     * minutes. Resumes from [startOffset] after a pause/retry. */
     private suspend fun downloadProgressive(
         resolved: ResolvedStream,
         tempFile: File,
         startOffset: Long,
         onProgress: suspend (Int) -> Unit,
     ): TransferOutcome {
-        var resumeOffset = startOffset
-        val requestBuilder = Request.Builder().url(resolved.url)
-        resolved.httpHeaders.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
-        if (resumeOffset > 0) requestBuilder.addHeader("Range", "bytes=$resumeOffset-")
+        var offset = startOffset.coerceIn(0L, if (tempFile.exists()) tempFile.length() else 0L)
+        if (offset == 0L) tempFile.delete()
+        var totalBytes: Long? = null
+        var mimeType = "audio/mp4"
+        var lastPct = -1
 
-        return try {
-            okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
-                // A Range request for bytes already fully downloaded (e.g. retrying
-                // after the transfer succeeded but the MediaStore finalize step
-                // failed) lands past the end of the resource - the server's honest
-                // answer is 416, not an error. Treat it as already-complete rather
-                // than a dead-end failure with no way to recover short of a full
-                // redownload; the temp file already has everything finalize needs.
-                if (response.code == 416 && resumeOffset > 0) {
-                    return TransferOutcome.Completed(mimeType = "audio/mp4", totalBytes = response.body.contentLength().takeIf { it > 0 })
-                }
-                if (!response.isSuccessful) {
-                    // 429 (rate limited) is exactly the outcome expected from
-                    // downloading a whole playlist at once - it is transient, not a
-                    // permanent failure, and treating it as one used to turn the
-                    // very first rate-limit hit into a one-shot failure the user had
-                    // to manually retry per track.
-                    val retryable = response.code in 500..599 || response.code == 429
-                    return TransferOutcome.Failed(resumeOffset, retryable, totalBytes = response.body.contentLength().takeIf { it > 0 })
-                }
+        try {
+            while (true) {
+                if (isStopped) return TransferOutcome.Paused(offset, lastPct, totalBytes)
+                val requestBuilder = Request.Builder().url(resolved.url)
+                resolved.httpHeaders.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
+                requestBuilder.addHeader("Range", "bytes=$offset-${offset + CHUNK_BYTES - 1}")
 
-                // The server may ignore our Range header and send the whole file back
-                // with a plain 200 instead of a 206 - resuming into the existing bytes
-                // in that case would produce a corrupt, duplicate-prefixed file, so
-                // fall back to a full restart.
-                val resuming = resumeOffset > 0 && response.code == 206
-                if (resumeOffset > 0 && !resuming) resumeOffset = 0
+                val chunkRead = okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                    // Past the end of the file: everything is already in the temp file
+                    // (e.g. retrying after a failed MediaStore finalize step).
+                    if (response.code == 416 && offset > 0) {
+                        return TransferOutcome.Completed(mimeType, totalBytes ?: offset)
+                    }
+                    if (!response.isSuccessful) {
+                        // 429 (rate limited) is expected when downloading a whole
+                        // playlist at once - transient, so retryable like a 5xx.
+                        val retryable = response.code in 500..599 || response.code == 429
+                        return TransferOutcome.Failed(offset, retryable, totalBytes)
+                    }
+                    mimeType = response.body.contentType()?.toString() ?: mimeType
+                    val ignoredRange = response.code != 206
+                    if (ignoredRange) {
+                        // The server sent the whole file instead of the requested range -
+                        // start over rather than appending a duplicate prefix.
+                        tempFile.delete()
+                        offset = 0L
+                        totalBytes = response.body.contentLength().takeIf { it > 0 }
+                    } else if (totalBytes == null) {
+                        totalBytes = response.header("Content-Range")?.substringAfterLast('/')?.toLongOrNull()
+                    }
 
-                val body = response.body
-                val mimeType = body.contentType()?.toString() ?: "audio/mp4"
-                val contentLength = body.contentLength()
-                val expectedTotal = contentLength.let { if (it > 0) it + resumeOffset else -1L }
-                // Full file size - a resumed (206) response's Content-Length only covers
-                // the remaining bytes, which used to be stored as the file's size.
-                val totalBytes = expectedTotal.takeIf { it > 0 }
-
-                FileOutputStream(tempFile, resuming).use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(64 * 1024)
-                        var totalRead = resumeOffset
-                        var lastPct = -1
-                        while (true) {
-                            if (isStopped) return TransferOutcome.Paused(totalRead, lastPct, totalBytes)
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            totalRead += read
-                            if (expectedTotal > 0) {
-                                val pct = ((totalRead * 100) / expectedTotal).toInt()
-                                if (pct != lastPct) {
-                                    lastPct = pct
-                                    onProgress(pct)
+                    var read = 0L
+                    FileOutputStream(tempFile, true).use { output ->
+                        response.body.byteStream().use { input ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                if (isStopped) return TransferOutcome.Paused(offset + read, lastPct, totalBytes)
+                                val n = input.read(buffer)
+                                if (n == -1) break
+                                output.write(buffer, 0, n)
+                                read += n
+                                val total = totalBytes
+                                if (total != null && total > 0) {
+                                    val pct = (((offset + read) * 100) / total).toInt()
+                                    if (pct != lastPct) {
+                                        lastPct = pct
+                                        onProgress(pct)
+                                    }
                                 }
                             }
                         }
-                        TransferOutcome.Completed(mimeType, totalBytes)
                     }
+                    if (ignoredRange) return TransferOutcome.Completed(mimeType, offset + read)
+                    read
+                }
+                offset += chunkRead
+                val total = totalBytes
+                if (chunkRead == 0L || (total != null && offset >= total)) {
+                    return TransferOutcome.Completed(mimeType, total ?: offset)
                 }
             }
         } catch (e: IOException) {
-            TransferOutcome.Failed(tempFile.length(), retryable = true, totalBytes = null)
+            return TransferOutcome.Failed(tempFile.length(), retryable = true, totalBytes = totalBytes)
         }
     }
 
@@ -400,6 +406,7 @@ class DownloadWorker @AssistedInject constructor(
     companion object {
         const val KEY_SOURCE = "source"
         const val KEY_SOURCE_ID = "source_id"
+        private const val CHUNK_BYTES = 2L * 1024 * 1024
         const val KEY_TITLE = "title"
         const val KEY_ARTIST = "artist"
         const val PROGRESS_KEY = "progress_pct"
