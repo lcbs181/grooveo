@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.downloads
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,7 +21,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,7 +57,7 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
     val queue = downloads.filter { it.entity.state != DownloadState.COMPLETED }
     val onDevice = downloads.filter { it.entity.state == DownloadState.COMPLETED }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
@@ -140,6 +147,7 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
                             viewModel.playDownload(onDevice[index])
                             onDownloadPlayed()
                         },
+                        onDelete = { viewModel.cancel(onDevice[index].entity.trackId) },
                     )
                 }
             }
@@ -276,7 +284,17 @@ private fun QueueRow(
 }
 
 @Composable
-private fun OnDeviceRow(item: DownloadUiItem, onClick: () -> Unit) {
+private fun OnDeviceRow(item: DownloadUiItem, onClick: () -> Unit, onDelete: () -> Unit) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Download entfernen?") },
+            text = { Text("„${item.track?.title ?: item.entity.trackId}“ wird vom Gerät gelöscht. Streamen geht weiterhin.") },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Entfernen") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Abbrechen") } },
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -309,11 +327,10 @@ private fun OnDeviceRow(item: DownloadUiItem, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(
-            phosphorIcon("check-circle", filled = true),
-            contentDescription = "Gespeichert",
-            tint = Canopy.accent,
-            modifier = Modifier.size(20.dp),
+        CanopyIconButton(
+            icon = phosphorIcon("trash"),
+            onClick = { confirmDelete = true },
+            contentDescription = "Download entfernen",
         )
     }
 }

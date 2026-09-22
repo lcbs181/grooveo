@@ -433,12 +433,14 @@ class PlayerController @Inject constructor(
      * In data-saver mode, tracks without a completed local download are silently
      * dropped from the queue (rather than blocking the whole queue, or falling back to
      * streaming) since that keeps the rest of an otherwise-downloaded queue playable.
-     * Outside data-saver mode, tracks whose on-device stream resolution fails (the
-     * client-side extractor can break more often than the old stable backend did) are
-     * dropped the same way, EXCEPT a [SoundCloudDrmOnlyException] track: that one is
-     * kept in the logical queue as an unplayable placeholder (see [currentQueue]'s
-     * kdoc) so landing on it - by tapping it directly, or the queue naturally reaching
-     * it - shows "Titel nicht verfügbar" instead of silently continuing past it. */
+     * Outside data-saver mode, only [startIndex]'s own stream is resolved before
+     * playback starts - see [playQueueStreaming]'s kdoc for why the rest of a large
+     * queue (a whole Likes/Library list, commonly) must never block that. Tracks whose
+     * on-device stream resolution fails (the client-side extractor can break more
+     * often than the old stable backend did) stay in the logical queue as an
+     * unplayable placeholder (see [currentQueue]'s kdoc) rather than being dropped, so
+     * landing on one - by tapping it directly, or the queue naturally reaching it -
+     * shows "Titel nicht verfügbar" instead of silently continuing past it. */
     suspend fun playQueue(tracks: List<TrackResultDto>, startIndex: Int) {
         if (tracks.isEmpty()) return
         val requestedStartTrack = tracks[startIndex]
@@ -467,108 +469,11 @@ class PlayerController @Inject constructor(
 
         try {
             val mediaController = ensureConnected()
-            val dataSaver = settingsRepository.dataSaverModeCached
-
-            val resolutionsAndIndex: Pair<List<TrackResolution>, Int> = if (dataSaver) {
-                val (playable, startPos) = resolveLocalOnly(tracks, startIndex)
-                playable.map<Pair<TrackResultDto, ResolvedStream>, TrackResolution> { (track, resolved) ->
-                    TrackResolution.Playable(track, resolved)
-                } to startPos
+            if (settingsRepository.dataSaverModeCached) {
+                playQueueDataSaver(tracks, startIndex, myGeneration, mediaController)
             } else {
-                resolveStreamsWithGaps(tracks, startIndex)
+                playQueueStreaming(tracks, startIndex, requestedStartTrack, myGeneration, mediaController)
             }
-            val (resolutions, newQueueIndex) = resolutionsAndIndex
-
-            // A newer playQueue()/playLocalDownload() call has started while this one
-            // was resolving streams (a network round-trip, not instant) - bail out
-            // before touching any shared queue state or issuing MediaController
-            // commands, so a slow earlier request can never stomp a faster later one
-            // and "un-skip" playback back to a track the user already left.
-            if (myGeneration != playRequestGeneration) return
-
-            if (resolutions.isEmpty()) {
-                showToast(
-                    if (dataSaver) {
-                        "Datensparmodus: Keine heruntergeladenen Titel in dieser Auswahl."
-                    } else {
-                        "Keiner der Titel konnte aufgelöst werden."
-                    },
-                )
-                // Nothing here actually loaded - roll the "show the tapped track
-                // immediately" update above back to whatever's still really playing,
-                // instead of leaving the screen pointed at a track that never started
-                // (the "title changes, but the old track is what actually plays"
-                // report this was reproduced from - most commonly hit via data-saver
-                // mode refusing a non-downloaded track, not a genuine resolve failure).
-                restoreStateToCurrentTrack()
-                return
-            }
-
-            currentTrack?.let { previous ->
-                if (!currentTrackCompleted) eventReporter.skip(previous)
-            }
-
-            val queueTracks = resolutions.map { it.track }
-            val mediaItems = mutableListOf<MediaItem>()
-            val exoMapping = arrayOfNulls<Int>(resolutions.size)
-            resolutions.forEachIndexed { i, resolution ->
-                if (resolution is TrackResolution.Playable) {
-                    exoMapping[i] = mediaItems.size
-                    mediaItems += buildMediaItem(resolution.track, resolution.resolved)
-                }
-            }
-
-            val startTrack = queueTracks[newQueueIndex]
-            currentQueue = queueTracks
-            exoIndexForLogical = exoMapping.toList()
-            currentQueueIndex = newQueueIndex
-            currentTrack = startTrack
-            currentTrackCompleted = false
-
-            // Not just `dataSaver`: outside data-saver mode, resolvePreferLocal() can
-            // still hand back a local download's uri when one exists, so whether
-            // *this* start track actually ended up playing locally has to come from
-            // its own resolved uri, not the mode flag.
-            val startIsLocal = (resolutions[newQueueIndex] as? TrackResolution.Playable)
-                ?.let { isLocalUri(it.resolved.url) } ?: false
-
-            _playbackState.value = _playbackState.value.copy(
-                durationMs = (startTrack.durationSec ?: 0) * 1000L,
-                currentTrackId = "${startTrack.source}:${startTrack.sourceId}",
-                queue = queueTracks,
-                queueIndex = newQueueIndex,
-                isLocalPlayback = startIsLocal,
-                isUnavailable = false,
-                unavailableMessage = null,
-            )
-
-            if (mediaItems.isNotEmpty()) {
-                mediaController.setMediaItems(mediaItems, exoMapping[newQueueIndex] ?: 0, 0L)
-            } else {
-                mediaController.clearMediaItems()
-            }
-            mediaController.prepare()
-
-            val startExoIndex = exoMapping[newQueueIndex]
-            if (startExoIndex != null) {
-                eventReporter.playStart(startTrack)
-                mediaController.play()
-            } else {
-                // The requested/start slot is a SoundCloudDrmOnlyException track - nothing
-                // was loaded for it above. Stay put and show it as unavailable rather than
-                // falling back to whatever else happened to resolve (the old behaviour,
-                // which is exactly the "silently plays something else" bug this replaces).
-                mediaController.pause()
-                _playbackState.value = _playbackState.value.copy(
-                    isPlaying = false,
-                    title = startTrack.title,
-                    artist = startTrack.artist,
-                    artworkUrl = startTrack.thumbnailUrl,
-                    isUnavailable = true,
-                    unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
-                )
-            }
-            refreshDownloadAvailability(startTrack)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -591,6 +496,310 @@ class PlayerController @Inject constructor(
             // still-in-flight newer request's own isLoading/loadingTrackId state.
             if (myGeneration == playRequestGeneration) {
                 _playbackState.value = _playbackState.value.copy(isLoading = false, loadingTrackId = null)
+            }
+        }
+    }
+
+    /** Data-saver branch of [playQueue]: [resolveLocalOnly] only ever hits Room (no
+     * network), so unlike [playQueueStreaming] there is no reason to split this into a
+     * fast start + background fill - the whole thing is already fast. */
+    private suspend fun playQueueDataSaver(
+        tracks: List<TrackResultDto>,
+        startIndex: Int,
+        myGeneration: Int,
+        mediaController: MediaController,
+    ) {
+        val (playable, newQueueIndex) = resolveLocalOnly(tracks, startIndex)
+        if (myGeneration != playRequestGeneration) return
+
+        if (playable.isEmpty()) {
+            showToast("Datensparmodus: Keine heruntergeladenen Titel in dieser Auswahl.")
+            // Nothing here actually loaded - roll the "show the tapped track
+            // immediately" update in playQueue back to whatever's still really
+            // playing, instead of leaving the screen pointed at a track that never
+            // started.
+            restoreStateToCurrentTrack()
+            return
+        }
+
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+
+        val queueTracks = playable.map { it.first }
+        val mediaItems = playable.map { (track, resolved) -> buildMediaItem(track, resolved) }
+        val startTrack = queueTracks[newQueueIndex]
+
+        currentQueue = queueTracks
+        exoIndexForLogical = queueTracks.indices.toList()
+        currentQueueIndex = newQueueIndex
+        currentTrack = startTrack
+        currentTrackCompleted = false
+
+        _playbackState.value = _playbackState.value.copy(
+            durationMs = (startTrack.durationSec ?: 0) * 1000L,
+            currentTrackId = "${startTrack.source}:${startTrack.sourceId}",
+            queue = queueTracks,
+            queueIndex = newQueueIndex,
+            // Every entry resolveLocalOnly kept is, by construction, a completed local
+            // download.
+            isLocalPlayback = true,
+            isUnavailable = false,
+            unavailableMessage = null,
+        )
+
+        mediaController.setMediaItems(mediaItems, newQueueIndex, 0L)
+        mediaController.prepare()
+        eventReporter.playStart(startTrack)
+        mediaController.play()
+        refreshDownloadAvailability(startTrack)
+    }
+
+    /** Streaming branch of [playQueue]. Resolves only [requestedStartTrack]'s own
+     * stream (a single on-device network round trip via [resolvePreferLocal], or
+     * none at all when it's already downloaded) and starts playback from that alone,
+     * then hands the rest of [tracks] to [launchBackgroundQueueFill] to resolve and
+     * splice in afterwards.
+     *
+     * This used to resolve *every* track in [tracks] concurrently and wait for all of
+     * them (see git history) before calling prepare()/play() on any of them - fine for
+     * a short search-result queue, but tapping one track deep inside a long list (a
+     * whole Likes or Library queue, commonly hundreds of tracks) meant waiting on
+     * hundreds of on-device SoundCloud/YouTube extraction requests - each a real
+     * network call, capped at [StreamResolverRegistry]'s concurrency limit - before
+     * the *one* tapped track (already sitting on disk, needing no network at all)
+     * made a sound. That is what made downloaded Likes effectively unusable: minutes
+     * of silence after a tap. Only the tapped track's own resolution can gate
+     * playback now; everything else fills in around it in the background. */
+    private suspend fun playQueueStreaming(
+        tracks: List<TrackResultDto>,
+        startIndex: Int,
+        requestedStartTrack: TrackResultDto,
+        myGeneration: Int,
+        mediaController: MediaController,
+    ) {
+        val startResult = resolvePreferLocal(requestedStartTrack)
+        if (myGeneration != playRequestGeneration) return
+
+        val startResolution: TrackResolution? = when {
+            startResult.isSuccess -> TrackResolution.Playable(requestedStartTrack, startResult.getOrThrow())
+            startResult.exceptionOrNull() is SoundCloudDrmOnlyException -> TrackResolution.DrmBlocked(requestedStartTrack)
+            else -> null
+        }
+
+        if (startResolution == null) {
+            // The requested/tapped track itself failed to resolve for a non-DRM reason
+            // (rare - most tracks resolve fine). Nothing is playing yet regardless, so
+            // falling back to a blocking full-queue resolve here - same as the old
+            // behaviour - costs nothing the tap wasn't already going to cost.
+            playQueueFallback(tracks, startIndex, requestedStartTrack, startResult.exceptionOrNull(), myGeneration, mediaController)
+            return
+        }
+
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+
+        val exoMapping = arrayOfNulls<Int>(tracks.size)
+        val mediaItems = mutableListOf<MediaItem>()
+        if (startResolution is TrackResolution.Playable) {
+            exoMapping[startIndex] = 0
+            mediaItems += buildMediaItem(startResolution.track, startResolution.resolved)
+        }
+
+        // The full, unresolved [tracks] list becomes the logical queue immediately -
+        // every slot other than [startIndex] starts out mapped to `null` (nothing
+        // loaded yet, same representation [currentQueue]'s kdoc already uses for a
+        // DRM-blocked slot) and gets filled in as [launchBackgroundQueueFill] resolves
+        // it, rather than waiting for that to happen before the queue exists at all.
+        currentQueue = tracks
+        exoIndexForLogical = exoMapping.toList()
+        currentQueueIndex = startIndex
+        currentTrack = requestedStartTrack
+        currentTrackCompleted = false
+
+        val startIsLocal = (startResolution as? TrackResolution.Playable)
+            ?.let { isLocalUri(it.resolved.url) } ?: false
+
+        _playbackState.value = _playbackState.value.copy(
+            durationMs = (requestedStartTrack.durationSec ?: 0) * 1000L,
+            currentTrackId = "${requestedStartTrack.source}:${requestedStartTrack.sourceId}",
+            queue = tracks,
+            queueIndex = startIndex,
+            isLocalPlayback = startIsLocal,
+            isUnavailable = false,
+            unavailableMessage = null,
+        )
+
+        if (mediaItems.isNotEmpty()) {
+            mediaController.setMediaItems(mediaItems, 0, 0L)
+            mediaController.prepare()
+            eventReporter.playStart(requestedStartTrack)
+            mediaController.play()
+        } else {
+            // requestedStartTrack itself is a SoundCloudDrmOnlyException track -
+            // nothing was loaded for it above. Stay put and show it as unavailable
+            // rather than falling back to whatever else happens to resolve later.
+            mediaController.clearMediaItems()
+            mediaController.prepare()
+            mediaController.pause()
+            _playbackState.value = _playbackState.value.copy(
+                isPlaying = false,
+                title = requestedStartTrack.title,
+                artist = requestedStartTrack.artist,
+                artworkUrl = requestedStartTrack.thumbnailUrl,
+                isUnavailable = true,
+                unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
+            )
+        }
+        refreshDownloadAvailability(requestedStartTrack)
+
+        if (tracks.size > 1) launchBackgroundQueueFill(tracks, startIndex, myGeneration)
+    }
+
+    /** Rare fallback used only when [requestedStartTrack] itself fails to resolve for
+     * a non-DRM reason: resolves every track in [tracks] (blocking) and plays whichever
+     * one actually worked, same as this whole queue's old behaviour before
+     * [playQueueStreaming] started fast-pathing the common case. */
+    private suspend fun playQueueFallback(
+        tracks: List<TrackResultDto>,
+        startIndex: Int,
+        requestedStartTrack: TrackResultDto,
+        startError: Throwable?,
+        myGeneration: Int,
+        mediaController: MediaController,
+    ) {
+        val resolved = coroutineScope {
+            tracks.mapIndexed { i, track -> async { i to (track to resolvePreferLocal(track)) } }.awaitAll()
+        }
+        if (myGeneration != playRequestGeneration) return
+
+        val error = resolved.firstOrNull { (i, _) -> i == startIndex }?.second?.second?.exceptionOrNull() ?: startError
+        showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
+
+        var newQueueIndex = -1
+        val resolutions = mutableListOf<TrackResolution>()
+        for ((origIndex, pair) in resolved.sortedBy { it.first }) {
+            val resolution = toResolution(pair.first, pair.second) ?: continue
+            if (origIndex == startIndex) newQueueIndex = resolutions.size
+            resolutions += resolution
+        }
+        if (resolutions.isEmpty()) {
+            showToast("Keiner der Titel konnte aufgelöst werden.")
+            restoreStateToCurrentTrack()
+            return
+        }
+        newQueueIndex = newQueueIndex.coerceAtLeast(0)
+
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+
+        val queueTracks = resolutions.map { it.track }
+        val mediaItems = mutableListOf<MediaItem>()
+        val exoMapping = arrayOfNulls<Int>(resolutions.size)
+        resolutions.forEachIndexed { i, resolution ->
+            if (resolution is TrackResolution.Playable) {
+                exoMapping[i] = mediaItems.size
+                mediaItems += buildMediaItem(resolution.track, resolution.resolved)
+            }
+        }
+        val startTrack = queueTracks[newQueueIndex]
+
+        currentQueue = queueTracks
+        exoIndexForLogical = exoMapping.toList()
+        currentQueueIndex = newQueueIndex
+        currentTrack = startTrack
+        currentTrackCompleted = false
+
+        val startIsLocal = (resolutions[newQueueIndex] as? TrackResolution.Playable)
+            ?.let { isLocalUri(it.resolved.url) } ?: false
+
+        _playbackState.value = _playbackState.value.copy(
+            durationMs = (startTrack.durationSec ?: 0) * 1000L,
+            currentTrackId = "${startTrack.source}:${startTrack.sourceId}",
+            queue = queueTracks,
+            queueIndex = newQueueIndex,
+            isLocalPlayback = startIsLocal,
+            isUnavailable = false,
+            unavailableMessage = null,
+        )
+
+        if (mediaItems.isNotEmpty()) {
+            mediaController.setMediaItems(mediaItems, exoMapping[newQueueIndex] ?: 0, 0L)
+        } else {
+            mediaController.clearMediaItems()
+        }
+        mediaController.prepare()
+
+        val startExoIndex = exoMapping[newQueueIndex]
+        if (startExoIndex != null) {
+            eventReporter.playStart(startTrack)
+            mediaController.play()
+        } else {
+            mediaController.pause()
+            _playbackState.value = _playbackState.value.copy(
+                isPlaying = false,
+                title = startTrack.title,
+                artist = startTrack.artist,
+                artworkUrl = startTrack.thumbnailUrl,
+                isUnavailable = true,
+                unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
+            )
+        }
+        refreshDownloadAvailability(startTrack)
+    }
+
+    /** Resolves every slot in [tracks] other than [startIndex] - already handled by
+     * [playQueueStreaming] before this was launched - splicing each into the live
+     * MediaController as it resolves instead of making playback wait on all of them.
+     *
+     * Slots after [startIndex] are resolved in ascending order and each is appended at
+     * the controller's current end once ready - nothing earlier ever needs to move.
+     * Slots before [startIndex] are resolved nearest-to-start first and always
+     * inserted at position 0, so they land in the right relative order while only
+     * ever shifting already-loaded exo indices forward (see [insertResolvedAt]). Both
+     * groups' resolves are kicked off together up front (bounded by
+     * [StreamResolverRegistry]'s own concurrency cap) - only the order they're
+     * *applied* to the player is sequential, not the network calls themselves.
+     *
+     * A track that fails to resolve (DRM-blocked or otherwise) simply stays an
+     * unplayable gap in the logical queue, same as [currentQueue]'s kdoc describes for
+     * the track initially tapped. Bails out - leaving anything already spliced in in
+     * place, touching nothing further - as soon as [generation] is no longer the live
+     * one, since that means a newer playQueue()/playLocalDownload() call has already
+     * moved the user on. */
+    private fun launchBackgroundQueueFill(tracks: List<TrackResultDto>, startIndex: Int, generation: Int) {
+        scope.launch {
+            coroutineScope {
+                val afterDeferred = (startIndex + 1 until tracks.size).map { i -> i to async { resolvePreferLocal(tracks[i]) } }
+                val beforeDeferred = (startIndex - 1 downTo 0).map { i -> i to async { resolvePreferLocal(tracks[i]) } }
+
+                for ((i, deferred) in afterDeferred) {
+                    val result = deferred.await()
+                    if (generation != playRequestGeneration) return@coroutineScope
+                    val resolved = (toResolution(tracks[i], result) as? TrackResolution.Playable)?.resolved ?: continue
+                    val exoIndex = controller?.mediaItemCount ?: continue
+                    insertResolvedAt(i, tracks[i], resolved, exoIndex)
+                }
+
+                for ((i, deferred) in beforeDeferred) {
+                    val result = deferred.await()
+                    if (generation != playRequestGeneration) return@coroutineScope
+                    val resolved = (toResolution(tracks[i], result) as? TrackResolution.Playable)?.resolved ?: continue
+                    insertResolvedAt(i, tracks[i], resolved, 0)
+                }
+            }
+        }
+    }
+
+    /** Inserts [track]'s already-resolved [resolved] stream at [exoIndex] in the live
+     * MediaController and records that mapping at [logicalIndex] in
+     * [exoIndexForLogical] - bumping every already-recorded exo index at or past
+     * [exoIndex] along by one first, the same shift [addToQueue] already needed for
+     * its own single insert. */
+    private fun insertResolvedAt(logicalIndex: Int, track: TrackResultDto, resolved: ResolvedStream, exoIndex: Int) {
+        val mediaController = controller ?: return
+        mediaController.addMediaItem(exoIndex, buildMediaItem(track, resolved))
+        exoIndexForLogical = exoIndexForLogical.mapIndexed { idx, existing ->
+            when {
+                idx == logicalIndex -> exoIndex
+                existing != null && existing >= exoIndex -> existing + 1
+                else -> existing
             }
         }
     }
@@ -1127,89 +1336,6 @@ class PlayerController @Inject constructor(
             showToast("Datensparmodus: $skipped Titel ohne Download wurden aus der Warteschlange übersprungen.")
         }
         return playable to startPos.coerceAtLeast(0)
-    }
-
-    /** Resolves every track's stream URL on-device, prioritizing the requested
-     * start track: resolve that one immediately (blocking) so playback starts ASAP,
-     * then resolve the rest concurrently in the background. This prevents a 10s+
-     * delay when playing a large playlist if we wait for every track to resolve
-     * before starting the first one.
-     *
-     * A resolve failure normally drops that track from the result entirely, same as
-     * the old resolveStreams - EXCEPT a [SoundCloudDrmOnlyException], which produces
-     * a [TrackResolution.DrmBlocked] entry instead of vanishing (see [playQueue]'s
-     * kdoc for why). */
-    private suspend fun resolveStreamsWithGaps(
-        tracks: List<TrackResultDto>,
-        startIndex: Int,
-    ): Pair<List<TrackResolution>, Int> = coroutineScope {
-        val requestedStartTrack = tracks[startIndex]
-        val startTime = System.currentTimeMillis()
-        Log.d(TAG, "resolveStreams: starting with ${tracks.size} tracks, prioritizing ${requestedStartTrack.title}")
-
-        // Priority 1: Resolve the requested track first (blocking) so we can start
-        // playback immediately - users need to hear sound fast, not wait for a
-        // whole queue to load.
-        val startResult = resolvePreferLocal(requestedStartTrack)
-        val startResolution: TrackResolution? = when {
-            startResult.isSuccess -> {
-                val elapsed = System.currentTimeMillis() - startTime
-                Log.d(TAG, "resolveStreams: requested track resolved in ${elapsed}ms")
-                TrackResolution.Playable(requestedStartTrack, startResult.getOrThrow())
-            }
-            startResult.exceptionOrNull() is SoundCloudDrmOnlyException -> {
-                Log.w(TAG, "resolveStreams: requested track is DRM-only")
-                TrackResolution.DrmBlocked(requestedStartTrack)
-            }
-            else -> {
-                Log.w(TAG, "resolveStreams: requested track failed to resolve")
-                null
-            }
-        }
-
-        if (startResolution == null) {
-            // Requested track failed for a non-DRM reason; fall back to resolving
-            // everything and hope one of them succeeds. Original index is carried
-            // alongside each result so the eventual start position can be found by
-            // index, not by value-equality (see this function's kdoc).
-            Log.w(TAG, "resolveStreams: falling back to full-queue resolve")
-            val resolved = tracks.mapIndexed { i, track ->
-                async { i to (track to resolvePreferLocal(track)) }
-            }.awaitAll()
-            val error = resolved.firstOrNull { (i, _) -> i == startIndex }?.second?.second?.exceptionOrNull()
-            showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
-            var startPos = -1
-            val resolutions = mutableListOf<TrackResolution>()
-            for ((origIndex, pair) in resolved) {
-                val resolution = toResolution(pair.first, pair.second) ?: continue
-                if (origIndex == startIndex) startPos = resolutions.size
-                resolutions += resolution
-            }
-            return@coroutineScope resolutions to startPos.coerceAtLeast(0)
-        }
-
-        // Priority 2: Resolve the rest in the background - by original index, not
-        // value-equality, so a queue containing the same track twice only excludes
-        // the one copy actually at [startIndex], not every occurrence.
-        val backgroundResults = tracks.withIndex()
-            .filter { it.index != startIndex }
-            .map { (_, track) -> async { track to resolvePreferLocal(track) } }
-            .awaitAll()
-        val totalElapsed = System.currentTimeMillis() - startTime
-        Log.d(TAG, "resolveStreams: all tracks done in ${totalElapsed}ms (start: fast, rest: background)")
-
-        val failedOther = backgroundResults.count { (_, result) ->
-            result.isFailure && result.exceptionOrNull() !is SoundCloudDrmOnlyException
-        }
-        if (failedOther > 0) {
-            showToast("$failedOther Titel konnten nicht aufgelöst werden und wurden übersprungen.")
-        }
-
-        val resolutions = mutableListOf(startResolution)
-        backgroundResults.forEach { (track, result) -> toResolution(track, result)?.let { resolutions += it } }
-        // The requested start track is always prepended first above, so it's always
-        // at position 0 in this (non-fallback) branch.
-        resolutions to 0
     }
 
     private fun toResolution(track: TrackResultDto, result: Result<ResolvedStream>): TrackResolution? = when {

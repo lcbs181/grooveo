@@ -28,11 +28,23 @@ enum class ScreenSizeClass {
 
 @Composable
 fun rememberScreenSizeClass(): ScreenSizeClass {
-    val widthDp = LocalConfiguration.current.screenWidthDp
-    return remember(widthDp) {
+    val configuration = LocalConfiguration.current
+    // The smaller of width/height, not raw screenWidthDp - the same "smallest width"
+    // idea Android's own sw360dp/sw411dp resource qualifiers use. Configuration's
+    // width/height swap with orientation, so a plain screenWidthDp read classified a
+    // wide-but-short screen (landscape, split-screen/multi-window, an unusually wide
+    // or short aspect ratio) as LARGE purely because it's wide - handing it the
+    // biggest album art/thumbnails/padding regardless of whether the *height* budget
+    // actually had room for them. Taking the min means the dimension that's actually
+    // constrained on a given device/orientation is the one that drives the bucket.
+    // A typical portrait phone has width as its smaller dimension, so this is a no-op
+    // there - only a screen that's short relative to its width buckets differently
+    // than before.
+    val smallestWidthDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
+    return remember(smallestWidthDp) {
         when {
-            widthDp < 360 -> ScreenSizeClass.COMPACT
-            widthDp <= 411 -> ScreenSizeClass.NORMAL
+            smallestWidthDp < 360 -> ScreenSizeClass.COMPACT
+            smallestWidthDp <= 411 -> ScreenSizeClass.NORMAL
             else -> ScreenSizeClass.LARGE
         }
     }

@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.ui.playlist
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -121,7 +122,7 @@ fun PlaylistDetailScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         when {
             uiState.isLoading -> CircularProgressIndicator(
                 modifier = Modifier.padding(padding).padding(16.dp),
@@ -461,7 +462,7 @@ private fun PlaylistTrackRow(
                         // the like toggle isn't lost. See the task report.
                         Icon(
                             phosphorIcon("heart", filled = isLiked),
-                            contentDescription = "Gefällt mir",
+                            contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
                             tint = Canopy.neutral500,
                             modifier = Modifier
                                 .size(14.dp)

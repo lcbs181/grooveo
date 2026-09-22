@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.connect
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,7 +71,7 @@ fun ConnectScreen(
         if (uiState.connectSuccessEvent > 0) overlay.spray()
     }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 4.dp),

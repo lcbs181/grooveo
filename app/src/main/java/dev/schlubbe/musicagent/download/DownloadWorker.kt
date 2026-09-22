@@ -237,8 +237,9 @@ class DownloadWorker @AssistedInject constructor(
                 val mimeType = body.contentType()?.toString() ?: "audio/mp4"
                 val contentLength = body.contentLength()
                 val expectedTotal = contentLength.let { if (it > 0) it + resumeOffset else -1L }
-                // Store the total bytes (original file size, not including resume offset)
-                val totalBytes = contentLength.takeIf { it > 0 }
+                // Full file size - a resumed (206) response's Content-Length only covers
+                // the remaining bytes, which used to be stored as the file's size.
+                val totalBytes = expectedTotal.takeIf { it > 0 }
 
                 FileOutputStream(tempFile, resuming).use { output ->
                     body.byteStream().use { input ->

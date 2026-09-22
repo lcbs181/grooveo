@@ -62,7 +62,7 @@ class PlaylistDetailViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             runCatching { playlistRepository.get(playlistId) }
-                .onSuccess { playlist -> _uiState.value = PlaylistDetailUiState(playlist = playlist, isLoading = false) }
+                .onSuccess { playlist -> _uiState.value = _uiState.value.copy(playlist = playlist, isLoading = false) }
                 .onFailure { _uiState.value = _uiState.value.copy(isLoading = false) }
         }
     }

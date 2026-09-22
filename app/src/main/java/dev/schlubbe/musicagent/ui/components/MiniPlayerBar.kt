@@ -53,7 +53,6 @@ fun MiniPlayerBar(
 ) {
     val playbackState by viewModel.playbackState.collectAsState()
     val isLiked by viewModel.isLiked.collectAsState()
-    val isFollowing by viewModel.isCurrentArtistFollowed.collectAsState()
     val haptic = LocalHapticFeedback.current
     val premiumHaptics = rememberPremiumHaptics()
 
@@ -159,21 +158,6 @@ fun MiniPlayerBar(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    phosphorIcon(if (isFollowing) "user" else "user-plus", filled = true),
-                    contentDescription = if (isFollowing) "Nicht mehr folgen" else "Folgen",
-                    tint = if (isFollowing) Canopy.accent else Canopy.neutral400,
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .size(20.dp)
-                        .clickable {
-                            // The follow spray is window-level (position:fixed in the
-                            // design), so it goes through the root overlay rather than
-                            // being anchored to this button.
-                            if (!isFollowing) overlay.spray()
-                            viewModel.toggleFollowCurrentArtist()
-                        },
-                )
 
                 // The heart pop is a graphicsLayer scale, so it costs no layout.
                 // The burst itself goes through the window overlay -- anything
@@ -197,6 +181,21 @@ fun MiniPlayerBar(
                             if (isLiked) premiumHaptics.unlike() else premiumHaptics.like()
                             viewModel.toggleLike()
                         },
+                )
+
+                val hasNext = playbackState.queueIndex in 0 until playbackState.queue.size - 1
+                Icon(
+                    phosphorIcon("skip-forward"),
+                    contentDescription = "Nächster Titel",
+                    tint = if (hasNext) Canopy.text else Canopy.neutral600,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(enabled = hasNext) {
+                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                            viewModel.skipToNext()
+                        }
+                        .padding(8.dp)
+                        .size(22.dp),
                 )
             }
         }

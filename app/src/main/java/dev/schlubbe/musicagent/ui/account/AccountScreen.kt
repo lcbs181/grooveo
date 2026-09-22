@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.account
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,7 +75,7 @@ fun AccountScreen(
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier
