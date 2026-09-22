@@ -79,14 +79,22 @@ private fun JsonObject.isDrmOnly(): Boolean {
         ?.map { it.asJsonObject }
         ?: return false
     if (transcodings.isEmpty()) return false
-    return transcodings.none { it.protocol() == "hls" || it.protocol() == "progressive" }
+    // Encrypted transcodings next to plain ones mean the plain ones 404 (see
+    // SoundCloudStreamResolver), and "SNIP" / snipped-only tracks are 30s Go+
+    // previews - none of these play in full from SoundCloud, so all are flagged
+    // and playback falls back to a YouTube Music match.
+    if (stringOrNull("policy") == "SNIP") return true
+    if (transcodings.any { it.protocol()?.contains("encrypted") == true }) return true
+    val plain = transcodings.filter { it.protocol() == "hls" || it.protocol() == "progressive" }
+    return plain.isEmpty() || plain.all { it.get("snipped")?.takeIf { v -> v.isJsonPrimitive }?.asBoolean == true }
 }
 
 fun JsonObject.toSoundCloudTrackResultDto(): TrackResultDto? {
     val webpageUrl = stringOrNull("permalink_url") ?: return null
     val title = stringOrNull("title") ?: return null
     val user = jsonObjectOrNull("user")
-    val durationMs = longOrNull("duration")
+    // Go+ previews report the 30s snippet as "duration"; "full_duration" is the real length.
+    val durationMs = longOrNull("full_duration") ?: longOrNull("duration")
 
     return TrackResultDto(
         source = "soundcloud",

@@ -462,10 +462,9 @@ private fun TrackActionsMenu(
                 onClick = { onDismiss(); action() },
             )
         item(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir", "heart", filled = isLiked) { actions.onLikeToggle(track) }
-        item("Zur Warteschlange hinzufügen", "list-plus", enabled = !track.isDrmProtected) { actions.onAddToQueue(track) }
+        item("Zur Warteschlange hinzufügen", "list-plus") { actions.onAddToQueue(track) }
         item("Zu Playlist hinzufügen", "plus-circle") { actions.onAddToPlaylist(track) }
         when {
-            track.isDrmProtected -> item("Nicht herunterladbar (DRM)", "lock-simple", enabled = false) {}
             download == DownloadState.COMPLETED -> item("Offline verfügbar", "check-circle", enabled = false) {}
             download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
                 item("Wird heruntergeladen …", "download-simple", enabled = false) {}
@@ -535,7 +534,9 @@ private fun ResultRow(
 private data class ResultState(val label: String, val iconName: String, val alert: Boolean)
 
 private fun stateFor(track: TrackResultDto, download: DownloadState?): ResultState? = when {
-    track.isDrmProtected -> ResultState("DRM", "lock-simple", alert = true)
+    // Not fully playable from SoundCloud (DRM or 30s preview) - playback and
+    // downloads use the matching YouTube Music recording instead.
+    track.isDrmProtected && download == null -> ResultState("via YouTube", "youtube-logo", alert = false)
     download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
         ResultState("Lädt", "download-simple", alert = true)
     download == DownloadState.FAILED -> ResultState("Fehler", "warning-circle", alert = true)

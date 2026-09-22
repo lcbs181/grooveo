@@ -293,7 +293,7 @@ class LibraryViewModel @Inject constructor(
     fun downloadAllLikes() {
         val downloaded = downloadedTrackIds.value
         val missing = _uiState.value.likes.map { it.track.toTrackResultDto() }
-            .filter { "${it.source}:${it.sourceId}" !in downloaded && !it.isDrmProtected }
+            .filter { "${it.source}:${it.sourceId}" !in downloaded }
         val message = if (missing.isEmpty()) {
             "Alle Favoriten sind bereits offline verfügbar"
         } else {

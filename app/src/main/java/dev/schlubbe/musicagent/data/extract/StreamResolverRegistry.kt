@@ -27,8 +27,27 @@ private const val MAX_CONCURRENT_RESOLVES = 4
 class StreamResolverRegistry @Inject constructor(
     private val soundCloud: SoundCloudStreamResolver,
     private val youTube: YouTubeStreamResolver,
+    private val youTubeFallback: YouTubeFallback,
 ) {
     private val semaphore = Semaphore(MAX_CONCURRENT_RESOLVES)
+
+    /** Like [resolve], but when a SoundCloud track can't be played in full (DRM-only
+     * or a 30s preview) it plays the matching YouTube Music recording instead of
+     * failing - see [YouTubeFallback]. Rethrows the original error when no
+     * match is found, so callers still show "nicht verfügbar". */
+    suspend fun resolveWithFallback(
+        source: String,
+        sourceId: String,
+        title: String,
+        artist: String?,
+        durationSec: Int?,
+        preferProgressive: Boolean = false,
+    ): ResolvedStream = try {
+        resolve(source, sourceId, preferProgressive)
+    } catch (e: SoundCloudDrmOnlyException) {
+        val replacement = youTubeFallback.findReplacement(title, artist, durationSec) ?: throw e
+        resolve(replacement.source, replacement.sourceId, preferProgressive)
+    }
 
     /** Resolves [source]/[sourceId], bounded by [MAX_CONCURRENT_RESOLVES] and retried
      * once on failure — on-device extraction is more prone to transient failures

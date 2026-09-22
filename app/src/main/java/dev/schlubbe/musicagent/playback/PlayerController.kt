@@ -46,7 +46,7 @@ import javax.inject.Singleton
 
 private const val TAG = "PlayerController"
 
-private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – DRM-geschützt und kann von dieser App nicht abgespielt werden."
+private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – auf SoundCloud DRM-geschützt oder nur als Vorschau, und kein passender Titel auf YouTube Music gefunden."
 private const val PLAYBACK_ERROR_MESSAGE = "Wiedergabe unterbrochen – Verbindung prüfen und erneut versuchen."
 private const val MAX_PLAYBACK_ERROR_RETRIES = 2
 
@@ -586,11 +586,12 @@ class PlayerController @Inject constructor(
         }
 
         if (startResolution == null) {
-            // The requested/tapped track itself failed to resolve for a non-DRM reason
-            // (rare - most tracks resolve fine). Nothing is playing yet regardless, so
-            // falling back to a blocking full-queue resolve here - same as the old
-            // behaviour - costs nothing the tap wasn't already going to cost.
-            playQueueFallback(tracks, startIndex, requestedStartTrack, startResult.exceptionOrNull(), myGeneration, mediaController)
+            // The tapped track itself failed to resolve (network error, YouTube
+            // rate-limiting, ...). Say so and leave whatever was playing alone - the
+            // old fallback resolved the whole list and started some *other* track,
+            // so a tap on one song played a different one.
+            showToast(resolveFailureMessage(requestedStartTrack.title, startResult.exceptionOrNull()))
+            restoreStateToCurrentTrack()
             return
         }
 
@@ -651,97 +652,6 @@ class PlayerController @Inject constructor(
         refreshDownloadAvailability(requestedStartTrack)
 
         if (tracks.size > 1) launchBackgroundQueueFill(tracks, startIndex, myGeneration)
-    }
-
-    /** Rare fallback used only when [requestedStartTrack] itself fails to resolve for
-     * a non-DRM reason: resolves every track in [tracks] (blocking) and plays whichever
-     * one actually worked, same as this whole queue's old behaviour before
-     * [playQueueStreaming] started fast-pathing the common case. */
-    private suspend fun playQueueFallback(
-        tracks: List<TrackResultDto>,
-        startIndex: Int,
-        requestedStartTrack: TrackResultDto,
-        startError: Throwable?,
-        myGeneration: Int,
-        mediaController: MediaController,
-    ) {
-        val resolved = coroutineScope {
-            tracks.mapIndexed { i, track -> async { i to (track to resolvePreferLocal(track)) } }.awaitAll()
-        }
-        if (myGeneration != playRequestGeneration) return
-
-        val error = resolved.firstOrNull { (i, _) -> i == startIndex }?.second?.second?.exceptionOrNull() ?: startError
-        showToast(resolveFailureMessage(requestedStartTrack.title, error) + " Wird übersprungen.")
-
-        var newQueueIndex = -1
-        val resolutions = mutableListOf<TrackResolution>()
-        for ((origIndex, pair) in resolved.sortedBy { it.first }) {
-            val resolution = toResolution(pair.first, pair.second) ?: continue
-            if (origIndex == startIndex) newQueueIndex = resolutions.size
-            resolutions += resolution
-        }
-        if (resolutions.isEmpty()) {
-            showToast("Keiner der Titel konnte aufgelöst werden.")
-            restoreStateToCurrentTrack()
-            return
-        }
-        newQueueIndex = newQueueIndex.coerceAtLeast(0)
-
-        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
-
-        val queueTracks = resolutions.map { it.track }
-        val mediaItems = mutableListOf<MediaItem>()
-        val exoMapping = arrayOfNulls<Int>(resolutions.size)
-        resolutions.forEachIndexed { i, resolution ->
-            if (resolution is TrackResolution.Playable) {
-                exoMapping[i] = mediaItems.size
-                mediaItems += buildMediaItem(resolution.track, resolution.resolved)
-            }
-        }
-        val startTrack = queueTracks[newQueueIndex]
-
-        currentQueue = queueTracks
-        exoIndexForLogical = exoMapping.toList()
-        currentQueueIndex = newQueueIndex
-        currentTrack = startTrack
-        currentTrackCompleted = false
-
-        val startIsLocal = (resolutions[newQueueIndex] as? TrackResolution.Playable)
-            ?.let { isLocalUri(it.resolved.url) } ?: false
-
-        _playbackState.value = _playbackState.value.copy(
-            durationMs = (startTrack.durationSec ?: 0) * 1000L,
-            currentTrackId = "${startTrack.source}:${startTrack.sourceId}",
-            queue = queueTracks,
-            queueIndex = newQueueIndex,
-            isLocalPlayback = startIsLocal,
-            isUnavailable = false,
-            unavailableMessage = null,
-        )
-
-        if (mediaItems.isNotEmpty()) {
-            mediaController.setMediaItems(mediaItems, exoMapping[newQueueIndex] ?: 0, 0L)
-        } else {
-            mediaController.clearMediaItems()
-        }
-        mediaController.prepare()
-
-        val startExoIndex = exoMapping[newQueueIndex]
-        if (startExoIndex != null) {
-            eventReporter.playStart(startTrack)
-            mediaController.play()
-        } else {
-            mediaController.pause()
-            _playbackState.value = _playbackState.value.copy(
-                isPlaying = false,
-                title = startTrack.title,
-                artist = startTrack.artist,
-                artworkUrl = startTrack.thumbnailUrl,
-                isUnavailable = true,
-                unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
-            )
-        }
-        refreshDownloadAvailability(startTrack)
     }
 
     /** Resolves every slot in [tracks] other than [startIndex] - already handled by
@@ -1177,7 +1087,9 @@ class PlayerController @Inject constructor(
      * [resolveFailureMessage]) from a generic failure instead of showing the same
      * unhelpful "nicht aufgelöst" toast for both. */
     private suspend fun resolveWithRetry(track: TrackResultDto): Result<ResolvedStream> =
-        runCatching { streamResolverRegistry.resolve(track.source, track.sourceId) }
+        runCatching {
+            streamResolverRegistry.resolveWithFallback(track.source, track.sourceId, track.title, track.artist, track.durationSec)
+        }
 
     /** Prefers an already-downloaded local copy over the network stream when both are
      * available - the default behavior for starting playback from Search/Library:
@@ -1215,9 +1127,9 @@ class PlayerController @Inject constructor(
 
     private fun resolveFailureMessage(title: String, error: Throwable?): String =
         if (error is SoundCloudDrmOnlyException) {
-            "„$title“ ist DRM-geschützt und kann von dieser App nicht abgespielt werden."
+            "„$title“ ist auf SoundCloud DRM-geschützt oder nur als Vorschau verfügbar, und auf YouTube Music wurde kein passender Titel gefunden."
         } else {
-            "„$title“ konnte nicht aufgelöst werden."
+            "„$title“ konnte gerade nicht geladen werden – bitte gleich noch einmal versuchen."
         }
 
     /** "Automatische Weiterempfehlung" (Einstellungen > Wiedergabe): once the
