@@ -389,16 +389,15 @@ class LibraryViewModel @Inject constructor(
     }
 
     // The "Zum Künstler" action on a track row only has an artist name, not an id -
-    // resolve it to a real artist page via a 1-result artist search on the same source.
-    // Best-effort: a name search can match a different account with the same display
-    // name (common on SoundCloud), not necessarily the actual uploader.
+    // resolve it to a real artist page via SearchRepository.findArtistByName on the
+    // same source. Best-effort: a name search can match a different account with the
+    // same display name (common on SoundCloud), not necessarily the actual uploader.
     fun onTrackArtistClicked(track: TrackResultDto) {
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.searchArtists(name, source = track.source, limit = 1) }
-                .onSuccess { artists ->
-                    val artist = artists.firstOrNull()
+            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+                .onSuccess { artist ->
                     _uiState.value = if (artist != null) {
                         _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)
                     } else {

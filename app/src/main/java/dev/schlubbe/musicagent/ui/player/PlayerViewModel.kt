@@ -98,17 +98,16 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Follows/unfollows the now-playing artist. Resolves the artist id with the
-     * same 1-result search [onArtistClicked] uses, since a track only knows the
-     * name. Silently no-ops when the name can't be resolved rather than surfacing
-     * an error for a secondary control. */
+     * same name search [onArtistClicked] uses, since a track only knows the name.
+     * Silently no-ops when the name can't be resolved rather than surfacing an
+     * error for a secondary control. */
     fun toggleFollowCurrentArtist() {
         val track = playerController.nowPlayingTrack() ?: return
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.searchArtists(name, source = track.source, limit = 1) }
+            runCatching { searchRepository.findArtistByName(name, source = track.source) }
                 .getOrNull()
-                ?.firstOrNull()
                 ?.let { artist ->
                     followRepository.toggle(artist.source, artist.sourceId, artist.name, artist.thumbnailUrl)
                     followRepository.refresh()
@@ -202,16 +201,15 @@ class PlayerViewModel @Inject constructor(
     fun currentTrackWebpageUrl(): String? = playerController.nowPlayingTrack()?.webpageUrl
 
     // The now-playing artist label is only a name, not an id - resolve it to a real
-    // artist page via a 1-result artist search on the same source, same best-effort
-    // pattern as SearchViewModel/PlaylistDetailViewModel's "Zum Künstler".
+    // artist page via SearchRepository.findArtistByName on the same source, same
+    // best-effort pattern as SearchViewModel/PlaylistDetailViewModel's "Zum Künstler".
     fun onArtistClicked() {
         val track = playerController.nowPlayingTrack() ?: return
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.searchArtists(name, source = track.source, limit = 1) }
-                .onSuccess { artists ->
-                    val artist = artists.firstOrNull()
+            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+                .onSuccess { artist ->
                     _artistNavState.value = if (artist != null) {
                         _artistNavState.value.copy(artistNavTarget = artist.source to artist.sourceId)
                     } else {

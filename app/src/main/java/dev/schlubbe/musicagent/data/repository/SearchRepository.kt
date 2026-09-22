@@ -133,6 +133,31 @@ class SearchRepository @Inject constructor(
 
     private fun normalizeGenre(raw: String) = raw.lowercase().filter { it.isLetterOrDigit() }
 
+    /** Shared "go to artist by name" resolution for every place that only has a
+     * track's artist *name*, not its id (PlayerViewModel, SearchViewModel,
+     * LibraryViewModel, PlaylistDetailViewModel, RemotePlaylistDetailViewModel,
+     * HomeViewModel) - was previously duplicated at each call site as a 1-result
+     * [searchArtists] call, which silently returns whatever the search ranks first
+     * even when it isn't the actual artist (most visibly on ytmusic, where a
+     * same-named "- Topic" channel and the real official channel are both valid
+     * hits and the ranking between them isn't reliable).
+     *
+     * Searches with a larger [limit] so an exact match has candidates to be found
+     * among, then prefers a case-insensitive exact name match (a "- Topic" suffix is
+     * stripped before comparing, since it's YouTube's own wrapper name, not a
+     * different artist) - falling back to the first result only when nothing
+     * matches exactly, same best-effort behaviour as before. Returns null when the
+     * search itself comes back empty. */
+    suspend fun findArtistByName(name: String, source: String, limit: Int = 5): ArtistResultDto? {
+        val results = searchArtists(name, source, limit)
+        if (results.isEmpty()) return null
+        val target = name.trim().lowercase()
+        return results.firstOrNull { stripTopicSuffix(it.name).trim().lowercase() == target } ?: results.first()
+    }
+
+    private fun stripTopicSuffix(name: String): String =
+        Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE).replace(name, "")
+
     suspend fun getArtist(source: String, sourceId: String): ArtistDetailDto = when (source) {
         "soundcloud" -> soundCloud.getArtist(sourceId)
         "ytmusic" -> youTube.getArtist(sourceId)
