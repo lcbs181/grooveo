@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
 import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
@@ -92,6 +93,7 @@ fun LibraryScreen(
     val likedTrackIds by viewModel.likedTrackIds.collectAsState()
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
     val nowPlayingTrackId by viewModel.nowPlayingTrackId.collectAsState()
+    val followedArtists by viewModel.followedArtists.collectAsState()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -130,15 +132,13 @@ fun LibraryScreen(
                     uiState = uiState,
                     recentlyPlayed = recentlyPlayed,
                     likedCount = likedTrackIds.size,
+                    followedCount = followedArtists.size,
+                    onOpenFollowing = { viewModel.openSection(LibraryTab.FOLLOWING) },
                     downloadedCount = downloads.count { it.entity.state == DownloadState.COMPLETED },
                     onOpenSettings = onOpenSettings,
                     onOpenLikes = { viewModel.openSection(LibraryTab.LIKES) },
                     onOpenPlaylists = { viewModel.openSection(LibraryTab.PLAYLISTS) },
                     onOpenDownloads = { viewModel.openSection(LibraryTab.DOWNLOADS) },
-                    onDismissBanner = viewModel::dismissImportBanner,
-                    onImportClick = {
-                        Toast.makeText(context, "Bald verfügbar", Toast.LENGTH_SHORT).show()
-                    },
                     onRecentlyPlayedClick = { track ->
                         viewModel.onRecentlyPlayedClicked(track)
                         onDownloadPlayed()
@@ -173,6 +173,10 @@ fun LibraryScreen(
                         onCreatePlaylistClick = { showCreatePlaylistDialog = true },
                     )
                 }
+                LibraryTab.FOLLOWING -> Column(modifier = Modifier.fillMaxSize()) {
+                    LibrarySubViewHeader(title = "Folge ich", onBack = viewModel::backToHome)
+                    FollowingTab(followedArtists, onArtistClick = { onArtistSelected(it.source, it.sourceId) })
+                }
                 LibraryTab.DOWNLOADS -> Column(modifier = Modifier.fillMaxSize()) {
                     LibrarySubViewHeader(title = "Downloads", onBack = viewModel::backToHome)
                     DownloadsTab(downloads, likedTrackIds, onDownloadPlayed, viewModel)
@@ -201,29 +205,21 @@ fun LibraryScreen(
     }
 }
 
-/** The landing menu: headline, the Spotify-import banner, a quick-access card
- * with a chevron row per real Library section (each pushes its own back header,
- * see LibraryTab), then the "Kürzlich abgespielt" rail and "Wiedergabeverlauf"
- * list shown directly rather than gated behind a selector. Restores the layout
- * [LibraryTab]'s own kdoc already described - an in-between revision had
- * replaced the chevron rows with a chip switcher that folded Playlists/Likes/
- * Verlauf into this same composable instead of giving them their own sub-view,
- * which is what this reverts to (see LikesTab/PlaylistsTab below). "Folge ich"
- * has no followed-artist source wired to this ViewModel at all (no repository/
- * DAO exposes one), so it's shown disabled with an honest "Bald verfügbar" pill
- * instead of a chevron that would lead nowhere. */
+/** The landing menu: headline, a quick-access card with a chevron row per
+ * Library section (each pushes its own back header, see LibraryTab), then the
+ * "Kürzlich abgespielt" rail and "Wiedergabeverlauf" list. */
 @Composable
 private fun LibraryHomeContent(
     uiState: LibraryUiState,
     recentlyPlayed: List<TrackEntity>,
     likedCount: Int,
+    followedCount: Int,
+    onOpenFollowing: () -> Unit,
     downloadedCount: Int,
     onOpenSettings: () -> Unit,
     onOpenLikes: () -> Unit,
     onOpenPlaylists: () -> Unit,
     onOpenDownloads: () -> Unit,
-    onDismissBanner: () -> Unit,
-    onImportClick: () -> Unit,
     onRecentlyPlayedClick: (TrackEntity) -> Unit,
     onRecentlyPlayedAddToPlaylist: (TrackEntity) -> Unit,
     onRecentlyPlayedAddToQueue: (TrackEntity) -> Unit,
@@ -251,9 +247,6 @@ private fun LibraryHomeContent(
                     contentDescription = "Einstellungen",
                 )
             }
-        }
-        if (!uiState.importBannerDismissed) {
-            item { ImportBanner(onDismiss = onDismissBanner, onImportClick = onImportClick) }
         }
         item {
             Column(
@@ -285,8 +278,8 @@ private fun LibraryHomeContent(
                 QuickAccessRow(
                     icon = phosphorIcon("user-circle"),
                     label = "Folge ich",
-                    subtitle = "Künstlerübersicht",
-                    onClick = null,
+                    subtitle = if (followedCount == 1) "1 Künstler" else "$followedCount Künstler",
+                    onClick = onOpenFollowing,
                 )
             }
         }
@@ -500,42 +493,33 @@ private fun PlaylistsTab(
 }
 
 @Composable
-private fun ImportBanner(onDismiss: () -> Unit, onImportClick: () -> Unit) {
+private fun FollowingTab(artists: List<FollowedArtistEntity>, onArtistClick: (FollowedArtistEntity) -> Unit) {
     val dimens = rememberResponsiveDimens()
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = dimens.horizontalPadding)
-            .padding(bottom = 18.dp)
-            .clip(CanopyShapes.large)
-            .background(Canopy.surface)
-            .padding(16.dp),
-    ) {
-        CanopyIconButton(
-            icon = phosphorIcon("x"),
-            onClick = onDismiss,
-            variant = CanopyButtonVariant.Ghost,
-            size = 26.dp,
-            iconSize = 14.dp,
-            contentDescription = "Schließen",
-            modifier = Modifier.align(Alignment.TopEnd),
+    if (artists.isEmpty()) {
+        Text(
+            "Du folgst noch niemandem – tippe auf einer Künstlerseite auf „Folgen“.",
+            color = Canopy.neutral500,
+            modifier = Modifier.padding(dimens.horizontalPadding),
         )
-        Column(modifier = Modifier.padding(end = 26.dp)) {
-            Text(
-                "Bringe deine Playlists mit",
-                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-            )
-            Text(
-                "Importiere deine Musik von Spotify in nur drei Schritten.",
-                style = MaterialTheme.typography.labelMedium,
-                color = Canopy.neutral500,
-                modifier = Modifier.padding(top = 5.dp),
-            )
-            CanopyButton(
-                text = "Jetzt importieren",
-                onClick = onImportClick,
-                variant = CanopyButtonVariant.Primary,
-                modifier = Modifier.padding(top = 20.dp),
+        return
+    }
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        items(artists, key = { "${it.source}:${it.sourceId}" }) { artist ->
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+                leadingContent = {
+                    Box(modifier = Modifier.clip(CircleShape)) {
+                        TrackThumbnail(artist.thumbnailUrl, size = dimens.listThumbnail, seed = artist.name)
+                    }
+                },
+                headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                supportingContent = {
+                    Text(if (artist.source == "soundcloud") "SoundCloud" else "YT Music", color = Canopy.neutral500)
+                },
+                trailingContent = {
+                    Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(16.dp))
+                },
+                modifier = Modifier.fillMaxWidth().clickable { onArtistClick(artist) },
             )
         }
     }

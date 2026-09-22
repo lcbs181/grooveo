@@ -14,7 +14,9 @@ import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
+import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
+import dev.schlubbe.musicagent.data.repository.FollowRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SavedPlaylistRepository
@@ -65,7 +67,7 @@ internal fun TrackEntity.toTrackResultDto(): TrackResultDto = TrackResultDto(
 // by tapping a chevron row and each render with their own back header. This is
 // in-screen state, not a NavGraph route change: the whole Library tab stays one
 // nav destination, see LibraryScreen's BackHandler for the system-back wiring.
-enum class LibraryTab { HOME, DOWNLOADS, LIKES, PLAYLISTS }
+enum class LibraryTab { HOME, DOWNLOADS, LIKES, PLAYLISTS, FOLLOWING }
 
 // Same magnitude as HomeViewModel's own recently-played query - enough to both
 // slice a short circular rail and fill a scrollable history list underneath it.
@@ -106,7 +108,10 @@ class LibraryViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
     private val savedPlaylistRepository: SavedPlaylistRepository,
     private val settingsRepository: SettingsRepository,
+    private val followRepository: FollowRepository,
 ) : ViewModel() {
+
+    val followedArtists: StateFlow<List<FollowedArtistEntity>> = followRepository.followedArtists
 
     val downloads: StateFlow<List<DownloadUiItem>> = downloadDao.observeAll()
         .flatMapLatest { entities ->
@@ -151,6 +156,7 @@ class LibraryViewModel @Inject constructor(
         // either chevron row is ever tapped, not just on entering that sub-view.
         refreshLikes()
         refreshPlaylists()
+        viewModelScope.launch { runCatching { followRepository.refresh() } }
     }
 
     /** Opens one of the three chevron-row sub-views from the landing menu, triggering
@@ -161,6 +167,7 @@ class LibraryViewModel @Inject constructor(
         when (tab) {
             LibraryTab.LIKES -> refreshLikes()
             LibraryTab.PLAYLISTS -> refreshPlaylists()
+            LibraryTab.FOLLOWING -> viewModelScope.launch { runCatching { followRepository.refresh() } }
             LibraryTab.DOWNLOADS, LibraryTab.HOME -> Unit
         }
     }
