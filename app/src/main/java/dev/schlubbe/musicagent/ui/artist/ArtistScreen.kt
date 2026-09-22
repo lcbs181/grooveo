@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,7 +56,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.ArtistDetailDto
+import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.ui.components.CanopyAvatar
 import dev.schlubbe.musicagent.ui.components.CanopyBadge
@@ -75,6 +80,7 @@ import dev.schlubbe.musicagent.ui.theme.CanopyShapes
 import dev.schlubbe.musicagent.ui.util.shareText
 
 private const val SHELF_PREVIEW_COUNT = 5
+private const val SHELF_CARD_SIZE = 140
 
 // GrooveoApp.dc.html lines 499/513: a 170px banner with the header column
 // pulled up -46px over it, so the avatar overlaps the gradient. Both are
@@ -89,6 +95,7 @@ fun ArtistScreen(
     sourceId: String,
     onTrackSelected: () -> Unit,
     onFollowersSelected: () -> Unit,
+    onPlaylistSelected: (source: String, sourceId: String) -> Unit,
     onNavigateBack: () -> Unit,
     viewModel: ArtistViewModel = hiltViewModel(),
 ) {
@@ -230,6 +237,26 @@ fun ArtistScreen(
                             )
                         }
 
+                        if (artist.albums.isNotEmpty()) {
+                            item {
+                                ArtistPlaylistShelf(
+                                    title = "Alben & Singles",
+                                    items = artist.albums.map { it.toShelfItem() },
+                                    onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
+                                )
+                            }
+                        }
+
+                        if (artist.playlists.isNotEmpty()) {
+                            item {
+                                ArtistPlaylistShelf(
+                                    title = "Playlists",
+                                    items = artist.playlists.map { it.toShelfItem() },
+                                    onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
+                                )
+                            }
+                        }
+
                         // The design also has a "Folgt" (who this artist follows) row next
                         // to Follower, and both an "Im Spotlight gepinnt" shelf and an
                         // "Ähnliche Künstler" shelf above/below the track lists. None of
@@ -266,6 +293,71 @@ fun ArtistScreen(
  * or null to hide the action entirely when the shelf is too short to need collapsing. */
 private fun shelfActionLabel(total: Int, expanded: Boolean): String? =
     if (total > SHELF_PREVIEW_COUNT) (if (expanded) "Weniger anzeigen" else "Alle anzeigen") else null
+
+/** Common shape for the "Alben & Singles" and "Playlists" shelves below - an album
+ * and a playlist search result carry almost the same fields, but not a shared type
+ * (see AlbumResultDto/PlaylistResultDto), so each is mapped down to just what the
+ * shelf card needs to render. [subtitle] is the album's artist or the playlist's
+ * owner - whichever the source DTO actually has. */
+private data class ArtistShelfItem(
+    val source: String,
+    val sourceId: String,
+    val title: String,
+    val subtitle: String?,
+    val thumbnailUrl: String?,
+)
+
+private fun AlbumResultDto.toShelfItem() = ArtistShelfItem(source, sourceId, title, artist, thumbnailUrl)
+private fun PlaylistResultDto.toShelfItem() = ArtistShelfItem(source, sourceId, title, owner, thumbnailUrl)
+
+/** A horizontal cover-card shelf, same layout as Home's shelves (TrackThumbnail +
+ * title + subtitle in a fixed-width column) - reused here instead of a vertical list
+ * since both album/playlist tabs on the design's reference mockups scroll sideways. */
+@Composable
+private fun ArtistPlaylistShelf(
+    title: String,
+    items: List<ArtistShelfItem>,
+    onClick: (ArtistShelfItem) -> Unit,
+) {
+    Column(modifier = Modifier.padding(top = 16.dp)) {
+        CanopySectionHeader(
+            title = title,
+            modifier = Modifier.padding(horizontal = 20.dp).then(rememberFadeUp()),
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items, key = { "${it.source}:${it.sourceId}" }) { shelfItem ->
+                Column(
+                    modifier = Modifier
+                        .width(SHELF_CARD_SIZE.dp)
+                        .clickable { onClick(shelfItem) },
+                ) {
+                    TrackThumbnail(url = shelfItem.thumbnailUrl, size = SHELF_CARD_SIZE.dp, seed = shelfItem.title)
+                    Text(
+                        shelfItem.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Canopy.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    shelfItem.subtitle?.let { subtitle ->
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Canopy.neutral400,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** Banner + avatar + follow controls: GrooveoApp.dc.html lines 498-533.
  *

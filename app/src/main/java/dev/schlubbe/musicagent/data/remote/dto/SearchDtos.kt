@@ -41,6 +41,11 @@ data class ArtistDetailDto(
     @SerializedName("subscriber_count") val subscriberCount: String?,
     @SerializedName("top_tracks") val topTracks: List<TrackResultDto> = emptyList(),
     @SerializedName("latest_tracks") val latestTracks: List<TrackResultDto> = emptyList(),
+    // Both default to empty - ytmusic official-artist channels and SoundCloud
+    // accounts without an ALBUMS/PLAYLISTS equivalent simply have none, same
+    // "no signal, no claim" convention as the rest of this DTO.
+    val albums: List<AlbumResultDto> = emptyList(),
+    val playlists: List<PlaylistResultDto> = emptyList(),
     @SerializedName("webpage_url") val webpageUrl: String,
 )
 

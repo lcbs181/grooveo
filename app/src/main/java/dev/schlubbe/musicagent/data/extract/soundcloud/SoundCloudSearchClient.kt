@@ -8,6 +8,8 @@ import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.RemotePlaylistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -119,27 +121,43 @@ class SoundCloudSearchClient @Inject constructor(
             .toList()
     }
 
-    suspend fun getArtist(permalink: String): ArtistDetailDto {
+    suspend fun getArtist(permalink: String): ArtistDetailDto = coroutineScope {
         val user = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
         val userId = user.longOrNull("id") ?: error("SoundCloud user resolve for '$permalink' has no 'id' field")
+
+        // Tracks/albums/playlists are independent requests, fetched concurrently
+        // instead of one after another. Albums/playlists are each wrapped in their
+        // own runCatching - a 404/network failure on either must not fail the whole
+        // artist page, same reasoning as the ytmusic tab-by-tab handling.
+        val tracksDeferred = async {
+            api.get("users/$userId/tracks", mapOf("limit" to "50", "linked_partitioning" to "1"))
+        }
+        val albumsDeferred = async {
+            runCatching { api.get("users/$userId/albums", mapOf("limit" to "20")) }.getOrNull()
+        }
+        val playlistsDeferred = async {
+            runCatching { api.get("users/$userId/playlists_without_albums", mapOf("limit" to "20")) }.getOrNull()
+        }
 
         // A single 50-track batch covers both "top" and "latest" - sorting it two
         // different ways client-side instead of issuing a second API call keeps this
         // page to one request, same rate-limit-conscious approach as the follower list.
-        val tracksData = api.get(
-            "users/$userId/tracks",
-            mapOf("limit" to "50", "linked_partitioning" to "1"),
-        )
+        val tracksData = tracksDeferred.await()
         val rawTracks = (tracksData.jsonArrayOrNull("collection") ?: JsonArray()).map { it.asJsonObject }
         val latestTracks = rawTracks.mapNotNull { it.toSoundCloudTrackResultDto() }
         val topTracks = rawTracks
             .sortedByDescending { it.longOrNull("playback_count") ?: 0L }
             .mapNotNull { it.toSoundCloudTrackResultDto() }
 
+        val albums = (albumsDeferred.await()?.jsonArrayOrNull("collection") ?: JsonArray())
+            .mapNotNull { it.asJsonObject.toSoundCloudAlbumResultDto() }
+        val playlists = (playlistsDeferred.await()?.jsonArrayOrNull("collection") ?: JsonArray())
+            .mapNotNull { it.asJsonObject.toSoundCloudPlaylistResultDto() }
+
         val artist = user.toSoundCloudArtistResultDto()
             ?: error("SoundCloud user resolve returned an unexpected shape for $permalink")
 
-        return ArtistDetailDto(
+        ArtistDetailDto(
             source = artist.source,
             sourceId = artist.sourceId,
             name = artist.name,
@@ -149,6 +167,8 @@ class SoundCloudSearchClient @Inject constructor(
             subscriberCount = artist.subscriberCount,
             topTracks = topTracks,
             latestTracks = latestTracks,
+            albums = albums,
+            playlists = playlists,
             webpageUrl = artist.webpageUrl,
         )
     }

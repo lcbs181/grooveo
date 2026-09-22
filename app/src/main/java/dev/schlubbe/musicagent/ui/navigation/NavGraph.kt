@@ -350,6 +350,9 @@ fun MusicAgentNavGraph(
                     onFollowersSelected = {
                         navController.navigate(Routes.artistFollowers(artistSource, artistSourceId))
                     },
+                    onPlaylistSelected = { playlistSource, playlistSourceId ->
+                        navController.navigate(Routes.remotePlaylistDetail(playlistSource, playlistSourceId))
+                    },
                     onNavigateBack = { navController.popBackStack() },
                 )
             }

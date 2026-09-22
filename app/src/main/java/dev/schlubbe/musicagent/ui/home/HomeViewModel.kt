@@ -827,9 +827,8 @@ class HomeViewModel @Inject constructor(
 
     private fun resolveArtistByName(name: String, source: String) {
         viewModelScope.launch {
-            runCatching { searchRepository.searchArtists(name, source = source, limit = 1) }
-                .onSuccess { artists ->
-                    val artist = artists.firstOrNull()
+            runCatching { searchRepository.findArtistByName(name, source = source) }
+                .onSuccess { artist ->
                     _uiState.value = if (artist != null) {
                         _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)
                     } else {

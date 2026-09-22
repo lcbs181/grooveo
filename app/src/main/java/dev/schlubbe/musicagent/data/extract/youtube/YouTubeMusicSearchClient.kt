@@ -9,6 +9,7 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.RemotePlaylistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfo
@@ -163,12 +164,28 @@ class YouTubeMusicSearchClient @Inject constructor() {
         // ChannelTabs.TRACKS is what an official-artist YouTube channel exposes for
         // its music catalog (closest match to ytmusicapi's "top songs"); ordinary
         // channels only have a VIDEOS tab, used as a fallback so artist pages still
-        // show *something* for non-music-official channels.
+        // show *something* for non-music-official channels. ALBUMS/PLAYLISTS are
+        // fetched the same way - an auto-generated "- Topic" channel (see below)
+        // typically only has these two, not TRACKS/VIDEOS.
         val tracksTab = info.tabs.firstOrNull { ChannelTabs.TRACKS in it.contentFilters }
         val videosTab = info.tabs.firstOrNull { ChannelTabs.VIDEOS in it.contentFilters }
+        val albumsTab = info.tabs.firstOrNull { ChannelTabs.ALBUMS in it.contentFilters }
+        val playlistsTab = info.tabs.firstOrNull { ChannelTabs.PLAYLISTS in it.contentFilters }
 
-        var tracksTabItems = tracksTab?.let { fetchTabTracks(it) }
-        var videosTabItems = videosTab?.let { fetchTabTracks(it) }
+        // All four tabs are fetched concurrently rather than one after another - this
+        // block is already inside withContext(Dispatchers.IO), which hands out a
+        // CoroutineScope, so `async` works directly here. Each fetch is still wrapped
+        // individually (fetchTabTracks/fetchTabPlaylistItems), so one tab failing
+        // can't fail or block the others.
+        val tracksDeferred = async { tracksTab?.let { fetchTabTracks(it) } }
+        val videosDeferred = async { videosTab?.let { fetchTabTracks(it) } }
+        val albumsDeferred = async { albumsTab?.let { fetchTabPlaylistItems(it) } }
+        val playlistsDeferred = async { playlistsTab?.let { fetchTabPlaylistItems(it) } }
+
+        var tracksTabItems = tracksDeferred.await()
+        var videosTabItems = videosDeferred.await()
+        val albumItems = albumsDeferred.await().orEmpty()
+        val playlistItems = playlistsDeferred.await().orEmpty()
 
         // Auto-generated "<Artist> - Topic" channels (YouTube's stand-in for artists
         // with no manually managed channel - common for uploads distributed via a
@@ -194,7 +211,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
             )
             videosTabItems = info.tabs
                 .asSequence()
-                .filter { it != tracksTab && it != videosTab }
+                .filter { it != tracksTab && it != videosTab && it != albumsTab && it != playlistsTab }
                 .map { fetchTabTracks(it) }
                 .firstOrNull { !it.isNullOrEmpty() }
                 ?: fetchTabTracks(info.tabs.first())
@@ -206,22 +223,58 @@ class YouTubeMusicSearchClient @Inject constructor() {
         // that only expose one of the two tabs - checked by emptiness (isNullOrEmpty),
         // not just nullness, for the same reason as the fallback trigger above: an
         // empty-but-non-null list must still fall through to the other candidate.
-        val topTracks = (tracksTabItems.takeIf { !it.isNullOrEmpty() } ?: videosTabItems ?: emptyList()).take(20)
+        var topTracks = (tracksTabItems.takeIf { !it.isNullOrEmpty() } ?: videosTabItems ?: emptyList()).take(20)
         val latestTracks = (videosTabItems.takeIf { !it.isNullOrEmpty() } ?: tracksTabItems ?: emptyList()).take(20)
+
+        // A "- Topic" channel typically has no usable TRACKS/VIDEOS tab at all (see
+        // above) but does have an ALBUMS tab - its actual catalog just lives one level
+        // down, per-album. Without this, such a channel's Play/Shuffle controls stay
+        // disabled (hasTracks false) even though it clearly has music. Only the first
+        // album is fetched, not all of them, to keep this one extra request instead of
+        // N - "Top-Titel" doesn't need to be exhaustive, just non-empty.
+        if (topTracks.isEmpty() && latestTracks.isEmpty() && albumItems.isNotEmpty()) {
+            topTracks = runCatching { getPlaylistDetail(albumItems.first().url).tracks }
+                .getOrDefault(emptyList())
+                .take(20)
+        }
+
+        // Many "- Topic" channels expose no tabs at all through NewPipeExtractor, so
+        // everything above comes back empty. Fall back to YouTube Music search,
+        // keeping only songs/albums credited to this artist.
+        val artistName = stripTopicSuffix(info.name)
+        var albums = albumItems.map { it.toAlbumResultDto() }.take(20)
+        if (topTracks.isEmpty() && latestTracks.isEmpty()) {
+            topTracks = runCatching { search(artistName, 30) }.getOrDefault(emptyList())
+                .filter { it.artist?.let { a -> creditsArtist(a, artistName) } == true }
+                .take(20)
+        }
+        if (albums.isEmpty()) {
+            albums = runCatching { searchAlbums(artistName, 20) }.getOrDefault(emptyList())
+                .filter { it.artist?.let { a -> creditsArtist(a, artistName) } == true }
+        }
 
         ArtistDetailDto(
             source = "ytmusic",
             sourceId = channelUrl,
-            name = info.name.removeSuffix(" - Topic"),
+            // Auto-generated channels are always named "<Artist> - Topic" - stripped
+            // here so the artist page (and anything that later name-matches against
+            // it, e.g. SearchRepository.findArtistByName) shows the real artist name.
+            name = stripTopicSuffix(info.name),
             thumbnailUrl = info.avatars.maxByOrNull { it.height }?.url,
             bannerUrl = runCatching { info.banners.maxByOrNull { it.height }?.url }.getOrNull(),
             description = info.description,
             subscriberCount = info.subscriberCount.takeIf { it >= 0 }?.let(::formatCount),
             topTracks = topTracks,
             latestTracks = latestTracks,
+            albums = albums,
+            playlists = playlistItems.map { it.toPlaylistResultDto() }.take(20),
             webpageUrl = channelUrl,
         )
     }
+
+    private fun creditsArtist(credit: String, artist: String): Boolean =
+        stripTopicSuffix(credit).split(",", "&", " x ", " feat. ", " ft. ")
+            .any { it.trim().equals(artist, ignoreCase = true) }
 
     private fun fetchTabTracks(tab: ListLinkHandler): List<TrackResultDto>? = runCatching {
         ChannelTabInfo.getInfo(ServiceList.YouTube, tab)
@@ -230,6 +283,23 @@ class YouTubeMusicSearchClient @Inject constructor() {
     }.onFailure { e ->
         Log.w(TAG, "failed to fetch channel tab ${tab.url}", e)
     }.getOrNull()
+
+    // Backs the ALBUMS/PLAYLISTS tabs (see getArtist) - both surface PlaylistInfoItems,
+    // unlike TRACKS/VIDEOS' StreamInfoItems, so this is fetchTabTracks' sibling rather
+    // than a shared helper. Same individually-wrapped, log-and-return-null failure
+    // handling.
+    private fun fetchTabPlaylistItems(tab: ListLinkHandler): List<PlaylistInfoItem>? = runCatching {
+        ChannelTabInfo.getInfo(ServiceList.YouTube, tab)
+            .relatedItems.filterIsInstance<PlaylistInfoItem>()
+    }.onFailure { e ->
+        Log.w(TAG, "failed to fetch channel tab ${tab.url}", e)
+    }.getOrNull()
+
+    // Auto-generated "<Artist> - Topic" channels use this suffix as YouTube's own
+    // wrapper around an artist with no manually managed channel, not a distinct
+    // artist name - stripped wherever a channel's display name reaches the app.
+    private fun stripTopicSuffix(name: String): String =
+        Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE).replace(name, "").trim()
 
     private fun StreamInfoItem.toTrackResultDto(): TrackResultDto? {
         val videoId = Uri.parse(url).getQueryParameter("v") ?: return null
@@ -248,7 +318,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
     private fun ChannelInfoItem.toArtistResultDto(): ArtistResultDto? = ArtistResultDto(
         source = "ytmusic",
         sourceId = url,
-        name = name.removeSuffix(" - Topic"),
+        name = stripTopicSuffix(name),
         thumbnailUrl = thumbnails.maxByOrNull { it.height }?.url,
         subscriberCount = subscriberCount.takeIf { it >= 0 }?.let(::formatCount),
         webpageUrl = url,
