@@ -16,6 +16,8 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.FollowRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
+import dev.schlubbe.musicagent.data.repository.Lyrics
+import dev.schlubbe.musicagent.data.repository.LyricsRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -48,6 +51,15 @@ data class PlayerAddToPlaylistState(
     val playlists: List<PlaylistOutDto> = emptyList(),
 )
 
+/** Lyrics-lookup outcome for the currently playing track, shown by the "Songtext"
+ * bottom sheet on the Player screen. */
+sealed class LyricsUiState {
+    data object Loading : LyricsUiState()
+    data class Found(val lyrics: Lyrics) : LyricsUiState()
+    data object NotFound : LyricsUiState()
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val playerController: PlayerController,
@@ -59,6 +71,7 @@ class PlayerViewModel @Inject constructor(
     private val followRepository: FollowRepository,
     private val downloadDao: DownloadDao,
     private val workManager: WorkManager,
+    private val lyricsRepository: LyricsRepository,
 ) : ViewModel() {
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
@@ -76,6 +89,27 @@ class PlayerViewModel @Inject constructor(
     val playerStyle: StateFlow<String> = settingsRepository.playerStyle
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "waveform")
     val sleepTimerEndAtMs: StateFlow<Long?> = playerController.sleepTimerEndAtMs
+
+    /** Re-fetched every time the current track changes (flatMapLatest on
+     * currentTrackId), so a fast skip cancels whatever lookup was in flight for
+     * the previous track rather than letting a slow, stale response land after
+     * the user has already moved on. */
+    val lyricsState: StateFlow<LyricsUiState> = playbackState
+        .map { Triple(it.title, it.artist, it.durationMs) }
+        .distinctUntilChanged()
+        .flatMapLatest { (title, artist, durationMs) ->
+            flow {
+                if (title.isNullOrBlank()) {
+                    emit(LyricsUiState.NotFound)
+                    return@flow
+                }
+                emit(LyricsUiState.Loading)
+                val durationSec = durationMs.takeIf { it > 0 }?.let { (it / 1000L).toInt() }
+                val lyrics = lyricsRepository.lyricsFor(title, artist, durationSec)
+                emit(if (lyrics != null) LyricsUiState.Found(lyrics) else LyricsUiState.NotFound)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LyricsUiState.Loading)
 
     val isLiked: StateFlow<Boolean> = combine(
         playerController.playbackState,
