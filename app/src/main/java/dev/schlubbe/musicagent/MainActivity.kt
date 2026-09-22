@@ -12,12 +12,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import dev.schlubbe.musicagent.playback.PlayerController
+import javax.inject.Inject
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import dev.schlubbe.musicagent.ui.navigation.MusicAgentNavGraph
 import dev.schlubbe.musicagent.ui.theme.GrooveoTheme
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var playerController: PlayerController
 
     // No-op result handler: playback still works without the permission, it just
     // means the media notification (and the update-check dialog's notifications,
@@ -32,7 +39,13 @@ class MainActivity : ComponentActivity() {
         // postSplashScreenTheme (Theme.MusicAgent) once dismissed.
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        requestNotificationPermissionIfNeeded()
+        // Asked when something first plays - that's when the media notification (the
+        // reason for the permission) appears - rather than on the first frame, before
+        // the user has seen what the app even is.
+        lifecycleScope.launch {
+            playerController.playbackState.first { it.isPlaying }
+            requestNotificationPermissionIfNeeded()
+        }
         setContent {
             GrooveoTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
