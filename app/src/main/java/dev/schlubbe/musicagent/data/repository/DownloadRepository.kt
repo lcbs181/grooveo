@@ -1,6 +1,10 @@
 package dev.schlubbe.musicagent.data.repository
 
+import android.content.Context
+import android.net.Uri
 import androidx.work.Constraints
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
@@ -20,6 +24,7 @@ import javax.inject.Singleton
 
 @Singleton
 class DownloadRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val workManager: WorkManager,
     private val downloadDao: DownloadDao,
     private val trackDao: TrackDao,
@@ -37,6 +42,10 @@ class DownloadRepository @Inject constructor(
         // played first. Also what resumeDownload()/retryDownload() look up later,
         // since they only have a trackId, not a full TrackResultDto.
         scope.launch {
+            // KEEP only dedupes against *unfinished* work, so without this a finished
+            // download would be fetched again from scratch (e.g. "Alle herunterladen"
+            // on a list that's already partly offline).
+            if (downloadDao.getByTrackId(trackId)?.state == DownloadState.COMPLETED) return@launch
             trackDao.upsert(
                 TrackEntity(
                     id = trackId,
@@ -52,9 +61,20 @@ class DownloadRepository @Inject constructor(
                     genre = track.genre,
                 ),
             )
+            enqueue(track.source, track.sourceId, track.title, track.artist.orEmpty(), trackId)
         }
+    }
 
-        enqueue(track.source, track.sourceId, track.title, track.artist.orEmpty(), trackId)
+    /** Removes a download completely: stops any running transfer, deletes the audio
+     * file from MediaStore and drops the record, so the space is actually freed. */
+    fun deleteDownload(trackId: String) {
+        workManager.cancelUniqueWork(trackId)
+        scope.launch {
+            downloadDao.getByTrackId(trackId)?.mediaStoreUri?.let { uri ->
+                runCatching { context.contentResolver.delete(Uri.parse(uri), null, null) }
+            }
+            downloadDao.delete(trackId)
+        }
     }
 
     fun startDownloadAll(tracks: List<TrackResultDto>) {

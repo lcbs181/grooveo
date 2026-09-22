@@ -2,7 +2,16 @@ package dev.schlubbe.musicagent.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import dev.schlubbe.musicagent.download.DownloadWorker
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.FollowRepository
@@ -32,6 +41,8 @@ data class PlayerArtistNavState(
     val artistLookupError: String? = null,
 )
 
+data class CurrentDownload(val state: DownloadState, val pct: Int)
+
 data class PlayerAddToPlaylistState(
     val pending: Boolean = false,
     val playlists: List<PlaylistOutDto> = emptyList(),
@@ -46,6 +57,8 @@ class PlayerViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val playlistRepository: PlaylistRepository,
     private val followRepository: FollowRepository,
+    private val downloadDao: DownloadDao,
+    private val workManager: WorkManager,
 ) : ViewModel() {
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
@@ -147,9 +160,43 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { playerController.cycleRepeatMode() }
     }
 
-    fun onDownloadClicked() {
-        val track = playerController.nowPlayingTrack() ?: return
-        downloadRepository.startDownload(track)
+    /** The now-playing track's download record plus live progress, so the Player's
+     * offline card can show "Wird heruntergeladen · 42 %" instead of looking idle
+     * while a download it started is running. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentDownload: StateFlow<CurrentDownload?> = playerController.playbackState
+        .map { it.currentTrackId }
+        .distinctUntilChanged()
+        .flatMapLatest { trackId ->
+            if (trackId == null) return@flatMapLatest flowOf(null)
+            downloadDao.observeByTrackId(trackId).flatMapLatest { entity ->
+                when {
+                    entity == null -> flowOf(null)
+                    entity.state == DownloadState.DOWNLOADING ->
+                        workManager.getWorkInfosForUniqueWorkFlow(trackId).map { infos ->
+                            val live = infos.firstOrNull()?.progress?.getInt(DownloadWorker.PROGRESS_KEY, -1)
+                            CurrentDownload(entity.state, live?.takeIf { it >= 0 } ?: entity.progressPct)
+                        }
+                    else -> flowOf(CurrentDownload(entity.state, entity.progressPct))
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Starts (or retries) the now-playing track's download. Returns a message to
+     * show when there is nothing to download, instead of silently doing nothing. */
+    fun onDownloadClicked(): String? {
+        val track = playerController.nowPlayingTrack() ?: return null
+        val state = playbackState.value
+        if (track.isDrmProtected || (state.isUnavailable && state.unavailableMessage?.contains("DRM") == true)) {
+            return "„${track.title}“ ist DRM-geschützt und kann nicht heruntergeladen werden."
+        }
+        if (currentDownload.value?.state == DownloadState.FAILED) {
+            downloadRepository.retryDownload("${track.source}:${track.sourceId}")
+        } else {
+            downloadRepository.startDownload(track)
+        }
+        return null
     }
 
     fun currentTrackWebpageUrl(): String? = playerController.nowPlayingTrack()?.webpageUrl

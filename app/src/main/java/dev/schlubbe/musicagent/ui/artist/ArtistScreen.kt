@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.ui.artist
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -114,7 +115,7 @@ fun ArtistScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // The design's back/share/overflow buttons float on the banner itself
             // (see ArtistHeader below) and only exist once the artist has loaded.

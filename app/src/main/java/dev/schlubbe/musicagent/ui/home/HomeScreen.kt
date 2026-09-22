@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.home
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -89,7 +90,7 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(bottom = CONTENT_BOTTOM_PADDING.dp),
@@ -186,8 +187,8 @@ fun HomeScreen(
     }
 }
 
-/** App bar: headline-md title, then search / downloads (with the coral badge
- * dot) / settings. The "Offline" badge shows only while data saver is on. */
+/** App bar: headline-md title, then search / downloads
+ * / settings. The "Offline" badge shows only while data saver is on. */
 @Composable
 private fun HomeAppBar(
     uiState: HomeUiState,
@@ -218,7 +219,6 @@ private fun HomeAppBar(
             CanopyIconButton(
                 icon = phosphorIcon("download-simple"),
                 onClick = onDownloads,
-                badge = true,
                 contentDescription = "Downloads",
             )
             CanopyIconButton(

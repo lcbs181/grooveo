@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.ui.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -178,6 +179,7 @@ fun MusicAgentNavGraph(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Canopy.surface)
+                            .navigationBarsPadding()
                             .padding(vertical = 8.dp),
                     ) {
                         BOTTOM_NAV_ITEMS.forEach { item ->

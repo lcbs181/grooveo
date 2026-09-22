@@ -97,9 +97,7 @@ class DownloadsViewModel @Inject constructor(
 
     fun retry(trackId: String) = downloadRepository.retryDownload(trackId)
 
-    fun cancel(trackId: String) {
-        viewModelScope.launch { downloadDao.delete(trackId) }
-    }
+    fun cancel(trackId: String) = downloadRepository.deleteDownload(trackId)
 
     private fun deviceTotalBytes(): Long = runCatching {
         val stat = StatFs(Environment.getDataDirectory().path)

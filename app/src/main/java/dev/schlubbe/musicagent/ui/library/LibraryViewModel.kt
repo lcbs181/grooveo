@@ -121,6 +121,14 @@ class LibraryViewModel @Inject constructor(
 
     val likedTrackIds: StateFlow<Set<String>> = likesRepository.likedTrackIds
 
+    val downloadedTrackIds: StateFlow<Set<String>> = downloadDao.observeAll()
+        .map { entities -> entities.filter { it.state == DownloadState.COMPLETED }.mapTo(mutableSetOf()) { it.trackId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val nowPlayingTrackId: StateFlow<String?> = playerController.playbackState
+        .map { it.currentTrackId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     // Same source [dev.schlubbe.musicagent.ui.home.HomeViewModel] already uses for its
     // own "Zuletzt gehört" shelf (trackDao.observeRecentlyPlayed) - reused as-is rather
     // than adding a second query, since TrackEntity already carries everything both the
@@ -274,6 +282,29 @@ class LibraryViewModel @Inject constructor(
                 playerController.playTrack(like.track.toTrackResultDto())
             }
         }
+    }
+
+    fun playAllLikes(shuffle: Boolean) {
+        val queue = _uiState.value.likes.map { it.track.toTrackResultDto() }
+        if (queue.isEmpty()) return
+        viewModelScope.launch { playerController.playQueue(if (shuffle) queue.shuffled() else queue, 0) }
+    }
+
+    fun downloadAllLikes() {
+        val downloaded = downloadedTrackIds.value
+        val missing = _uiState.value.likes.map { it.track.toTrackResultDto() }
+            .filter { "${it.source}:${it.sourceId}" !in downloaded && !it.isDrmProtected }
+        val message = if (missing.isEmpty()) {
+            "Alle Favoriten sind bereits offline verfügbar"
+        } else {
+            downloadRepository.startDownloadAll(missing)
+            "${missing.size} Titel werden heruntergeladen"
+        }
+        _uiState.value = _uiState.value.copy(downloadPlaylistMessage = message)
+    }
+
+    fun onDeleteDownloadClicked(track: TrackResultDto) {
+        downloadRepository.deleteDownload("${track.source}:${track.sourceId}")
     }
 
     fun unlike(like: LikeOutDto) {

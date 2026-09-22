@@ -212,7 +212,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
         ArtistDetailDto(
             source = "ytmusic",
             sourceId = channelUrl,
-            name = info.name,
+            name = info.name.removeSuffix(" - Topic"),
             thumbnailUrl = info.avatars.maxByOrNull { it.height }?.url,
             bannerUrl = runCatching { info.banners.maxByOrNull { it.height }?.url }.getOrNull(),
             description = info.description,
@@ -248,7 +248,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
     private fun ChannelInfoItem.toArtistResultDto(): ArtistResultDto? = ArtistResultDto(
         source = "ytmusic",
         sourceId = url,
-        name = name,
+        name = name.removeSuffix(" - Topic"),
         thumbnailUrl = thumbnails.maxByOrNull { it.height }?.url,
         subscriberCount = subscriberCount.takeIf { it >= 0 }?.let(::formatCount),
         webpageUrl = url,

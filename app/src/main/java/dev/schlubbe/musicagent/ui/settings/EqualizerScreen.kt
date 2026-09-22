@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.settings
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -161,7 +162,7 @@ fun EqualizerScreen(
     val presetLabel = eqPresetLabel(uiState.eqPreset)
     val sound3dOn = uiState.sound3dPreset != Sound3dPreset.DISABLED
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),

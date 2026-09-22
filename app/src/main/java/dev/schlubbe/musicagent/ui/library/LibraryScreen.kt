@@ -2,6 +2,7 @@ package dev.schlubbe.musicagent.ui.library
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -89,6 +90,8 @@ fun LibraryScreen(
 ) {
     val downloads by viewModel.downloads.collectAsState()
     val likedTrackIds by viewModel.likedTrackIds.collectAsState()
+    val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
+    val nowPlayingTrackId by viewModel.nowPlayingTrackId.collectAsState()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -120,7 +123,7 @@ fun LibraryScreen(
         viewModel.backToHome()
     }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (uiState.selectedTab) {
                 LibraryTab.HOME -> LibraryHomeContent(
@@ -148,8 +151,14 @@ fun LibraryScreen(
                     LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
                     LikesTab(
                         uiState = uiState,
+                        downloadedTrackIds = downloadedTrackIds,
+                        nowPlayingTrackId = nowPlayingTrackId,
                         onLikedTrackClick = { like ->
                             viewModel.playLikedTrack(like)
+                            onDownloadPlayed()
+                        },
+                        onPlayAll = { shuffle ->
+                            viewModel.playAllLikes(shuffle)
                             onDownloadPlayed()
                         },
                         viewModel = viewModel,
@@ -336,31 +345,95 @@ private fun LibraryHomeContent(
 @Composable
 private fun LikesTab(
     uiState: LibraryUiState,
+    downloadedTrackIds: Set<String>,
+    nowPlayingTrackId: String?,
     onLikedTrackClick: (LikeOutDto) -> Unit,
+    onPlayAll: (shuffle: Boolean) -> Unit,
     viewModel: LibraryViewModel,
 ) {
     val dimens = rememberResponsiveDimens()
     when {
-        uiState.isLoadingLikes -> Box(modifier = Modifier.padding(dimens.horizontalPadding)) {
+        uiState.isLoadingLikes && uiState.likes.isEmpty() -> Box(modifier = Modifier.padding(dimens.horizontalPadding)) {
             CircularProgressIndicator(color = Canopy.accent)
         }
         uiState.likes.isEmpty() -> Text(
-            "Noch keine Likes",
+            "Noch keine Likes – tippe im Player auf das Herz, um Titel hier zu sammeln.",
             color = Canopy.neutral500,
             modifier = Modifier.padding(dimens.horizontalPadding),
         )
         else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(uiState.likes, key = { "like:${it.track.id}" }) { like ->
-                LikeRow(
-                    like = like,
-                    onClick = { onLikedTrackClick(like) },
-                    onUnlikeClick = { viewModel.unlike(like) },
-                    onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(like.track.toTrackResultDto()) },
-                    onAddToQueueClick = { viewModel.onAddToQueueClicked(like.track.toTrackResultDto()) },
-                    onDownloadClick = { viewModel.onDownloadClicked(like.track.toTrackResultDto()) },
-                    onArtistClick = { viewModel.onTrackArtistClicked(like.track.toTrackResultDto()) },
+            item {
+                val offlineCount = uiState.likes.count { it.track.trackKey() in downloadedTrackIds }
+                LikesHeader(
+                    trackCount = uiState.likes.size,
+                    offlineCount = offlineCount,
+                    onPlay = { onPlayAll(false) },
+                    onShuffle = { onPlayAll(true) },
+                    onDownloadAll = viewModel::downloadAllLikes,
                 )
             }
+            items(uiState.likes, key = { "like:${it.track.id}" }) { like ->
+                val track = like.track.toTrackResultDto()
+                val isDownloaded = like.track.trackKey() in downloadedTrackIds
+                LikeRow(
+                    like = like,
+                    isDownloaded = isDownloaded,
+                    isPlaying = like.track.trackKey() == nowPlayingTrackId,
+                    onClick = { onLikedTrackClick(like) },
+                    onUnlikeClick = { viewModel.unlike(like) },
+                    onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
+                    onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
+                    onDownloadClick = {
+                        if (isDownloaded) viewModel.onDeleteDownloadClicked(track) else viewModel.onDownloadClicked(track)
+                    },
+                    onArtistClick = { viewModel.onTrackArtistClicked(track) },
+                )
+            }
+        }
+    }
+}
+
+private fun dev.schlubbe.musicagent.data.remote.dto.TrackOutDto.trackKey() = "$source:$sourceId"
+
+@Composable
+private fun LikesHeader(
+    trackCount: Int,
+    offlineCount: Int,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
+    onDownloadAll: () -> Unit,
+) {
+    val dimens = rememberResponsiveDimens()
+    val allOffline = offlineCount == trackCount
+    Column(modifier = Modifier.padding(horizontal = dimens.horizontalPadding).padding(top = 4.dp, bottom = 10.dp)) {
+        Text(
+            buildString {
+                append(if (trackCount == 1) "1 Titel" else "$trackCount Titel")
+                if (offlineCount > 0) append(" · $offlineCount offline")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = Canopy.neutral500,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CanopyButton(text = "Abspielen", onClick = onPlay, leadingIcon = phosphorIcon("play", filled = true))
+            CanopyButton(
+                text = "Zufall",
+                onClick = onShuffle,
+                variant = CanopyButtonVariant.Secondary,
+                leadingIcon = phosphorIcon("shuffle"),
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            CanopyIconButton(
+                icon = phosphorIcon(if (allOffline) "check-circle" else "download-simple"),
+                onClick = onDownloadAll,
+                shape = CircleShape,
+                variant = CanopyButtonVariant.Secondary,
+                contentDescription = if (allOffline) "Alle Favoriten offline verfügbar" else "Alle Favoriten herunterladen",
+            )
         }
     }
 }
@@ -821,6 +894,8 @@ private fun DownloadRow(
 @Composable
 private fun LikeRow(
     like: LikeOutDto,
+    isDownloaded: Boolean,
+    isPlaying: Boolean,
     onClick: () -> Unit,
     onUnlikeClick: () -> Unit,
     onAddToPlaylistClick: () -> Unit,
@@ -861,9 +936,27 @@ private fun LikeRow(
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Canopy.bg),
             leadingContent = { TrackThumbnail(like.track.thumbnailUrl, size = dimens.listThumbnail, seed = like.track.title) },
-            headlineContent = { Text(like.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            headlineContent = {
+                Text(
+                    like.track.title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isPlaying) Canopy.accent else Canopy.text,
+                    fontWeight = if (isPlaying) FontWeight.SemiBold else null,
+                )
+            },
             supportingContent = {
-                Text(like.track.artist ?: like.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isDownloaded) {
+                        Icon(
+                            phosphorIcon("download-simple", filled = true),
+                            contentDescription = "Offline verfügbar",
+                            tint = Canopy.accent,
+                            modifier = Modifier.padding(end = 4.dp).size(13.dp),
+                        )
+                    }
+                    Text(like.track.artist ?: like.track.source, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Canopy.neutral500)
+                }
             },
             trailingContent = {
                 Row {
@@ -889,8 +982,10 @@ private fun LikeRow(
                                 onClick = { menuExpanded = false; onAddToQueueClick() },
                             )
                             DropdownMenuItem(
-                                text = { Text("Herunterladen") },
-                                leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
+                                text = { Text(if (isDownloaded) "Download entfernen" else "Herunterladen") },
+                                leadingIcon = {
+                                    Icon(phosphorIcon(if (isDownloaded) "trash" else "download-simple"), contentDescription = null, tint = Canopy.accent)
+                                },
                                 onClick = { menuExpanded = false; onDownloadClick() },
                             )
                             DropdownMenuItem(

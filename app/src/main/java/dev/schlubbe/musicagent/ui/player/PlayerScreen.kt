@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -137,6 +138,7 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val playbackState by viewModel.playbackState.collectAsState()
+    val currentDownload by viewModel.currentDownload.collectAsState()
     val isLiked by viewModel.isLiked.collectAsState()
     val artistNavState by viewModel.artistNavState.collectAsState()
     val sleepTimerEndAtMs by viewModel.sleepTimerEndAtMs.collectAsState()
@@ -285,7 +287,10 @@ fun PlayerScreen(
                     DropdownMenuItem(
                         text = { Text("Herunterladen") },
                         leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
-                        onClick = { showMoreMenu = false; viewModel.onDownloadClicked() },
+                        onClick = {
+                            showMoreMenu = false
+                            viewModel.onDownloadClicked()?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                        },
                         enabled = playbackState.currentTrackId != null,
                     )
                     DropdownMenuItem(
@@ -656,6 +661,15 @@ fun PlayerScreen(
             // local copy already exists) - so the trailing control swaps between the two
             // depending on hasLocalDownload, keeping both existing actions reachable.
             if (playbackState.currentTrackId != null) {
+                val downloadState = currentDownload?.state
+                val isDrmBlocked = playbackState.isUnavailable && playbackState.unavailableMessage?.contains("DRM") == true
+                val canStartDownload = !playbackState.hasLocalDownload && !isDrmBlocked &&
+                    (downloadState == null || downloadState == DownloadState.FAILED)
+                val startDownload = {
+                    haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                    viewModel.onDownloadClicked()?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                    Unit
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -663,6 +677,7 @@ fun PlayerScreen(
                         .clip(CanopyShapes.medium)
                         .background(Canopy.surface)
                         .border(1.dp, Canopy.divider, CanopyShapes.medium)
+                        .clickable(enabled = canStartDownload, onClick = startDownload)
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -687,6 +702,11 @@ fun PlayerScreen(
                                 // like-count card during Phase 2).
                                 playbackState.isLocalPlayback -> "Auf dem Gerät gespeichert"
                                 playbackState.hasLocalDownload -> "Lokale Kopie verfügbar"
+                                isDrmBlocked -> "Nicht herunterladbar (DRM-geschützt)"
+                                downloadState == DownloadState.DOWNLOADING -> "Wird heruntergeladen · ${currentDownload?.pct ?: 0} %"
+                                downloadState == DownloadState.QUEUED -> "Download wartet …"
+                                downloadState == DownloadState.PAUSED -> "Download pausiert · ${currentDownload?.pct ?: 0} %"
+                                downloadState == DownloadState.FAILED -> "Download fehlgeschlagen – tippen zum Wiederholen"
                                 else -> "Zum Offline-Hören herunterladen"
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -703,14 +723,20 @@ fun PlayerScreen(
                                 viewModel.toggleSource()
                             },
                         )
-                    } else {
+                    } else if (downloadState == DownloadState.DOWNLOADING || downloadState == DownloadState.QUEUED) {
+                        CircularProgressIndicator(
+                            progress = { (currentDownload?.pct ?: 0) / 100f },
+                            color = Canopy.accent,
+                            trackColor = Canopy.neutral200,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.padding(6.dp).size(24.dp),
+                        )
+                    } else if (canStartDownload) {
                         CanopyIconButton(
-                            icon = phosphorIcon("download-simple"),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                                viewModel.onDownloadClicked()
-                            },
+                            icon = phosphorIcon(if (downloadState == DownloadState.FAILED) "arrow-clockwise" else "download-simple"),
+                            onClick = startDownload,
                             size = 36.dp,
+                            contentDescription = "Herunterladen",
                         )
                     }
                 }
@@ -756,7 +782,7 @@ fun PlayerScreen(
                 // scope to add here), so instead it scrolls this same screen down to the
                 // "Als Nächstes" list below, which is real, already-working data.
                 CanopyChip(
-                    label = "Zur Warteschlange",
+                    label = "Als Nächstes (${upNext.size})",
                     active = false,
                     onClick = {
                         if (upNext.isNotEmpty()) {

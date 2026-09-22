@@ -1,10 +1,14 @@
 package dev.schlubbe.musicagent.ui.search
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
+import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.util.shareText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,7 +121,7 @@ fun SearchScreen(
         )
     }
 
-    Scaffold(containerColor = Canopy.bg) { padding ->
+    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             SearchHeader(
                 query = uiState.query,
@@ -148,6 +152,20 @@ fun SearchScreen(
                     onPlaylistClick = viewModel::onPlaylistResultClicked,
                     onHistoryTapped = viewModel::onHistoryQueryTapped,
                     onHistoryDeleted = viewModel::onHistoryQueryDeleted,
+                    trackActions = TrackActions(
+                        onLikeToggle = viewModel::onLikeToggled,
+                        onDownload = { track ->
+                            viewModel.onDownloadClicked(track)
+                            Toast.makeText(context, "„${track.title}“ wird heruntergeladen", Toast.LENGTH_SHORT).show()
+                        },
+                        onAddToQueue = { track ->
+                            viewModel.onAddToQueueClicked(track)
+                            Toast.makeText(context, "Als Nächstes eingereiht", Toast.LENGTH_SHORT).show()
+                        },
+                        onAddToPlaylist = viewModel::onAddToPlaylistClicked,
+                        onArtist = viewModel::onTrackArtistClicked,
+                        onShare = { track -> context.shareText(track.webpageUrl) },
+                    ),
                 )
             }
         }
@@ -270,6 +288,7 @@ private fun ResultsList(
     onPlaylistClick: (source: String, sourceId: String) -> Unit,
     onHistoryTapped: (String) -> Unit,
     onHistoryDeleted: (String) -> Unit,
+    trackActions: TrackActions,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -279,7 +298,11 @@ private fun ResultsList(
             "artists" -> items(uiState.artistResults, key = { it.source + it.sourceId }) { artist ->
                 ResultRow(
                     title = artist.name,
-                    subtitle = "Künstler · ${sourceLabel(artist.source)}",
+                    subtitle = listOfNotNull(
+                        "Künstler",
+                        sourceLabel(artist.source),
+                        artist.subscriberCount?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
                     thumbnailUrl = artist.thumbnailUrl,
                     seed = artist.name,
                     circular = true,
@@ -307,13 +330,39 @@ private fun ResultsList(
                 )
             }
             else -> items(uiState.results, key = { it.source + it.sourceId }) { track ->
+                val key = "${track.source}:${track.sourceId}"
+                val download = uiState.downloadStates[key]
+                var menuExpanded by remember { mutableStateOf(false) }
                 ResultRow(
                     title = track.title,
-                    subtitle = track.artist ?: sourceLabel(track.source),
+                    subtitle = listOfNotNull(
+                        track.artist,
+                        sourceLabel(track.source),
+                        track.durationSec?.takeIf { it > 0 }?.let { "%d:%02d".format(it / 60, it % 60) },
+                    ).joinToString(" · "),
                     thumbnailUrl = track.thumbnailUrl,
                     seed = track.title,
-                    state = stateFor(track, uiState.downloadStates["${track.source}:${track.sourceId}"]),
+                    state = stateFor(track, download),
                     onClick = { onTrackClick(track) },
+                    onLongClick = { menuExpanded = true },
+                    trailing = {
+                        Box {
+                            CanopyIconButton(
+                                icon = phosphorIcon("dots-three-vertical"),
+                                onClick = { menuExpanded = true },
+                                size = 36.dp,
+                                contentDescription = "Weitere Optionen",
+                            )
+                            TrackActionsMenu(
+                                expanded = menuExpanded,
+                                onDismiss = { menuExpanded = false },
+                                track = track,
+                                isLiked = key in uiState.likedTrackIds,
+                                download = download,
+                                actions = trackActions,
+                            )
+                        }
+                    },
                 )
             }
         }
@@ -385,7 +434,49 @@ private fun HistorySearchChip(
     }
 }
 
-/** One result row: 48dp cover, title/subtitle, and the optional state pill. */
+private class TrackActions(
+    val onLikeToggle: (TrackResultDto) -> Unit,
+    val onDownload: (TrackResultDto) -> Unit,
+    val onAddToQueue: (TrackResultDto) -> Unit,
+    val onAddToPlaylist: (TrackResultDto) -> Unit,
+    val onArtist: (TrackResultDto) -> Unit,
+    val onShare: (TrackResultDto) -> Unit,
+)
+
+@Composable
+private fun TrackActionsMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    track: TrackResultDto,
+    isLiked: Boolean,
+    download: DownloadState?,
+    actions: TrackActions,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        @Composable
+        fun item(label: String, icon: String, enabled: Boolean = true, filled: Boolean = false, action: () -> Unit) =
+            DropdownMenuItem(
+                text = { Text(label) },
+                leadingIcon = { Icon(phosphorIcon(icon, filled = filled), contentDescription = null, tint = Canopy.accent) },
+                enabled = enabled,
+                onClick = { onDismiss(); action() },
+            )
+        item(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir", "heart", filled = isLiked) { actions.onLikeToggle(track) }
+        item("Zur Warteschlange hinzufügen", "list-plus", enabled = !track.isDrmProtected) { actions.onAddToQueue(track) }
+        item("Zu Playlist hinzufügen", "plus-circle") { actions.onAddToPlaylist(track) }
+        when {
+            track.isDrmProtected -> item("Nicht herunterladbar (DRM)", "lock-simple", enabled = false) {}
+            download == DownloadState.COMPLETED -> item("Offline verfügbar", "check-circle", enabled = false) {}
+            download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
+                item("Wird heruntergeladen …", "download-simple", enabled = false) {}
+            else -> item("Herunterladen", "download-simple") { actions.onDownload(track) }
+        }
+        if (!track.artist.isNullOrBlank()) item("Zum Künstler", "user-circle") { actions.onArtist(track) }
+        item("Teilen", "share-network") { actions.onShare(track) }
+    }
+}
+
+/** One result row: 48dp cover, title/subtitle, the optional state pill and trailing action. */
 @Composable
 private fun ResultRow(
     title: String,
@@ -395,18 +486,24 @@ private fun ResultRow(
     onClick: () -> Unit,
     circular: Boolean = false,
     state: ResultState? = null,
+    onLongClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(CanopyShapes.small)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 9.dp),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(start = 6.dp, end = if (trailing != null) 0.dp else 6.dp, top = 9.dp, bottom = 9.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (circular) {
-            CanopyAvatar(initials = seed, size = 48.dp)
+            if (thumbnailUrl != null) {
+                TrackThumbnail(url = thumbnailUrl, size = 48.dp, seed = seed, modifier = Modifier.clip(CircleShape))
+            } else {
+                CanopyAvatar(initials = seed, size = 48.dp)
+            }
         } else {
             TrackThumbnail(url = thumbnailUrl, size = 48.dp, seed = seed)
         }
@@ -428,20 +525,22 @@ private fun ResultRow(
             )
         }
         state?.let { StatePill(it) }
+        trailing?.invoke()
     }
 }
 
 /** The per-result state pill. "Alert" states (DRM, in-flight download) take the
- * coral treatment; settled states are neutral. */
+ * coral treatment; settled states are neutral. Plain streamable results get no
+ * pill at all - "Stream" on every row carried no information. */
 private data class ResultState(val label: String, val iconName: String, val alert: Boolean)
 
-private fun stateFor(track: TrackResultDto, download: DownloadState?): ResultState = when {
+private fun stateFor(track: TrackResultDto, download: DownloadState?): ResultState? = when {
     track.isDrmProtected -> ResultState("DRM", "lock-simple", alert = true)
     download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
         ResultState("Lädt", "download-simple", alert = true)
     download == DownloadState.FAILED -> ResultState("Fehler", "warning-circle", alert = true)
-    download == DownloadState.COMPLETED -> ResultState("Gespeichert", "check-circle", alert = false)
-    else -> ResultState("Stream", "cloud", alert = false)
+    download == DownloadState.COMPLETED -> ResultState("Offline", "check-circle", alert = false)
+    else -> null
 }
 
 @Composable
