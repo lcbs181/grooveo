@@ -128,6 +128,7 @@ fun MusicAgentNavGraph(
     navController: NavHostController = rememberNavController(),
     updateViewModel: UpdateViewModel = hiltViewModel(),
     onboardingViewModel: OnboardingViewModel = hiltViewModel(),
+    sharedLinkNavViewModel: SharedLinkNavViewModel = hiltViewModel(),
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -150,6 +151,16 @@ fun MusicAgentNavGraph(
                 popUpTo(Routes.HOME) { inclusive = true }
             }
         }
+    }
+
+    // Set by MainActivity once it resolves a shared SoundCloud/YouTube link (see
+    // SharedLinkResolver) - a track is already playing by the time this fires, so
+    // this just needs to land on the right screen, same as any in-app navigation.
+    val pendingSharedLinkRoute by sharedLinkNavViewModel.pendingRoute.collectAsState()
+    LaunchedEffect(pendingSharedLinkRoute) {
+        val route = pendingSharedLinkRoute ?: return@LaunchedEffect
+        navController.navigate(route)
+        sharedLinkNavViewModel.consumed()
     }
 
     val overlayState = remember { CanopyOverlayState() }
