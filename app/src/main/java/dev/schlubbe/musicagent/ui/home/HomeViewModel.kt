@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -44,6 +45,14 @@ private const val GENRE_SHELF_LIMIT = 3
 /** How many charts tracks are actually shown on Home. */
 private const val CHART_DISPLAY_COUNT = 20
 
+/** "Mehr für dich" subtitles -- see [HomeViewModel.loadFeed]. The taste-based one
+ * only shows while [FeedRepository.getFeed] is actually filling the shelf from
+ * onboarding's genre/artist picks rather than real history; once there's enough
+ * play/like history the shelf (and this label) reverts to the original claim,
+ * which is honest again once history really is what's driving it. */
+private const val FEED_SUBTITLE_HISTORY = "Auf dem Gerät aus Verlauf und Likes berechnet"
+private const val FEED_SUBTITLE_TASTE = "Basierend auf deinen Lieblingsgenres"
+
 /** How many trending tracks are actually fetched, well beyond [CHART_DISPLAY_COUNT] -
  * see [HomeViewModel.loadCharts] for why: YouTube Music's own "trending" endpoint
  * moves slowly day to day, so displaying the literal top-20 unchanged made the Home
@@ -57,13 +66,22 @@ private const val CHART_OVERFETCH_COUNT = 60
  * since no mood metadata exists anywhere), these are matched against
  * SoundCloud's real per-track `genre` field -- see
  * SearchRepository.getTrendingByGenre for why this is a filtered search rather
- * than a chart call. */
-enum class GenreFilter(val label: String) {
-    HOUSE("House"),
-    DUB_TECHNO("Dub Techno"),
-    AMBIENT("Ambient"),
-    BASS("Bass"),
-    LO_FI("Lo-Fi"),
+ * than a chart call.
+ *
+ * A plain data class rather than an enum since [HomeViewModel.buildGenreFilters]
+ * needs to add chips for onboarding genre picks that aren't among [DEFAULTS] --
+ * getTrendingByGenre takes any free-text genre term, so there's no fixed set
+ * this could stay a closed enum over. */
+data class GenreFilter(val label: String) {
+    companion object {
+        val DEFAULTS = listOf(
+            GenreFilter("House"),
+            GenreFilter("Dub Techno"),
+            GenreFilter("Ambient"),
+            GenreFilter("Bass"),
+            GenreFilter("Lo-Fi"),
+        )
+    }
 }
 
 /** Mood filter chips on the Mix row -- each (besides "Alle") maps to a plain
@@ -274,9 +292,14 @@ data class HomeUiState(
     // "Trends nach Genre": the selected chip and that genre's real SoundCloud
     // trending chart. Loaded lazily on first Home composition and again whenever
     // the chip changes, rather than fetching all five genres up front.
-    val selectedGenre: GenreFilter = GenreFilter.HOUSE,
+    // [genreFilters] is [GenreFilter.DEFAULTS] reordered (and possibly extended)
+    // with the user's onboarding genre picks up front - see buildGenreFilters().
+    val genreFilters: List<GenreFilter> = GenreFilter.DEFAULTS,
+    val selectedGenre: GenreFilter = GenreFilter.DEFAULTS.first(),
     val genreTracks: List<TrackResultDto> = emptyList(),
     val isGenreLoading: Boolean = false,
+    // "Mehr für dich" shelf subline - see loadFeed()/FEED_SUBTITLE_*.
+    val moreForYouSubtitle: String = FEED_SUBTITLE_HISTORY,
     // Drives the coral "Offline" badge in Home's app bar.
     val dataSaverMode: Boolean = false,
     // "source:sourceId" of the track currently loaded in the player, only while
@@ -319,6 +342,9 @@ class HomeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    // See the preferredGenres collector in init{} below.
+    private var genreFiltersInitialized = false
 
     init {
         // A live Room query -- no explicit reload needed, it just emits whenever a
@@ -365,6 +391,24 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.homeScPromoDismissed.collect { dismissed ->
                 _uiState.value = _uiState.value.copy(scPromoDismissed = dismissed)
+            }
+        }
+        // "Trends nach Genre" chip order: reorders (and possibly extends) the
+        // default chips around the user's onboarding picks. Only forces the
+        // *selection* to the new first chip once, on this ViewModel's first
+        // emission (or if the currently-selected chip fell out of the list
+        // entirely, e.g. after editing picks in Settings) - a later change to the
+        // preferred set shouldn't yank a genre the user has since tapped into out
+        // from under them.
+        viewModelScope.launch {
+            settingsRepository.preferredGenres.collect { preferred ->
+                val filters = buildGenreFilters(preferred)
+                val current = _uiState.value.selectedGenre
+                val stillPresent = filters.firstOrNull { it.label.equals(current.label, ignoreCase = true) }
+                val newSelected = if (!genreFiltersInitialized) filters.first() else stillPresent ?: filters.first()
+                genreFiltersInitialized = true
+                _uiState.value = _uiState.value.copy(genreFilters = filters, selectedGenre = newSelected)
+                if (newSelected.label != current.label) loadGenreTracks(newSelected)
             }
         }
         // Resume card: polls the shared player's live position while a track is
@@ -482,6 +526,21 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setHomeScPromoDismissed(true) }
     }
 
+    /** Onboarding's picks go first (in whatever order the preference [Set] hands
+     * them back - Home doesn't otherwise have any concept of the user's own
+     * ranking), mapped onto an existing [GenreFilter.DEFAULTS] label where one
+     * matches (so "House" reuses the exact same chip rather than a duplicate),
+     * else added as a new chip. Remaining defaults follow, so nothing already on
+     * the shelf disappears. */
+    private fun buildGenreFilters(preferred: Set<String>): List<GenreFilter> {
+        if (preferred.isEmpty()) return GenreFilter.DEFAULTS
+        val preferredFilters = preferred.map { raw ->
+            GenreFilter.DEFAULTS.firstOrNull { it.label.equals(raw, ignoreCase = true) } ?: GenreFilter(raw)
+        }
+        val remaining = GenreFilter.DEFAULTS.filterNot { d -> preferredFilters.any { it.label.equals(d.label, ignoreCase = true) } }
+        return preferredFilters + remaining
+    }
+
     private fun loadGenreTracks(genre: GenreFilter) {
         _uiState.value = _uiState.value.copy(isGenreLoading = true)
         viewModelScope.launch {
@@ -580,7 +639,11 @@ class HomeViewModel @Inject constructor(
                         .getOrDefault(emptyList())
                         .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
                 }
-            val focusPool = runCatching { feedRepository.getPersonalizedMix() }.getOrDefault(emptyList())
+            val preferredGenres = settingsRepository.preferredGenres.first()
+            val preferredArtists = settingsRepository.preferredArtists.first()
+            val focusPool = runCatching {
+                feedRepository.getPersonalizedMix(preferredGenres = preferredGenres, preferredArtists = preferredArtists)
+            }.getOrDefault(emptyList())
             val chillPool = runCatching { searchRepository.search(MoodFilter.CHILL.searchKeyword!!, limit = MOOD_MIX_SEARCH_LIMIT) }
                 .getOrDefault(emptyList())
                 .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
@@ -649,10 +712,16 @@ class HomeViewModel @Inject constructor(
     private fun loadFeed() {
         _uiState.value = _uiState.value.copy(isFeedLoading = true)
         viewModelScope.launch {
-            runCatching { feedRepository.getFeed() }
-                .onSuccess { items ->
-                    val shelf = items.take(SHELF_LIMIT)
-                    _uiState.value = _uiState.value.copy(feed = shelf, isFeedLoading = false)
+            val preferredGenres = settingsRepository.preferredGenres.first()
+            val preferredArtists = settingsRepository.preferredArtists.first()
+            runCatching { feedRepository.getFeed(preferredGenres = preferredGenres, preferredArtists = preferredArtists) }
+                .onSuccess { result ->
+                    val shelf = result.items.take(SHELF_LIMIT)
+                    _uiState.value = _uiState.value.copy(
+                        feed = shelf,
+                        isFeedLoading = false,
+                        moreForYouSubtitle = if (result.isTasteBased) FEED_SUBTITLE_TASTE else FEED_SUBTITLE_HISTORY,
+                    )
                     shelf.forEach { eventReporter.feedImpression(it.track) }
                     updateDailyPick()
                 }
@@ -692,6 +761,14 @@ class HomeViewModel @Inject constructor(
     fun onChartTrackClicked(track: TrackResultDto) {
         viewModelScope.launch {
             val queue = _uiState.value.charts
+            val index = queue.indexOfFirst { it.source == track.source && it.sourceId == track.sourceId }
+            if (index >= 0) playerController.playQueue(queue, index) else playerController.playTrack(track)
+        }
+    }
+
+    fun onGenreTrackClicked(track: TrackResultDto) {
+        viewModelScope.launch {
+            val queue = _uiState.value.genreTracks
             val index = queue.indexOfFirst { it.source == track.source && it.sourceId == track.sourceId }
             if (index >= 0) playerController.playQueue(queue, index) else playerController.playTrack(track)
         }

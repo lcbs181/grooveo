@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import dev.schlubbe.musicagent.data.repository.FeedItem
 import dev.schlubbe.musicagent.ui.components.CanopyAvatar
 import dev.schlubbe.musicagent.ui.components.CanopyBadge
 import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
@@ -109,14 +110,15 @@ fun HomeScreen(
                 }
             }
 
-            if (uiState.charts.isNotEmpty() || uiState.isChartsLoading) {
+            if (uiState.feed.isNotEmpty() || uiState.isFeedLoading) {
                 item {
                     MoreForYouShelf(
-                        tracks = uiState.charts,
-                        isLoading = uiState.isChartsLoading,
+                        items = uiState.feed,
+                        subtitle = uiState.moreForYouSubtitle,
+                        isLoading = uiState.isFeedLoading,
                         onShowAll = onSearchClick,
                         onClick = {
-                            viewModel.onChartTrackClicked(it)
+                            viewModel.onFeedTrackClicked(it)
                             onTrackSelected()
                         },
                     )
@@ -137,13 +139,14 @@ fun HomeScreen(
 
             item {
                 GenreTrends(
+                    genres = uiState.genreFilters,
                     selected = uiState.selectedGenre,
                     tracks = uiState.genreTracks,
                     isLoading = uiState.isGenreLoading,
                     nowPlayingId = uiState.nowPlayingId,
                     onGenreSelected = viewModel::onGenreSelected,
                     onTrackClick = {
-                        viewModel.onChartTrackClicked(it)
+                        viewModel.onGenreTrackClicked(it)
                         onTrackSelected()
                     },
                 )
@@ -285,14 +288,18 @@ private fun ResumeGrid(tracks: List<TrackEntity>, onClick: (TrackEntity) -> Unit
     }
 }
 
-/** "Mehr für dich": headline + "Alle anzeigen" chip, the on-device provenance
- * subline, then a horizontal shelf of 146dp covers. */
+/** "Mehr für dich": headline + "Alle anzeigen" chip, a provenance subline that's
+ * honest about whether history/likes or onboarding's taste picks are actually
+ * behind it (see HomeViewModel.loadFeed), then a horizontal shelf of 146dp
+ * covers. Backed by [FeedRepository.getFeed]'s own familiar+novel mix rather
+ * than raw charts, so it's genuinely the shelf its label describes. */
 @Composable
 private fun MoreForYouShelf(
-    tracks: List<TrackResultDto>,
+    items: List<FeedItem>,
+    subtitle: String,
     isLoading: Boolean,
     onShowAll: () -> Unit,
-    onClick: (TrackResultDto) -> Unit,
+    onClick: (FeedItem) -> Unit,
 ) {
     Column(modifier = Modifier.padding(top = SECTION_GAP.dp)) {
         Row(
@@ -304,23 +311,24 @@ private fun MoreForYouShelf(
             CanopyChip(label = "Alle anzeigen", active = false, onClick = onShowAll)
         }
         Text(
-            "Auf dem Gerät aus Verlauf und Likes berechnet",
+            subtitle,
             style = MaterialTheme.typography.bodySmall,
             color = Canopy.neutral500,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
         )
-        if (isLoading && tracks.isEmpty()) {
+        if (isLoading && items.isEmpty()) {
             ShelfLoading()
         } else {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(tracks, key = { it.source + it.sourceId }) { track ->
+                items(items, key = { it.track.source + it.track.sourceId }) { item ->
+                    val track = item.track
                     Column(
                         modifier = Modifier
                             .width(SHELF_CARD_SIZE.dp)
-                            .clickable { onClick(track) },
+                            .clickable { onClick(item) },
                     ) {
                         TrackThumbnail(
                             url = track.thumbnailUrl,
@@ -412,9 +420,13 @@ private fun MixShelf(mixes: List<MixCard>, onClick: (MixCard) -> Unit) {
 }
 
 /** "Trends nach Genre": chips over a short track list. Each chip is its own
- * real SoundCloud genre chart, so selecting one refetches rather than filters. */
+ * real SoundCloud genre chart, so selecting one refetches rather than filters.
+ * [genres] is already ordered with the user's onboarding picks first (see
+ * HomeViewModel.buildGenreFilters) - this composable just renders whatever
+ * order it's handed. */
 @Composable
 private fun GenreTrends(
+    genres: List<GenreFilter>,
     selected: GenreFilter,
     tracks: List<TrackResultDto>,
     isLoading: Boolean,
@@ -434,7 +446,7 @@ private fun GenreTrends(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(bottom = 14.dp),
         ) {
-            items(GenreFilter.entries.toList(), key = { it.name }) { genre ->
+            items(genres, key = { it.label }) { genre ->
                 CanopyChip(
                     label = genre.label,
                     active = genre == selected,
