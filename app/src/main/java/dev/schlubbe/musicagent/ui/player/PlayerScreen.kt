@@ -145,6 +145,7 @@ fun PlayerScreen(
     val eqPreset by viewModel.eqPreset.collectAsState()
     val playerStyle by viewModel.playerStyle.collectAsState()
     val addToPlaylistState by viewModel.addToPlaylistState.collectAsState()
+    val lyricsState by viewModel.lyricsState.collectAsState()
     val haptic = LocalHapticFeedback.current
     val premiumHaptics = rememberPremiumHaptics()
     val context = LocalContext.current
@@ -158,6 +159,7 @@ fun PlayerScreen(
     var sleepTimerRemainingMs by remember { mutableLongStateOf(0L) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showEqMenu by remember { mutableStateOf(false) }
+    var showLyricsSheet by remember { mutableStateOf(false) }
     var dragAccumulatedPx by remember { mutableFloatStateOf(0f) }
     val vizVariant by viewModel.vizVariant.collectAsState()
     // Not destructured with `by` - a bare State<FloatArray> handle updating ~10-15x/
@@ -798,6 +800,11 @@ fun PlayerScreen(
                         }
                     },
                 )
+                CanopyChip(
+                    label = "Songtext",
+                    active = false,
+                    onClick = { showLyricsSheet = true },
+                )
             }
 
             if (upNext.isNotEmpty()) {
@@ -834,6 +841,17 @@ fun PlayerScreen(
             onDismiss = viewModel::dismissAddToPlaylist,
             onPlaylistPicked = viewModel::onPlaylistPicked,
             onCreatePlaylist = viewModel::onCreatePlaylistAndAdd,
+        )
+    }
+
+    if (showLyricsSheet) {
+        LyricsSheet(
+            title = playbackState.title,
+            artist = playbackState.artist,
+            state = lyricsState,
+            positionMs = positionMs,
+            onSeek = { viewModel.seekTo(it) },
+            onDismiss = { showLyricsSheet = false },
         )
     }
 }
