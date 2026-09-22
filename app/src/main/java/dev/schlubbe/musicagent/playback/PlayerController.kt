@@ -676,42 +676,89 @@ class PlayerController @Inject constructor(
     private fun launchBackgroundQueueFill(tracks: List<TrackResultDto>, startIndex: Int, generation: Int) {
         scope.launch {
             coroutineScope {
-                val afterDeferred = (startIndex + 1 until tracks.size).map { i -> i to async { resolvePreferLocal(tracks[i]) } }
-                val beforeDeferred = (startIndex - 1 downTo 0).map { i -> i to async { resolvePreferLocal(tracks[i]) } }
-
-                for ((i, deferred) in afterDeferred) {
+                val order = (startIndex + 1 until tracks.size) + (startIndex - 1 downTo 0)
+                val pending = order.map { i -> tracks[i] to async { resolvePreferLocal(tracks[i]) } }
+                for ((track, deferred) in pending) {
                     val result = deferred.await()
                     if (generation != playRequestGeneration) return@coroutineScope
-                    val resolved = (toResolution(tracks[i], result) as? TrackResolution.Playable)?.resolved ?: continue
-                    val exoIndex = controller?.mediaItemCount ?: continue
-                    insertResolvedAt(i, tracks[i], resolved, exoIndex)
-                }
-
-                for ((i, deferred) in beforeDeferred) {
-                    val result = deferred.await()
-                    if (generation != playRequestGeneration) return@coroutineScope
-                    val resolved = (toResolution(tracks[i], result) as? TrackResolution.Playable)?.resolved ?: continue
-                    insertResolvedAt(i, tracks[i], resolved, 0)
+                    val resolved = (toResolution(track, result) as? TrackResolution.Playable)?.resolved ?: continue
+                    insertResolved(track, resolved)
                 }
             }
         }
     }
 
-    /** Inserts [track]'s already-resolved [resolved] stream at [exoIndex] in the live
-     * MediaController and records that mapping at [logicalIndex] in
-     * [exoIndexForLogical] - bumping every already-recorded exo index at or past
-     * [exoIndex] along by one first, the same shift [addToQueue] already needed for
-     * its own single insert. */
-    private fun insertResolvedAt(logicalIndex: Int, track: TrackResultDto, resolved: ResolvedStream, exoIndex: Int) {
-        val mediaController = controller ?: return
+    /** Loads [track] into the MediaController at the position matching its logical
+     * slot. The slot is looked up by identity at insert time (not by a captured
+     * index), so queue edits made while the background fill is still running
+     * (remove/move) can't make it write into the wrong slot. */
+    private fun insertResolved(track: TrackResultDto, resolved: ResolvedStream): Int? {
+        val mediaController = controller ?: return null
+        val logicalIndex = currentQueue.indices.firstOrNull { currentQueue[it] === track && exoIndexForLogical[it] == null }
+            ?: return null
+        val loaded = loadedFlags().also { it[logicalIndex] = true }
+        val newMapping = remap(loaded)
+        val exoIndex = newMapping[logicalIndex]!!
         mediaController.addMediaItem(exoIndex, buildMediaItem(track, resolved))
-        exoIndexForLogical = exoIndexForLogical.mapIndexed { idx, existing ->
-            when {
-                idx == logicalIndex -> exoIndex
-                existing != null && existing >= exoIndex -> existing + 1
-                else -> existing
-            }
+        exoIndexForLogical = newMapping
+        return exoIndex
+    }
+
+    // The loaded items in the MediaController always sit in the same relative order
+    // as their logical slots, so a slot's exo index is just the number of loaded
+    // slots before it - recomputing it this way after any edit keeps both in sync.
+    private fun loadedFlags(): MutableList<Boolean> = exoIndexForLogical.map { it != null }.toMutableList()
+
+    private fun remap(loaded: List<Boolean>): List<Int?> {
+        var next = 0
+        return loaded.map { if (it) next++ else null }
+    }
+
+    private fun publishQueue() {
+        _playbackState.value = _playbackState.value.copy(queue = currentQueue, queueIndex = currentQueueIndex)
+    }
+
+    /** Removes the queue entry at logical [index] (never the current track). */
+    suspend fun removeFromQueue(index: Int) {
+        if (index == currentQueueIndex || index !in currentQueue.indices) return
+        val mediaController = ensureConnected()
+        exoIndexForLogical[index]?.let { mediaController.removeMediaItem(it) }
+        val loaded = loadedFlags().apply { removeAt(index) }
+        currentQueue = currentQueue.toMutableList().apply { removeAt(index) }
+        if (index < currentQueueIndex) currentQueueIndex--
+        exoIndexForLogical = remap(loaded)
+        publishQueue()
+    }
+
+    /** Moves an upcoming entry from logical [from] to [to]; both must be after the
+     * current track. */
+    suspend fun moveInQueue(from: Int, to: Int) {
+        if (from == to || from <= currentQueueIndex || to <= currentQueueIndex) return
+        if (from !in currentQueue.indices || to !in currentQueue.indices) return
+        val mediaController = ensureConnected()
+        val fromExo = exoIndexForLogical[from]
+        val loaded = loadedFlags()
+        loaded.add(to, loaded.removeAt(from))
+        currentQueue = currentQueue.toMutableList().apply { add(to, removeAt(from)) }
+        val newMapping = remap(loaded)
+        if (fromExo != null) mediaController.moveMediaItem(fromExo, newMapping[to]!!)
+        exoIndexForLogical = newMapping
+        publishQueue()
+    }
+
+    /** Drops everything after the current track. */
+    suspend fun clearUpNext() {
+        if (currentQueueIndex < 0 || currentQueueIndex >= currentQueue.size - 1) return
+        val mediaController = ensureConnected()
+        val currentExo = exoIndexForLogical.getOrNull(currentQueueIndex)
+            ?: exoIndexForLogical.take(currentQueueIndex).lastOrNull { it != null }
+        val firstRemoved = (currentExo ?: -1) + 1
+        if (firstRemoved < mediaController.mediaItemCount) {
+            mediaController.removeMediaItems(firstRemoved, mediaController.mediaItemCount)
         }
+        currentQueue = currentQueue.take(currentQueueIndex + 1)
+        exoIndexForLogical = exoIndexForLogical.take(currentQueueIndex + 1)
+        publishQueue()
     }
 
     /** Plays [track] directly from its already-downloaded [localUri], with full
@@ -953,6 +1000,18 @@ class PlayerController @Inject constructor(
         val exoIndex = exoIndexForLogical.getOrNull(newLogicalIndex)
 
         if (exoIndex == null) {
+            // Not loaded yet (the background fill hasn't reached it, or it failed
+            // earlier): try it now instead of assuming it's unplayable.
+            val result = resolvePreferLocal(track)
+            val resolved = result.getOrNull()
+            if (resolved != null && insertResolved(track, resolved) != null) {
+                moveToLogicalIndex(newLogicalIndex)
+                return
+            }
+            if (result.exceptionOrNull() !is SoundCloudDrmOnlyException) {
+                showToast(resolveFailureMessage(track.title, result.exceptionOrNull()))
+                return
+            }
             currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
             mediaController.pause()
             currentTrack = track
