@@ -1,9 +1,11 @@
 package dev.schlubbe.musicagent
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,17 +16,23 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import dev.schlubbe.musicagent.data.extract.SharedLinkResolver
+import dev.schlubbe.musicagent.data.extract.SharedLinkTarget
 import dev.schlubbe.musicagent.playback.PlayerController
-import javax.inject.Inject
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import dev.schlubbe.musicagent.ui.navigation.MusicAgentNavGraph
+import dev.schlubbe.musicagent.ui.navigation.Routes
+import dev.schlubbe.musicagent.ui.navigation.SharedLinkNavHolder
 import dev.schlubbe.musicagent.ui.theme.GrooveoTheme
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var playerController: PlayerController
+    @Inject lateinit var sharedLinkResolver: SharedLinkResolver
+    @Inject lateinit var sharedLinkNavHolder: SharedLinkNavHolder
 
     // No-op result handler: playback still works without the permission, it just
     // means the media notification (and the update-check dialog's notifications,
@@ -51,6 +59,41 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MusicAgentNavGraph()
                 }
+            }
+        }
+        handleSharedLinkIntent(intent)
+    }
+
+    // launchMode="singleTask" (see the manifest) routes a re-share while the app is
+    // already running back through here instead of a fresh onCreate().
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSharedLinkIntent(intent)
+    }
+
+    /** Resolves a SoundCloud/YouTube link this activity was opened or re-shared with
+     * (see the manifest's ACTION_VIEW/ACTION_SEND intent filters and
+     * [SharedLinkResolver]) and either starts playback or hands the target route to
+     * [MusicAgentNavGraph] via [sharedLinkNavHolder]. A plain launcher/MAIN intent
+     * has no data/EXTRA_TEXT, so [SharedLinkResolver.extractUrl] simply returns null
+     * for it and nothing here fires. */
+    private fun handleSharedLinkIntent(intent: Intent?) {
+        val url = intent?.let(sharedLinkResolver::extractUrl) ?: return
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "Link wird geöffnet …", Toast.LENGTH_SHORT).show()
+            when (val target = sharedLinkResolver.resolveUrl(url)) {
+                is SharedLinkTarget.Track -> {
+                    // Open the Player first so its loading state is visible while the
+                    // stream resolves.
+                    sharedLinkNavHolder.pendingRoute.value = Routes.PLAYER
+                    playerController.playTrack(target.track)
+                }
+                is SharedLinkTarget.Playlist ->
+                    sharedLinkNavHolder.pendingRoute.value = Routes.remotePlaylistDetail(target.source, target.sourceId)
+                is SharedLinkTarget.Artist ->
+                    sharedLinkNavHolder.pendingRoute.value = Routes.artistDetail(target.source, target.sourceId)
+                null -> Toast.makeText(this@MainActivity, "Link konnte nicht geöffnet werden", Toast.LENGTH_LONG).show()
             }
         }
     }
