@@ -188,8 +188,8 @@ class PlayerViewModel @Inject constructor(
     fun onDownloadClicked(): String? {
         val track = playerController.nowPlayingTrack() ?: return null
         val state = playbackState.value
-        if (track.isDrmProtected || (state.isUnavailable && state.unavailableMessage?.contains("DRM") == true)) {
-            return "„${track.title}“ ist DRM-geschützt und kann nicht heruntergeladen werden."
+        if (state.isUnavailable && state.unavailableMessage?.contains("DRM") == true) {
+            return "„${track.title}“ ist nicht verfügbar und kann nicht heruntergeladen werden."
         }
         if (currentDownload.value?.state == DownloadState.FAILED) {
             downloadRepository.retryDownload("${track.source}:${track.sourceId}")

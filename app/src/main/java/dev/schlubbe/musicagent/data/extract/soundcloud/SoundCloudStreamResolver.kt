@@ -17,7 +17,13 @@ private const val TAG = "SoundCloudResolver"
  * from a plain resolve error so [dev.schlubbe.musicagent.data.extract.StreamResolverRegistry]
  * doesn't waste a retry on something that will deterministically fail again, and so
  * the user can be told the real reason instead of a generic "nicht aufgelöst". */
-class SoundCloudDrmOnlyException(message: String) : Exception(message)
+open class SoundCloudDrmOnlyException(message: String) : Exception(message)
+
+/** Thrown when every plain transcoding is `snipped` - SoundCloud Go+ tracks that
+ * only stream a 30-second preview to non-subscribers. Treated like DRM-only (not
+ * fully playable here) so callers fall back to another source instead of playing
+ * half a minute and stopping. */
+class SoundCloudPreviewOnlyException(message: String) : SoundCloudDrmOnlyException(message)
 
 /** Resolves a SoundCloud permalink (e.g. "artist/track-slug") to a real, playable
  * CDN URL. A track's `media.transcodings[]` entries each carry a metadata-fetch
@@ -74,8 +80,14 @@ class SoundCloudStreamResolver @Inject constructor(
         // downloaders (yt-dlp's extractor, scdl) do: prefer the progressive/http
         // transcoding whenever the track offers one, and only fall back to HLS
         // for the (rarer) tracks that don't.
-        val progressive = transcodings.firstOrNull { it.protocol() == "progressive" }
-        val hls = transcodings.firstOrNull { it.protocol() == "hls" }
+        val fullLength = transcodings.filterNot { it.isSnipped() }
+        val progressive = fullLength.firstOrNull { it.protocol() == "progressive" }
+        val hls = fullLength.firstOrNull { it.protocol() == "hls" }
+        if (progressive == null && hls == null &&
+            transcodings.any { it.isSnipped() && (it.protocol() == "hls" || it.protocol() == "progressive") }
+        ) {
+            throw SoundCloudPreviewOnlyException("SoundCloud track '$sourceId' only offers a 30s preview")
+        }
         val candidates = if (preferProgressive) {
             listOfNotNull(progressive, hls)
         } else {
@@ -138,4 +150,7 @@ class SoundCloudStreamResolver @Inject constructor(
 
     private fun JsonObject.protocol(): String? =
         jsonObjectOrNull("format")?.stringOrNull("protocol")
+
+    private fun JsonObject.isSnipped(): Boolean =
+        get("snipped")?.takeIf { it.isJsonPrimitive }?.asBoolean == true
 }

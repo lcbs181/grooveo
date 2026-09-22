@@ -87,7 +87,7 @@ class DownloadWorker @AssistedInject constructor(
         // that (no segment-concatenation step, trivially byte-range-resumable, and
         // MediaStore accepts the resulting file with no MIME-type workaround).
         val resolved = try {
-            streamResolverRegistry.resolve(source, sourceId, preferProgressive = true)
+            streamResolverRegistry.resolveWithFallback(source, sourceId, title, artist, durationSec = null, preferProgressive = true)
         } catch (e: SoundCloudDrmOnlyException) {
             // Permanent, not transient - StreamResolverRegistry already gave up on
             // this without a second attempt for the same reason. Retrying a download
