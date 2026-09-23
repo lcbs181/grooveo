@@ -142,6 +142,10 @@ fun SearchScreen(
                         color = Canopy.accent2,
                     )
                 }
+                uiState.suggestions.isNotEmpty() -> SuggestionsList(
+                    suggestions = uiState.suggestions,
+                    onTap = viewModel::onSuggestionTapped,
+                )
                 else -> ResultsList(
                     uiState = uiState,
                     onTrackClick = {
@@ -277,6 +281,36 @@ private fun SearchHeader(
             }
         }
         HorizontalDivider(color = Canopy.divider)
+    }
+}
+
+/** Search-as-you-type suggestions, shown in place of the (stale) previous results
+ * while the query is being typed. */
+@Composable
+private fun SuggestionsList(suggestions: List<String>, onTap: (String) -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = CONTENT_BOTTOM_PADDING.dp),
+    ) {
+        items(suggestions, key = { it }) { suggestion ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(CanopyShapes.small)
+                    .clickable { onTap(suggestion) }
+                    .padding(horizontal = 6.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    phosphorIcon("magnifying-glass"),
+                    contentDescription = null,
+                    tint = Canopy.neutral500,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(suggestion, style = MaterialTheme.typography.bodyMedium, color = Canopy.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 
