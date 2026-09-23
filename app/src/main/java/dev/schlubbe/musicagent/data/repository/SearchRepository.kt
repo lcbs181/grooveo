@@ -26,6 +26,13 @@ class SearchRepository @Inject constructor(
     private val youTube: YouTubeMusicSearchClient,
     private val settingsRepository: SettingsRepository,
 ) {
+    /** Search-as-you-type suggestions. YouTube's endpoint covers both sources well
+     * enough (it's general music/web search), so there's no SoundCloud equivalent
+     * call here. Failures are swallowed - a missing suggestion list is not an error
+     * worth showing while someone is typing. */
+    suspend fun suggestions(query: String, limit: Int = 8): List<String> =
+        if (query.isBlank()) emptyList() else runCatching { youTube.suggestions(query, limit) }.getOrDefault(emptyList())
+
     suspend fun search(query: String, source: String = "all", limit: Int = 25): List<TrackResultDto> =
         when (source) {
             "soundcloud" -> soundCloud.search(query, limit)

@@ -22,6 +22,8 @@ import dev.schlubbe.musicagent.playback.PlayerController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -48,6 +50,8 @@ data class SearchUiState(
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
     val searchHistory: List<String> = emptyList(), // Recent query strings
+    // Live search-as-you-type suggestions, shown under the field until a search runs.
+    val suggestions: List<String> = emptyList(),
     // Backs the per-result state pill the redesign puts on every row. Keyed by
     // "source:sourceId", matching DownloadRepository's own trackId format.
     val downloadStates: Map<String, DownloadState> = emptyMap(),
@@ -91,8 +95,26 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch { runCatching { searchHistoryRepository.refresh() } }
     }
 
+    private var suggestionJob: Job? = null
+
     fun onQueryChanged(query: String) {
         _uiState.value = _uiState.value.copy(query = query)
+        suggestionJob?.cancel()
+        if (query.isBlank()) {
+            _uiState.value = _uiState.value.copy(suggestions = emptyList())
+            return
+        }
+        suggestionJob = viewModelScope.launch {
+            // Debounced: one request per pause in typing, not per keystroke.
+            delay(250)
+            val results = searchRepository.suggestions(query)
+            if (_uiState.value.query == query) _uiState.value = _uiState.value.copy(suggestions = results)
+        }
+    }
+
+    fun onSuggestionTapped(suggestion: String) {
+        _uiState.value = _uiState.value.copy(query = suggestion, suggestions = emptyList())
+        runSearch()
     }
 
     fun onSourceChanged(source: String) {
@@ -110,7 +132,7 @@ class SearchViewModel @Inject constructor(
         if (query.isBlank()) return
 
         val source = _uiState.value.source
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+        _uiState.value = _uiState.value.copy(isLoading = true, error = null, suggestions = emptyList())
         viewModelScope.launch {
             // Record search query into history
             runCatching { searchHistoryRepository.addQuery(query) }

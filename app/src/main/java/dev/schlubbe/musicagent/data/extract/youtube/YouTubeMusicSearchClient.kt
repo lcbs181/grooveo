@@ -45,6 +45,15 @@ class YouTubeMusicSearchClient @Inject constructor() {
             .take(limit)
     }
 
+    /** YouTube's own search-as-you-type suggestions - the same list its search box
+     * shows, so a half-typed or misspelled artist still leads somewhere. */
+    suspend fun suggestions(query: String, limit: Int): List<String> = withContext(Dispatchers.IO) {
+        ServiceList.YouTube.suggestionExtractor
+            ?.suggestionList(query)
+            .orEmpty()
+            .take(limit)
+    }
+
     suspend fun searchArtists(query: String, limit: Int): List<ArtistResultDto> = withContext(Dispatchers.IO) {
         val handler = ServiceList.YouTube.searchQHFactory
             .fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS), "")
