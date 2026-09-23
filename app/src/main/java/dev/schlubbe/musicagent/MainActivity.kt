@@ -3,6 +3,7 @@ package dev.schlubbe.musicagent
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -19,7 +20,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.schlubbe.musicagent.data.extract.SharedLinkResolver
 import dev.schlubbe.musicagent.data.extract.SharedLinkTarget
 import dev.schlubbe.musicagent.playback.PlayerController
+import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import dev.schlubbe.musicagent.ui.navigation.MusicAgentNavGraph
 import dev.schlubbe.musicagent.ui.navigation.Routes
 import dev.schlubbe.musicagent.ui.navigation.SharedLinkNavHolder
@@ -33,6 +37,10 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var playerController: PlayerController
     @Inject lateinit var sharedLinkResolver: SharedLinkResolver
     @Inject lateinit var sharedLinkNavHolder: SharedLinkNavHolder
+    @Inject lateinit var downloadDao: DownloadDao
+
+    private val mediaPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     // No-op result handler: playback still works without the permission, it just
     // means the media notification (and the update-check dialog's notifications,
@@ -54,6 +62,7 @@ class MainActivity : ComponentActivity() {
             playerController.playbackState.first { it.isPlaying }
             requestNotificationPermissionIfNeeded()
         }
+        lifecycleScope.launch { requestMediaAccessIfDownloadsUnreadable() }
         setContent {
             GrooveoTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -95,6 +104,26 @@ class MainActivity : ComponentActivity() {
                     sharedLinkNavHolder.pendingRoute.value = Routes.artistDetail(target.source, target.sourceId)
                 null -> Toast.makeText(this@MainActivity, "Link konnte nicht geöffnet werden", Toast.LENGTH_LONG).show()
             }
+        }
+    }
+
+    /** After a reinstall the downloads' files are still in Music/, but Android no
+     * longer counts them as this app's own, so opening them fails until the user
+     * grants audio read access. Probe one download and ask only in that case. */
+    private suspend fun requestMediaAccessIfDownloadsUnreadable() {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) return
+        val uri = downloadDao.anyCompleted()?.mediaStoreUri ?: return
+        val readable = withContext(Dispatchers.IO) {
+            runCatching { contentResolver.openFileDescriptor(Uri.parse(uri), "r")?.close() }.isSuccess
+        }
+        if (!readable) {
+            Toast.makeText(this, "Bitte erlaube den Zugriff auf Audiodateien, damit deine Downloads wieder abspielbar sind.", Toast.LENGTH_LONG).show()
+            mediaPermissionLauncher.launch(permission)
         }
     }
 
