@@ -21,7 +21,8 @@ app/src/main/java/dev/schlubbe/musicagent/
 │   └── backup/            local export/import of likes+playlists
 ├── di/                    Hilt modules
 ├── download/              download queue/worker (WorkManager)
-├── playback/              MediaSessionService, PlayerController, queue state
+├── playback/              MediaLibraryService, PlayerController, queue state,
+│                          Android Auto browse tree (BrowseTree.kt)
 ├── update/                background update-check worker (see UpdateRepository)
 ├── widget/                home-screen widget (Jetpack Glance)
 └── ui/
@@ -61,12 +62,27 @@ extraction/update-check call there.
 
 ## Playback
 
-`playback/PlaybackService.kt` is a `MediaSessionService` wrapping
+`playback/PlaybackService.kt` is a `MediaLibraryService` wrapping
 Media3/ExoPlayer. Every screen — and the home-screen widget — talks to
 playback through a single shared `MediaController` wrapper,
 `playback/PlayerController.kt`, rather than holding its own player instance.
 This is what keeps playback state (now-playing, queue, position) consistent
 across the whole app and the widget without manual synchronization.
+
+### Android Auto
+
+`MediaLibraryService` (rather than the plain `MediaSessionService` this used
+to be) exists specifically so `PlaybackService` can also serve a browse tree
+to Android Auto/Assistant, without touching the in-app `MediaController` path
+at all — `PlayerController` still resolves streams and calls
+`setMediaItems`/`prepare`/`play` itself, exactly as before. `playback/BrowseTree.kt`
+builds that tree (Favoriten/Playlists/Downloads/Zuletzt gehört, backed by the
+same repositories/DAOs `ui/library/LibraryViewModel.kt` uses) and resolves a
+car-tapped browse item into a real stream via
+`StreamResolverRegistry.resolveWithFallback` — a title/artist re-search
+fallback on top of the normal resolve, since a browse-tree media id can
+outlive the track it was minted for in a way the in-app queue never has to
+worry about (see that function's kdoc).
 
 ## Visualizer
 
