@@ -79,6 +79,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // CUSTOM_EQ_GAINS above, since DataStore has no native string-list type.
         val PREFERRED_GENRES = stringSetPreferencesKey("preferred_genres")
         val PREFERRED_ARTISTS = stringPreferencesKey("preferred_artists")
+        // Overlapping crossfade length in seconds - 0 (default) is off, matching the
+        // old plain-gapless behaviour byte-for-byte (see CrossfadeController).
+        val CROSSFADE_SECONDS = intPreferencesKey("crossfade_seconds")
     }
 
     val backendBaseUrl: Flow<String> = dataStore.data.map { it[Keys.BACKEND_BASE_URL] ?: "" }
@@ -123,6 +126,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val preferredArtists: Flow<List<String>> = dataStore.data.map { prefs ->
         prefs[Keys.PREFERRED_ARTISTS]?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
     }
+    val crossfadeSeconds: Flow<Int> = dataStore.data.map { it[Keys.CROSSFADE_SECONDS] ?: 0 }
 
     /** The two source toggles collapsed into the `source` string the repositories
      * already speak ("all" / "soundcloud" / "ytmusic"). Turning both off would
@@ -154,6 +158,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     private val downloadsWifiOnlyCache = MutableStateFlow(false)
     private val autoplayRadioCache = MutableStateFlow(false)
     private val contentSafetyFilterCache = MutableStateFlow(true)
+    private val crossfadeSecondsCache = MutableStateFlow(0)
 
     val backendBaseUrlCached: String get() = backendBaseUrlCache.value
     val apiKeyCached: String get() = apiKeyCache.value
@@ -165,6 +170,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val downloadsWifiOnlyCached: Boolean get() = downloadsWifiOnlyCache.value
     val autoplayRadioCached: Boolean get() = autoplayRadioCache.value
     val contentSafetyFilterCached: Boolean get() = contentSafetyFilterCache.value
+    val crossfadeSecondsCached: Int get() = crossfadeSecondsCache.value
 
     init {
         scope.launch { backendBaseUrl.collect { backendBaseUrlCache.value = it } }
@@ -177,6 +183,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         scope.launch { downloadsWifiOnly.collect { downloadsWifiOnlyCache.value = it } }
         scope.launch { autoplayRadio.collect { autoplayRadioCache.value = it } }
         scope.launch { contentSafetyFilter.collect { contentSafetyFilterCache.value = it } }
+        scope.launch { crossfadeSeconds.collect { crossfadeSecondsCache.value = it } }
     }
 
     suspend fun setBackendBaseUrl(url: String) {
@@ -197,6 +204,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setContentSafetyFilter(enabled: Boolean) {
         dataStore.edit { it[Keys.CONTENT_SAFETY_FILTER] = enabled }
+    }
+
+    suspend fun setCrossfadeSeconds(seconds: Int) {
+        dataStore.edit { it[Keys.CROSSFADE_SECONDS] = seconds }
     }
 
     suspend fun setHomeScPromoDismissed(dismissed: Boolean) {
