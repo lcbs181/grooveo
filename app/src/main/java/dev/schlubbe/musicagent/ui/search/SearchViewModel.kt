@@ -132,6 +132,9 @@ class SearchViewModel @Inject constructor(
         if (query.isBlank()) return
 
         val source = _uiState.value.source
+        // Without this the in-flight debounce from the last keystroke lands after the
+        // search and re-covers the results with a suggestion list.
+        suggestionJob?.cancel()
         _uiState.value = _uiState.value.copy(isLoading = true, error = null, suggestions = emptyList())
         viewModelScope.launch {
             // Record search query into history

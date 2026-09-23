@@ -1,6 +1,8 @@
 package dev.schlubbe.musicagent.data.extract.soundcloud
 
 import dev.schlubbe.musicagent.data.extract.di.ExtractionHttpClient
+import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -17,6 +19,7 @@ import javax.inject.Singleton
 @Singleton
 class SoundCloudClientIdProvider @Inject constructor(
     @ExtractionHttpClient private val client: OkHttpClient,
+    private val settingsRepository: SettingsRepository,
 ) {
     @Volatile private var cached: String? = null
     private val mutex = Mutex()
@@ -25,7 +28,23 @@ class SoundCloudClientIdProvider @Inject constructor(
         if (!forceRefresh) cached?.let { return it }
         return mutex.withLock {
             if (!forceRefresh) cached?.let { return it }
-            fetchClientId().also { cached = it }
+            // Survives a process restart, so a temporarily unreachable/altered
+            // soundcloud.com doesn't leave the whole source unusable - the last id
+            // that worked keeps working until it's actually rejected (a 401 then
+            // arrives here as forceRefresh).
+            if (!forceRefresh) {
+                settingsRepository.soundCloudClientId.first().takeIf { it.isNotBlank() }?.let {
+                    cached = it
+                    return it
+                }
+            }
+            val fetched = runCatching { fetchClientId() }.getOrElse { error ->
+                settingsRepository.soundCloudClientId.first().takeIf { it.isNotBlank() }
+                    ?: throw error
+            }
+            cached = fetched
+            settingsRepository.setSoundCloudClientId(fetched)
+            fetched
         }
     }
 
@@ -40,13 +59,23 @@ class SoundCloudClientIdProvider @Inject constructor(
                     .use { it.body?.string() }
             }.getOrNull() ?: continue
 
-            CLIENT_ID_REGEX.find(script)?.let { return@withContext it.groupValues[1] }
+            CLIENT_ID_PATTERNS.firstNotNullOfOrNull { pattern ->
+                pattern.find(script)?.groupValues?.get(1)
+            }?.let { return@withContext it }
         }
-        error("Unable to extract SoundCloud client_id")
+        error("SoundCloud ist gerade nicht erreichbar")
     }
 
     companion object {
         private val SCRIPT_SRC_REGEX = Regex("<script[^>]+src=\"([^\"]+)\"")
-        private val CLIENT_ID_REGEX = Regex("client_id\\s*:\\s*\"([0-9a-zA-Z]{32})\"")
+
+        // SoundCloud's bundles have shipped all of these spellings over time; trying
+        // each beats breaking whenever they reformat their JS.
+        private val CLIENT_ID_PATTERNS = listOf(
+            Regex("client_id\\s*:\\s*\"([0-9a-zA-Z]{32})\""),
+            Regex("client_id\\s*=\\s*\"([0-9a-zA-Z]{32})\""),
+            Regex("\"clientId\"\\s*:\\s*\"([0-9a-zA-Z]{32})\""),
+            Regex("client_id=([0-9a-zA-Z]{32})"),
+        )
     }
 }

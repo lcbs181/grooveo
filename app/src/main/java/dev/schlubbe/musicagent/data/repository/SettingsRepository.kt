@@ -82,6 +82,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // Overlapping crossfade length in seconds - 0 (default) is off, matching the
         // old plain-gapless behaviour byte-for-byte (see CrossfadeController).
         val CROSSFADE_SECONDS = intPreferencesKey("crossfade_seconds")
+        // Last client_id that actually worked - see SoundCloudClientIdProvider.
+        val SOUNDCLOUD_CLIENT_ID = stringPreferencesKey("soundcloud_client_id")
     }
 
     val backendBaseUrl: Flow<String> = dataStore.data.map { it[Keys.BACKEND_BASE_URL] ?: "" }
@@ -127,6 +129,11 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         prefs[Keys.PREFERRED_ARTISTS]?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
     }
     val crossfadeSeconds: Flow<Int> = dataStore.data.map { it[Keys.CROSSFADE_SECONDS] ?: 0 }
+    val soundCloudClientId: Flow<String> = dataStore.data.map { it[Keys.SOUNDCLOUD_CLIENT_ID] ?: "" }
+
+    suspend fun setSoundCloudClientId(clientId: String) {
+        dataStore.edit { it[Keys.SOUNDCLOUD_CLIENT_ID] = clientId }
+    }
 
     /** The two source toggles collapsed into the `source` string the repositories
      * already speak ("all" / "soundcloud" / "ytmusic"). Turning both off would
