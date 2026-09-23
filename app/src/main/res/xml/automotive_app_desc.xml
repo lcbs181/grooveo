@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares this app as an Android Auto media app - required alongside the
+     com.google.android.gms.car.application meta-data in AndroidManifest.xml pointing
+     here. "media" is the only uses-name Auto recognizes for audio apps (as opposed to
+     e.g. "navigation" or "ivi" for other app categories), and it's what makes Auto
+     bind PlaybackService's MediaLibrarySession instead of ignoring the app entirely. -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

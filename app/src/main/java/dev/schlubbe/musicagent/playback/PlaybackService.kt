@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -16,17 +17,26 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.session.CommandButton
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import dev.schlubbe.musicagent.MainActivity
 import dev.schlubbe.musicagent.R
+import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
+import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
+import dev.schlubbe.musicagent.data.repository.PlaylistRepository
+import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,13 +45,14 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @UnstableApi
 @AndroidEntryPoint
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
     @Inject
     lateinit var mediaSourceFactory: MediaSource.Factory
@@ -61,12 +72,34 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var downloadRepository: DownloadRepository
 
+    @Inject
+    lateinit var downloadDao: DownloadDao
+
+    @Inject
+    lateinit var trackDao: TrackDao
+
+    @Inject
+    lateinit var playlistRepository: PlaylistRepository
+
+    @Inject
+    lateinit var searchRepository: SearchRepository
+
+    @Inject
+    lateinit var streamResolverRegistry: StreamResolverRegistry
+
     private var player: ExoPlayer? = null
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private val equalizerController = EqualizerController()
     private val sound3dController = Sound3dController()
     private val audioVisualizerController = AudioVisualizerController()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Built lazily (not at construction) since it closes over the @Inject fields above, which
+    // Hilt only populates once this service's onCreate() starts - see BrowseTree's own kdoc for
+    // why this is a separate class instead of more methods bolted onto sessionCallback below.
+    private val browseTree by lazy {
+        BrowseTree(trackDao, downloadDao, likesRepository, playlistRepository, searchRepository, streamResolverRegistry)
+    }
 
     /** heart-outline/heart-filled for the "Gefällt mir" notification action -
      * CommandButton.ICON_HEART_FILLED/UNFILLED are Media3's own predefined @Icon
@@ -101,12 +134,15 @@ class PlaybackService : MediaSessionService() {
 
     /** Handles the two custom session commands the notification's like/download
      * buttons issue (Media3's standard transport commands only cover
-     * play/pause/skip/seek). Reuses [PlayerController.nowPlayingTrack] - the same
+     * play/pause/skip/seek), plus - now that [PlaybackService] is a [MediaLibraryService] -
+     * the Android Auto/Assistant browse tree ([BrowseTree]) and the queue resolution that
+     * lets a car-tapped browse item actually play (`onSetMediaItems`/`onAddMediaItems`).
+     * Reuses [PlayerController.nowPlayingTrack] for the like/download commands - the same
      * TrackResultDto the Player screen's "Gefällt mir"/"Herunterladen" menu items
      * already act on (see PlayerViewModel.toggleLike/onDownloadClicked) - rather than
      * reconstructing a track from the session's own MediaItem/MediaMetadata, which
      * doesn't carry every field (e.g. webpageUrl) DownloadRepository's caching wants. */
-    private val sessionCallback = object : MediaSession.Callback {
+    private val sessionCallback = object : MediaLibrarySession.Callback {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
             val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                 .add(SessionCommand(ACTION_LIKE, Bundle.EMPTY))
@@ -131,6 +167,82 @@ class PlaybackService : MediaSessionService() {
                 ACTION_DOWNLOAD -> playerController.nowPlayingTrack()?.let { downloadRepository.startDownload(it) }
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        // params?.isRecent (Auto's "resume where the user left off" root request) is ignored -
+        // this app has no separate "recent root" concept, so the normal root is a valid minimal
+        // answer to it, same as [BrowseTree]'s own kdoc notes.
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> = serviceScope.future {
+            LibraryResult.ofItem(browseTree.libraryRoot(), params)
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> = serviceScope.future {
+            browseTree.item(mediaId)?.let { LibraryResult.ofItem(it, null) }
+                ?: LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = serviceScope.future {
+            LibraryResult.ofItemList(browseTree.children(parentId, page, pageSize), params)
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> = serviceScope.future {
+            val resultCount = browseTree.search(query)
+            session.notifySearchResultChanged(browser, query, resultCount, params)
+            LibraryResult.ofVoid()
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = serviceScope.future {
+            LibraryResult.ofItemList(browseTree.searchResults(query, page, pageSize), params)
+        }
+
+        // The in-app MediaController path (PlayerController) never calls setMediaItems/
+        // addMediaItems on the controller directly - it resolves streams itself and issues
+        // setMediaItems() with already-playable items - so overriding these two only affects
+        // an *external* controller (Android Auto, Assistant, a future Wear/cast client)
+        // handing back one of BrowseTree's stub media ids.
+        override fun onSetMediaItems(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = serviceScope.future {
+            browseTree.buildQueue(mediaItems, startIndex, startPositionMs)
+        }
+
+        override fun onAddMediaItems(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+        ): ListenableFuture<MutableList<MediaItem>> = serviceScope.future {
+            browseTree.resolvePlayable(mediaItems).toMutableList()
         }
     }
 
@@ -263,9 +375,8 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE,
         )
 
-        mediaSession = MediaSession.Builder(this, exoPlayer)
+        mediaSession = MediaLibrarySession.Builder(this, exoPlayer, sessionCallback)
             .setSessionActivity(sessionActivity)
-            .setCallback(sessionCallback)
             .build()
 
         // Keeps the notification's heart icon in sync with the actual liked state
@@ -283,7 +394,7 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
     override fun onDestroy() {

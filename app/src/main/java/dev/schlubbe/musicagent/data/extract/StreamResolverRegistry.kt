@@ -4,6 +4,8 @@ import android.util.Log
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudDrmOnlyException
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudStreamResolver
 import dev.schlubbe.musicagent.data.extract.youtube.YouTubeStreamResolver
+import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
@@ -28,13 +30,21 @@ class StreamResolverRegistry @Inject constructor(
     private val soundCloud: SoundCloudStreamResolver,
     private val youTube: YouTubeStreamResolver,
     private val youTubeFallback: YouTubeFallback,
+    private val downloadDao: DownloadDao,
 ) {
     private val semaphore = Semaphore(MAX_CONCURRENT_RESOLVES)
 
-    /** Like [resolve], but when a SoundCloud track can't be played in full (DRM-only
-     * or a 30s preview) it plays the matching YouTube Music recording instead of
-     * failing - see [YouTubeFallback]. Rethrows the original error when no
-     * match is found, so callers still show "nicht verfügbar". */
+    /** The resolve every playback path should use - in-app ([dev.schlubbe.musicagent.playback.PlayerController])
+     * and the car's browse tree ([dev.schlubbe.musicagent.playback.BrowseTree]) alike.
+     *
+     * Three steps: an already-downloaded copy wins (no network at all), then a normal
+     * [resolve], and only if that fails does it look for the same recording on YouTube
+     * Music ([YouTubeFallback], which requires a matching title and runtime). That last
+     * step covers both SoundCloud tracks that never play in full there (DRM-only or a
+     * 30s Go+ preview) and ids that have simply rotted - a browse-tree entry can be
+     * weeks old, and a deleted or re-uploaded track 404s. It is deliberately the *same
+     * song from another source*, never a loosely similar one: rethrows the original
+     * error when nothing matches, so the caller still reports "nicht verfügbar". */
     suspend fun resolveWithFallback(
         source: String,
         sourceId: String,
@@ -42,11 +52,16 @@ class StreamResolverRegistry @Inject constructor(
         artist: String?,
         durationSec: Int?,
         preferProgressive: Boolean = false,
-    ): ResolvedStream = try {
-        resolve(source, sourceId, preferProgressive)
-    } catch (e: SoundCloudDrmOnlyException) {
-        val replacement = youTubeFallback.findReplacement(title, artist, durationSec) ?: throw e
-        resolve(replacement.source, replacement.sourceId, preferProgressive)
+    ): ResolvedStream {
+        downloadDao.getByTrackId("$source:$sourceId")
+            ?.takeIf { it.state == DownloadState.COMPLETED && it.mediaStoreUri != null }
+            ?.let { return ResolvedStream(url = it.mediaStoreUri!!, isHls = false) }
+
+        return runCatching { resolve(source, sourceId, preferProgressive) }.getOrElse { error ->
+            val replacement = youTubeFallback.findReplacement(title, artist, durationSec) ?: throw error
+            Log.i(TAG, "resolveWithFallback: playing '$title' from ${replacement.source} instead of $source:$sourceId")
+            resolve(replacement.source, replacement.sourceId, preferProgressive)
+        }
     }
 
     /** Resolves [source]/[sourceId], bounded by [MAX_CONCURRENT_RESOLVES] and retried
@@ -77,4 +92,5 @@ class StreamResolverRegistry @Inject constructor(
         youTube.supports(source) -> youTube.resolve(sourceId, preferProgressive)
         else -> error("unknown source: $source")
     }
+
 }

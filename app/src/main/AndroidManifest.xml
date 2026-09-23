@@ -24,6 +24,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.MusicAgent">
 
+        <!-- Tells Android Auto/Automotive (and the Google Assistant media-browse path) that
+             this app offers a media browse tree at all - without it, PlaybackService's
+             MediaLibrarySession is invisible to those surfaces even though it advertises the
+             right intent-filter actions below. See res/xml/automotive_app_desc.xml. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -66,7 +74,12 @@
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
-                <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <!-- Older Auto heads/Assistant integrations still bind via the legacy
+                     support-media-compat action rather than Media3's own - Media3's
+                     MediaLibraryService responds to both bindIntent()s from the same
+                     Service, so no second component/class is needed for this. -->
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
 
