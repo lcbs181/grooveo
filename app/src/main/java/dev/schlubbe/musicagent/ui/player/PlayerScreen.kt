@@ -765,6 +765,11 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CanopyChip(
+                    label = "Songtext",
+                    active = false,
+                    onClick = { showLyricsSheet = true },
+                )
+                CanopyChip(
                     label = sleepChipLabel,
                     active = sleepTimerEndAtMs != null,
                     onClick = { showSleepTimerDialog = true },
@@ -799,11 +804,6 @@ fun PlayerScreen(
                             coroutineScope.launch { scrollState.animateScrollTo(scrollState.maxValue) }
                         }
                     },
-                )
-                CanopyChip(
-                    label = "Songtext",
-                    active = false,
-                    onClick = { showLyricsSheet = true },
                 )
             }
 
