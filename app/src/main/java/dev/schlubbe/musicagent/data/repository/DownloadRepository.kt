@@ -2,6 +2,7 @@ package dev.schlubbe.musicagent.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.work.Constraints
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
@@ -31,6 +32,25 @@ class DownloadRepository @Inject constructor(
     private val settingsRepository: SettingsRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        scope.launch { repairStoredSizes() }
+    }
+
+    /** Re-reads each finished download's real size from MediaStore. Downloads that
+     * resumed after an interruption stored only the resumed chunk's length, so the
+     * Downloads list showed things like "20,8 KB" for a whole song. */
+    private suspend fun repairStoredSizes() {
+        downloadDao.allCompleted().forEach { entity ->
+            val uri = entity.mediaStoreUri ?: return@forEach
+            val actual = runCatching {
+                context.contentResolver.query(Uri.parse(uri), arrayOf(OpenableColumns.SIZE), null, null, null)?.use {
+                    if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null
+                }
+            }.getOrNull() ?: return@forEach
+            if (actual > 0 && actual != entity.totalBytes) downloadDao.updateTotalBytes(entity.trackId, actual)
+        }
+    }
 
     fun startDownload(track: TrackResultDto) {
         val trackId = "${track.source}:${track.sourceId}"
