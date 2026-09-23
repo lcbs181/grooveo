@@ -24,6 +24,12 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<DownloadEntity>>
 
+    @Query("UPDATE downloads SET totalBytes = :bytes WHERE trackId = :trackId")
+    suspend fun updateTotalBytes(trackId: String, bytes: Long)
+
+    @Query("SELECT * FROM downloads WHERE state = 'COMPLETED' AND mediaStoreUri IS NOT NULL")
+    suspend fun allCompleted(): List<DownloadEntity>
+
     @Query("DELETE FROM downloads WHERE trackId = :trackId")
     suspend fun delete(trackId: String)
 }

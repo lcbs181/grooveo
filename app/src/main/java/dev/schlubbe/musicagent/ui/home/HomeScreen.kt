@@ -96,7 +96,7 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(bottom = CONTENT_BOTTOM_PADDING.dp),
         ) {
-            item { HomeAppBar(uiState, onSearchClick, onDownloadsClick, onSettingsClick) }
+            item { HomeAppBar(uiState, onSettingsClick) }
 
             if (uiState.recentlyPlayed.isNotEmpty()) {
                 item {
@@ -195,8 +195,6 @@ fun HomeScreen(
 @Composable
 private fun HomeAppBar(
     uiState: HomeUiState,
-    onSearch: () -> Unit,
-    onDownloads: () -> Unit,
     onSettings: () -> Unit,
 ) {
     Row(
@@ -214,16 +212,8 @@ private fun HomeAppBar(
             if (uiState.dataSaverMode) {
                 CanopyBadge("Offline", tone = CanopyBadgeTone.Accent2)
             }
-            CanopyIconButton(
-                icon = phosphorIcon("magnifying-glass"),
-                onClick = onSearch,
-                contentDescription = "Suche",
-            )
-            CanopyIconButton(
-                icon = phosphorIcon("download-simple"),
-                onClick = onDownloads,
-                contentDescription = "Downloads",
-            )
+            // Suche and Downloads are two taps away in the bottom bar already - the
+            // header only carries what isn't reachable there.
             CanopyIconButton(
                 icon = phosphorIcon("sliders-horizontal"),
                 onClick = onSettings,

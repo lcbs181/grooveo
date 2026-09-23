@@ -231,7 +231,7 @@ fun PlayerScreen(
     val wrapsAround = playbackState.repeatMode == Player.REPEAT_MODE_ALL && playbackState.queue.size > 1
     val hasPrevious = wrapsAround || playbackState.queueIndex > 0
     val hasNext = wrapsAround || playbackState.queueIndex in 0 until playbackState.queue.size - 1
-    val sourceLabel = when (playbackState.currentTrackId?.substringBefore(":")) {
+    val sourceLabel = when ((playbackState.currentTrackId ?: playbackState.loadingTrackId)?.substringBefore(":")) {
         "soundcloud" -> "SoundCloud"
         "ytmusic" -> "YouTube Music"
         else -> null
