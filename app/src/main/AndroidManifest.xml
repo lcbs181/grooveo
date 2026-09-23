@@ -10,6 +10,11 @@
     <!-- PremiumHaptics' custom VibrationEffect waveforms - a normal (non-dangerous)
          permission, granted automatically at install with no runtime prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Only needed after a reinstall: Android drops the app's ownership of the
+         downloads it wrote to Music/, so reading them back needs this. Requested
+         at runtime only when a download can't be opened (see MainActivity). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
         android:name=".MusicAgentApp"
