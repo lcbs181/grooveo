@@ -7,6 +7,8 @@ import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -92,6 +94,7 @@ class PlaybackService : MediaLibraryService() {
     private val equalizerController = EqualizerController()
     private val sound3dController = Sound3dController()
     private val audioVisualizerController = AudioVisualizerController()
+    private var crossfadeController: CrossfadeController? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // Built lazily (not at construction) since it closes over the @Inject fields above, which
@@ -333,6 +336,59 @@ class PlaybackService : MediaLibraryService() {
         // The session id may already be assigned by the time we attach the listener above.
         equalizerController.attach(exoPlayer.audioSessionId)
         sound3dController.attach(exoPlayer.audioSessionId)
+
+        crossfadeController = CrossfadeController(
+            context = this,
+            mainPlayer = exoPlayer,
+            mediaSourceFactory = mediaSourceFactory,
+            scope = serviceScope,
+        )
+        // Cancels any in-flight fade the moment something outside CrossfadeController's
+        // own control touches the main player - a manual pause, a real skip/seek (not
+        // our own seekToNextMediaItem() call, see CrossfadeController.isOwnAdvance), or
+        // the queue itself changing - so the main player is never left silenced by a
+        // fade the user has since moved past.
+        exoPlayer.addListener(object : Player.Listener {
+            // playWhenReady distinguishes a real pause from the brief not-playing gap
+            // while the next item buffers right after a fade's own advance - cancelling
+            // on the latter killed every fade before it was audible.
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying && !exoPlayer.playWhenReady) crossfadeController?.cancelFade()
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (crossfadeController?.isOwnAdvance == true) return
+                crossfadeController?.cancelFade()
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                if (crossfadeController?.isOwnAdvance == true) return
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) crossfadeController?.cancelFade()
+            }
+
+            // SOURCE_UPDATE (e.g. an HLS live window refreshing) is not a queue change
+            // and must NOT cancel a fade - only an actual playlist edit
+            // (setMediaItems/addMediaItem/removeMediaItem, all via PlayerController)
+            // should.
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) crossfadeController?.cancelFade()
+            }
+        })
+        serviceScope.launch {
+            // Crossfade trigger check - see CrossfadeController.poll's kdoc for why
+            // this is a cheap no-op whenever the setting is off (the default).
+            while (isActive) {
+                delay(CROSSFADE_POLL_INTERVAL_MS)
+                crossfadeController?.poll(settingsRepository.crossfadeSecondsCached * 1000L) {
+                    playerController.markCurrentTrackCompletedForCrossfade()
+                }
+            }
+        }
+
         serviceScope.launch {
             // The controller queues spectra as the audio thread produces them - in
             // bursts, one decoded buffer at a time - and this releases them at display
@@ -398,6 +454,10 @@ class PlaybackService : MediaLibraryService() {
         mediaSession
 
     override fun onDestroy() {
+        // Releases the secondary player (if a fade happened to be running) before the
+        // main player and scope go away, rather than leaking it.
+        crossfadeController?.cancelFade()
+        crossfadeController = null
         // reset() before cancelling the scope, so the zeroed spectrum it publishes
         // still reaches the collector above rather than being dropped on the floor.
         audioVisualizerController.reset()
@@ -419,6 +479,10 @@ class PlaybackService : MediaLibraryService() {
 
         /** How often queued spectra are released to the UI - one display frame at 60Hz. */
         private const val VISUALIZER_PUMP_INTERVAL_MS = 16L
+
+        /** How often the crossfade trigger condition is checked - see
+         * CrossfadeController.poll's kdoc. */
+        private const val CROSSFADE_POLL_INTERVAL_MS = 200L
         private const val ACTION_LIKE = "dev.schlubbe.musicagent.ACTION_LIKE"
         private const val ACTION_DOWNLOAD = "dev.schlubbe.musicagent.ACTION_DOWNLOAD"
     }

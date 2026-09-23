@@ -48,6 +48,7 @@ data class SettingsUiState(
     val playerStyle: String = "waveform",
     val autoplayRadio: Boolean = false,
     val contentSafetyFilter: Boolean = true,
+    val crossfadeSeconds: Int = 0,
     // 3D-Sound
     val sound3dPreset: Sound3dPreset = Sound3dPreset.DISABLED,
     // Downloads
@@ -122,6 +123,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.contentSafetyFilter.collect { enabled ->
                 _uiState.value = _uiState.value.copy(contentSafetyFilter = enabled)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.crossfadeSeconds.collect { seconds ->
+                _uiState.value = _uiState.value.copy(crossfadeSeconds = seconds)
             }
         }
         viewModelScope.launch {
@@ -217,6 +223,11 @@ class SettingsViewModel @Inject constructor(
     fun onContentSafetyFilterChanged(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(contentSafetyFilter = enabled)
         viewModelScope.launch { settingsRepository.setContentSafetyFilter(enabled) }
+    }
+
+    fun onCrossfadeSecondsChanged(seconds: Int) {
+        _uiState.value = _uiState.value.copy(crossfadeSeconds = seconds)
+        viewModelScope.launch { settingsRepository.setCrossfadeSeconds(seconds) }
     }
 
     fun onSound3dPresetChanged(preset: Sound3dPreset) {

@@ -177,6 +177,21 @@ class PlayerController @Inject constructor(
         playbackErrorRetryCount = 0
     }
 
+    /** Called by [CrossfadeController] just before it seeks the main player onto the
+     * next track early - that seek surfaces here as onMediaItemTransition with reason
+     * SEEK, which would otherwise report the outgoing track as a user skip instead of
+     * a normal completion. */
+    /** Reports the outgoing track as finished right before a crossfade advances the
+     * player early. Without this the resulting SEEK transition would either log it as
+     * a user skip or - once the flag is set - as nothing at all, and the skip signal
+     * feeds [FeedRepository]'s recommendations. */
+    fun markCurrentTrackCompletedForCrossfade() {
+        val track = currentTrack ?: return
+        if (currentTrackCompleted) return
+        eventReporter.playComplete(track, (track.durationSec ?: 0) * 1000L)
+        currentTrackCompleted = true
+    }
+
     // Singleton-scoped: outlives any one screen, so fire-and-forget DB lookups
     // triggered from the (non-suspend) Player.Listener callbacks below can use it
     // without needing a ViewModel's viewModelScope in hand.

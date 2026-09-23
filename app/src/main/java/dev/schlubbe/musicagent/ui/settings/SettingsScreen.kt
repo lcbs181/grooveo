@@ -68,6 +68,12 @@ import dev.schlubbe.musicagent.widget.PlaybackWidgetReceiver
 // depict those, so rather than delete working features they're kept in the same
 // card/row idiom as the rest of the screen. See the task report for details.
 
+/** Options offered by [CrossfadeSheet] - 0 is "Aus" (the default, byte-for-byte the
+ * old gapless behaviour), the rest are seconds of overlap (see CrossfadeController). */
+private val CROSSFADE_OPTIONS = listOf(0, 2, 4, 6, 8, 12)
+
+private fun crossfadeSubtitle(seconds: Int): String = if (seconds <= 0) "Aus" else "$seconds Sekunden"
+
 private fun sound3dIcon(preset: Sound3dPreset): String = when (preset) {
     Sound3dPreset.DISABLED -> "prohibit"
     Sound3dPreset.KINO -> "film-slate"
@@ -92,6 +98,7 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showSound3dSheet by remember { mutableStateOf(false) }
+    var showCrossfadeSheet by remember { mutableStateOf(false) }
     var showBackendUrlDialog by remember { mutableStateOf(false) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showBackupSheet by remember { mutableStateOf(false) }
@@ -152,6 +159,12 @@ fun SettingsScreen(
                                 if (on) showSound3dSheet = true else viewModel.onSound3dPresetChanged(Sound3dPreset.DISABLED)
                             },
                             onClick = { showSound3dSheet = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("waveform"),
+                            title = "Überblendung",
+                            subtitle = crossfadeSubtitle(uiState.crossfadeSeconds),
+                            onClick = { showCrossfadeSheet = true },
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("sparkle"),
@@ -371,6 +384,17 @@ fun SettingsScreen(
             onSelect = { preset ->
                 viewModel.onSound3dPresetChanged(preset)
                 showSound3dSheet = false
+            },
+        )
+    }
+
+    if (showCrossfadeSheet) {
+        CrossfadeSheet(
+            selectedSeconds = uiState.crossfadeSeconds,
+            onDismiss = { showCrossfadeSheet = false },
+            onSelect = { seconds ->
+                viewModel.onCrossfadeSecondsChanged(seconds)
+                showCrossfadeSheet = false
             },
         )
     }
@@ -670,6 +694,37 @@ private fun Sound3dPresetSheet(
                         }
                     },
                     modifier = Modifier.clickable { onSelect(preset) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CrossfadeSheet(
+    selectedSeconds: Int,
+    onDismiss: () -> Unit,
+    onSelect: (Int) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+            Text(
+                "Überblendung",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            CROSSFADE_OPTIONS.forEach { seconds ->
+                val isSelected = seconds == selectedSeconds
+                ListItem(
+                    colors = ListItemDefaults.colors(containerColor = Canopy.surface),
+                    headlineContent = { Text(crossfadeSubtitle(seconds)) },
+                    trailingContent = {
+                        if (isSelected) {
+                            Icon(phosphorIcon("check-circle", filled = true), contentDescription = null, tint = Canopy.accent)
+                        }
+                    },
+                    modifier = Modifier.clickable { onSelect(seconds) },
                 )
             }
         }
