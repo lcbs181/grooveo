@@ -73,7 +73,18 @@ enum class LibraryTab { HOME, DOWNLOADS, LIKES, PLAYLISTS, FOLLOWING }
 // slice a short circular rail and fill a scrollable history list underneath it.
 private const val RECENTLY_PLAYED_LIMIT = 30
 
+/** Sort order for the Favoriten list. Likes come back newest-first from Room, which
+ * is the default here too. */
+enum class LikesSort(val label: String) {
+    RECENT("Zuletzt hinzugefügt"),
+    TITLE("Titel A-Z"),
+    ARTIST("Künstler A-Z"),
+}
+
 data class LibraryUiState(
+    val likesSort: LikesSort = LikesSort.RECENT,
+    val likesQuery: String = "",
+    val likesOfflineOnly: Boolean = false,
     val selectedTab: LibraryTab = LibraryTab.HOME,
     // Mirrors SettingsRepository's persisted flag so the landing menu's Spotify-
     // import banner stays dismissed across process restarts once closed.
@@ -278,9 +289,32 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /** The Favoriten list as shown: search filter, offline filter and sort applied.
+     * Playback and "alle herunterladen" use this so they act on what's on screen. */
+    fun visibleLikes(): List<LikeOutDto> {
+        val state = _uiState.value
+        val query = state.likesQuery.trim()
+        val downloaded = downloadedTrackIds.value
+        return state.likes
+            .filter { like ->
+                val matchesQuery = query.isBlank() ||
+                    like.track.title.contains(query, ignoreCase = true) ||
+                    like.track.artist?.contains(query, ignoreCase = true) == true
+                val matchesOffline = !state.likesOfflineOnly || "${like.track.source}:${like.track.sourceId}" in downloaded
+                matchesQuery && matchesOffline
+            }
+            .let { filtered ->
+                when (state.likesSort) {
+                    LikesSort.RECENT -> filtered
+                    LikesSort.TITLE -> filtered.sortedBy { it.track.title.lowercase() }
+                    LikesSort.ARTIST -> filtered.sortedBy { it.track.artist?.lowercase() ?: "" }
+                }
+            }
+    }
+
     fun playLikedTrack(like: LikeOutDto) {
         viewModelScope.launch {
-            val likes = _uiState.value.likes
+            val likes = visibleLikes()
             val queue = likes.map { it.track.toTrackResultDto() }
             val index = likes.indexOfFirst { it.track.id == like.track.id }
             if (index >= 0) {
@@ -292,14 +326,14 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun playAllLikes(shuffle: Boolean) {
-        val queue = _uiState.value.likes.map { it.track.toTrackResultDto() }
+        val queue = visibleLikes().map { it.track.toTrackResultDto() }
         if (queue.isEmpty()) return
         viewModelScope.launch { playerController.playQueue(if (shuffle) queue.shuffled() else queue, 0) }
     }
 
     fun downloadAllLikes() {
         val downloaded = downloadedTrackIds.value
-        val missing = _uiState.value.likes.map { it.track.toTrackResultDto() }
+        val missing = visibleLikes().map { it.track.toTrackResultDto() }
             .filter { "${it.source}:${it.sourceId}" !in downloaded }
         val message = if (missing.isEmpty()) {
             "Alle Favoriten sind bereits offline verfügbar"
@@ -312,6 +346,18 @@ class LibraryViewModel @Inject constructor(
 
     fun onDeleteDownloadClicked(track: TrackResultDto) {
         downloadRepository.deleteDownload("${track.source}:${track.sourceId}")
+    }
+
+    fun setLikesSort(sort: LikesSort) {
+        _uiState.value = _uiState.value.copy(likesSort = sort)
+    }
+
+    fun setLikesQuery(query: String) {
+        _uiState.value = _uiState.value.copy(likesQuery = query)
+    }
+
+    fun toggleLikesOfflineOnly() {
+        _uiState.value = _uiState.value.copy(likesOfflineOnly = !_uiState.value.likesOfflineOnly)
     }
 
     fun unlike(like: LikeOutDto) {

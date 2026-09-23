@@ -29,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -151,6 +152,7 @@ fun LibraryScreen(
                     LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
                     LikesTab(
                         uiState = uiState,
+                        visibleLikes = viewModel.visibleLikes(),
                         downloadedTrackIds = downloadedTrackIds,
                         nowPlayingTrackId = nowPlayingTrackId,
                         onLikedTrackClick = { like ->
@@ -338,6 +340,7 @@ private fun LibraryHomeContent(
 @Composable
 private fun LikesTab(
     uiState: LibraryUiState,
+    visibleLikes: List<LikeOutDto>,
     downloadedTrackIds: Set<String>,
     nowPlayingTrackId: String?,
     onLikedTrackClick: (LikeOutDto) -> Unit,
@@ -356,16 +359,30 @@ private fun LikesTab(
         )
         else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
-                val offlineCount = uiState.likes.count { it.track.trackKey() in downloadedTrackIds }
                 LikesHeader(
-                    trackCount = uiState.likes.size,
-                    offlineCount = offlineCount,
+                    trackCount = visibleLikes.size,
+                    offlineCount = visibleLikes.count { it.track.trackKey() in downloadedTrackIds },
+                    query = uiState.likesQuery,
+                    sort = uiState.likesSort,
+                    offlineOnly = uiState.likesOfflineOnly,
+                    onQueryChange = viewModel::setLikesQuery,
+                    onSortChange = viewModel::setLikesSort,
+                    onToggleOffline = viewModel::toggleLikesOfflineOnly,
                     onPlay = { onPlayAll(false) },
                     onShuffle = { onPlayAll(true) },
                     onDownloadAll = viewModel::downloadAllLikes,
                 )
             }
-            items(uiState.likes, key = { "like:${it.track.id}" }) { like ->
+            if (visibleLikes.isEmpty()) {
+                item {
+                    Text(
+                        "Keine Treffer",
+                        color = Canopy.neutral500,
+                        modifier = Modifier.padding(dimens.horizontalPadding),
+                    )
+                }
+            }
+            items(visibleLikes, key = { "like:${it.track.id}" }) { like ->
                 val track = like.track.toTrackResultDto()
                 val isDownloaded = like.track.trackKey() in downloadedTrackIds
                 LikeRow(
@@ -392,6 +409,12 @@ private fun dev.schlubbe.musicagent.data.remote.dto.TrackOutDto.trackKey() = "$s
 private fun LikesHeader(
     trackCount: Int,
     offlineCount: Int,
+    query: String,
+    sort: LikesSort,
+    offlineOnly: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSortChange: (LikesSort) -> Unit,
+    onToggleOffline: () -> Unit,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onDownloadAll: () -> Unit,
@@ -427,6 +450,63 @@ private fun LikesHeader(
                 variant = CanopyButtonVariant.Secondary,
                 contentDescription = if (allOffline) "Alle Favoriten offline verfügbar" else "Alle Favoriten herunterladen",
             )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("In Favoriten suchen") },
+                singleLine = true,
+                leadingIcon = { Icon(phosphorIcon("magnifying-glass"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(18.dp)) },
+                trailingIcon = if (query.isBlank()) null else {
+                    {
+                        CanopyIconButton(
+                            icon = phosphorIcon("x"),
+                            onClick = { onQueryChange("") },
+                            size = 32.dp,
+                            contentDescription = "Suche löschen",
+                        )
+                    }
+                },
+                shape = CanopyPillShape,
+                modifier = Modifier.weight(1f),
+            )
+            var sortMenu by remember { mutableStateOf(false) }
+            Box {
+                CanopyIconButton(
+                    icon = phosphorIcon("sliders-horizontal"),
+                    onClick = { sortMenu = true },
+                    shape = CircleShape,
+                    variant = CanopyButtonVariant.Secondary,
+                    contentDescription = "Sortieren und filtern",
+                )
+                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                    LikesSort.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            leadingIcon = {
+                                if (option == sort) {
+                                    Icon(phosphorIcon("check"), contentDescription = null, tint = Canopy.accent)
+                                }
+                            },
+                            onClick = { sortMenu = false; onSortChange(option) },
+                        )
+                    }
+                    HorizontalDivider(color = Canopy.divider)
+                    DropdownMenuItem(
+                        text = { Text("Nur offline") },
+                        leadingIcon = {
+                            if (offlineOnly) Icon(phosphorIcon("check"), contentDescription = null, tint = Canopy.accent)
+                        },
+                        onClick = { sortMenu = false; onToggleOffline() },
+                    )
+                }
+            }
         }
     }
 }
