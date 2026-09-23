@@ -22,6 +22,7 @@ import dev.schlubbe.musicagent.data.extract.SharedLinkTarget
 import dev.schlubbe.musicagent.playback.PlayerController
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import dev.schlubbe.musicagent.ui.navigation.MusicAgentNavGraph
@@ -57,9 +58,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Asked when something first plays - that's when the media notification (the
         // reason for the permission) appears - rather than on the first frame, before
-        // the user has seen what the app even is.
+        // the user has seen what the app even is. The short delay after isPlaying
+        // flips true is deliberate: firing the very instant playback starts landed
+        // the system permission dialog right on top of the tap that started it,
+        // eating every touch on the still-loading mini player/queue underneath it -
+        // which read as "the tap did nothing" rather than "grant notifications?".
+        // Letting the UI settle first (the track visibly playing, controls
+        // responsive) before the dialog appears keeps the same rationale without
+        // that collision.
         lifecycleScope.launch {
             playerController.playbackState.first { it.isPlaying }
+            delay(1_200L)
             requestNotificationPermissionIfNeeded()
         }
         lifecycleScope.launch { requestMediaAccessIfDownloadsUnreadable() }
