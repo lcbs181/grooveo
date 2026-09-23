@@ -32,3 +32,4 @@ captures/
 # device name) that must not reach a public repo.
 /full_log*.txt
 /*_log*.txt
+.claude/
