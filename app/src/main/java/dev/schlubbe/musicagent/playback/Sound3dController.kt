@@ -1,11 +1,6 @@
 package dev.schlubbe.musicagent.playback
 
-import android.media.audiofx.PresetReverb
-import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import dev.schlubbe.musicagent.playback.reverb.ConvolutionReverbAudioProcessor
 
 /** The 7 "Raumklang" presets from Einstellungen > 3D-Sound (see the design
  * handoff's 3D-Sound section) - persisted by name via SettingsRepository. */
@@ -20,83 +15,20 @@ enum class Sound3dPreset(val label: String, val description: String) {
 }
 
 /**
- * Wraps the platform [PresetReverb] audio effect, attached to the current
- * ExoPlayer's audio session id — same attach-is-idempotent pattern as
- * [EqualizerController]. This is a real, built-in Android DSP effect (not a
- * custom convolution engine with impulse-response files, which would be a much
- * larger separate undertaking) - [PresetReverb]'s own fixed presets are mapped
- * to the 7 named spaces below by approximate room-size/character match.
+ * Selects the current "Raumklang" preset on the shared [ConvolutionReverbAudioProcessor] -
+ * see that class's kdoc for the actual DSP, and [dev.schlubbe.musicagent.playback.reverb.ReverbIrLibrary]'s
+ * for where the impulse responses behind each of the 7 named presets come from.
+ *
+ * This used to wrap [android.media.audiofx.PresetReverb], attached to the current
+ * ExoPlayer's audio session id - measured (on a real device, not the emulator, which
+ * has its own null/no-op effect stubs) to have literally no audible effect at all,
+ * a known issue with several OEMs' own effect-framework implementations. Unlike
+ * that, [reverbProcessor] is a genuine in-process part of the audio pipeline, so
+ * there's no session id to attach to and no per-device effect-implementation
+ * quirk it could be silently swallowed by.
  */
-class Sound3dController {
-    private var reverb: PresetReverb? = null
-    private var pendingPreset: Sound3dPreset = Sound3dPreset.DISABLED
-    private var attachedSessionId: Int = 0
-
-    // Same reasoning as EqualizerController.scope: constructing/releasing a platform
-    // audio effect is a synchronous Binder call the audio effects framework, measured
-    // at several hundred ms on a real device. attach() used to run on the main
-    // thread via PlaybackService's onAudioSessionIdChanged, which fires on nearly
-    // every track transition - freezing the UI for that long on every skip/auto
-    // -advance. Every public method is dispatched through this single-thread
-    // context so `reverb` and the preset state stay single-threaded, same as before.
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
-
-    fun attach(audioSessionId: Int) {
-        if (audioSessionId == 0 || audioSessionId == attachedSessionId) return
-        scope.launch {
-            releaseInternal()
-            attachedSessionId = audioSessionId
-            reverb = runCatching {
-                // Priority 0: lowest, so this never steals the effect slot from a
-                // system-level effect (e.g. a accessibility service) - matches
-                // EqualizerController's own priority convention.
-                PresetReverb(0, audioSessionId)
-            }.onFailure {
-                Log.w("Sound3dController", "Failed to attach PresetReverb to session $audioSessionId", it)
-            }.getOrNull()
-            applyPresetInternal(pendingPreset)
-        }
-    }
-
+class Sound3dController(private val reverbProcessor: ConvolutionReverbAudioProcessor) {
     fun applyPreset(preset: Sound3dPreset) {
-        scope.launch { applyPresetInternal(preset) }
-    }
-
-    private fun applyPresetInternal(preset: Sound3dPreset) {
-        pendingPreset = preset
-        val fx = reverb ?: return
-        runCatching {
-            if (preset == Sound3dPreset.DISABLED) {
-                fx.enabled = false
-                return@runCatching
-            }
-            fx.preset = presetReverbConstantFor(preset)
-            fx.enabled = true
-        }
-    }
-
-    fun release() {
-        scope.launch { releaseInternal() }
-    }
-
-    private fun releaseInternal() {
-        reverb?.release()
-        reverb = null
-        attachedSessionId = 0
-    }
-
-    // PresetReverb exposes exactly 6 non-off presets - one-to-one with our 6
-    // named spaces, ordered smallest/driest to largest/longest decay.
-    private fun presetReverbConstantFor(preset: Sound3dPreset): Short = when (preset) {
-        Sound3dPreset.DISABLED -> PresetReverb.PRESET_NONE
-        Sound3dPreset.STUDIO -> PresetReverb.PRESET_SMALLROOM
-        Sound3dPreset.HEIMKINO -> PresetReverb.PRESET_MEDIUMROOM
-        Sound3dPreset.RAVE -> PresetReverb.PRESET_LARGEROOM
-        Sound3dPreset.KONZERT -> PresetReverb.PRESET_MEDIUMHALL
-        Sound3dPreset.KINO -> PresetReverb.PRESET_LARGEHALL
-        // Plate reverb has no literal "room size" - a smooth, dense, long decay
-        // originally modeled on physical studio plate reverbs - the closest
-        // available match to a cathedral's long, smooth tail.
-        Sound3dPreset.KIRCHE -> PresetReverb.PRESET_PLATE
+        reverbProcessor.applyPreset(preset)
     }
 }
