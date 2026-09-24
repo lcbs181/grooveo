@@ -29,10 +29,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,6 +51,14 @@ private const val TAG = "PlayerController"
 private const val DRM_UNAVAILABLE_MESSAGE = "Titel nicht verfügbar – auf SoundCloud DRM-geschützt oder nur als Vorschau, und kein passender Titel auf YouTube Music gefunden."
 private const val PLAYBACK_ERROR_MESSAGE = "Wiedergabe unterbrochen – Verbindung prüfen und erneut versuchen."
 private const val MAX_PLAYBACK_ERROR_RETRIES = 2
+
+// How long ensureConnected() waits for MediaController.Builder(...).buildAsync() to
+// resolve before giving up. Without this, a PlaybackService that MIUI (or another
+// OEM's battery manager) has killed/throttled in the background left every command
+// (play/pause/skip/...) awaiting a Deferred that never completes - the button taps
+// silently did nothing at all, no crash, no message, indistinguishable from a UI bug.
+// See the connection-lost branch in togglePlayPause()/skipToNext()/etc below.
+private const val CONNECT_TIMEOUT_MS = 5_000L
 
 /** How many predicted tracks [PlayerController.continueWithRadio] tries to resolve
  * and append per pass, once "Autoplay-Radio" continues a queue that has run out. */
@@ -115,6 +125,12 @@ class PlayerController @Inject constructor(
     private val feedRepository: FeedRepository,
 ) {
     private var controller: MediaController? = null
+
+    // Guards ensureConnected() against two callers racing to build a MediaController
+    // before `controller` is first set (e.g. app start and an immediate playback tap)
+    // - without it, both would call buildAsync(), and the loser's own listener stays
+    // registered on an orphaned MediaController nobody dispatches commands through.
+    private val connectMutex = Mutex()
 
     private val _playbackState = MutableStateFlow(PlaybackUiState())
     val playbackState: StateFlow<PlaybackUiState> = _playbackState.asStateFlow()
@@ -230,11 +246,22 @@ class PlayerController @Inject constructor(
         _sleepTimerEndAtMs.value = null
     }
 
-    private suspend fun ensureConnected(): MediaController {
-        controller?.let { return it }
+    private suspend fun ensureConnected(): MediaController = connectMutex.withLock {
+        controller?.let { return@withLock it }
 
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        val newController = MediaController.Builder(context, sessionToken).buildAsync().await()
+        val newController = try {
+            withTimeout(CONNECT_TIMEOUT_MS) {
+                MediaController.Builder(context, sessionToken).buildAsync().await()
+            }
+        } catch (e: TimeoutCancellationException) {
+            // Deliberately not the same as a real CancellationException from this
+            // call's own coroutine being cancelled (e.g. the screen closing mid-tap) -
+            // that still needs to propagate and unwind normally. This one means the
+            // service didn't answer in time and every caller (togglePlayPause,
+            // skipToNext, ...) needs to see it as a real, catchable failure instead.
+            throw IllegalStateException("PlaybackService did not connect within ${CONNECT_TIMEOUT_MS}ms", e)
+        }
 
         newController.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -939,7 +966,7 @@ class PlayerController @Inject constructor(
             if (_playbackState.value.unavailableMessage == PLAYBACK_ERROR_MESSAGE) retryAfterPlaybackError()
             return
         }
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         if (mediaController.isPlaying) {
             resetPlaybackErrorState()
             mediaController.pause()
@@ -951,9 +978,33 @@ class PlayerController @Inject constructor(
     private suspend fun retryAfterPlaybackError() {
         resetPlaybackErrorState()
         _playbackState.value = _playbackState.value.copy(isUnavailable = false, unavailableMessage = null)
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         mediaController.prepare()
         mediaController.play()
+    }
+
+    /** Wraps [ensureConnected] for every command entry point below - without this, a
+     * PlaybackService that's died or is being throttled in the background (observed
+     * on a real MIUI device; not reproducible on the plain AOSP emulator) left
+     * ensureConnected() awaiting a Deferred that [CONNECT_TIMEOUT_MS] never lets
+     * resolve, and every caller here is a fire-and-forget `viewModelScope.launch {}`
+     * with no error handling of its own - so a tap on play/pause/skip just silently
+     * did nothing, repeatably, with no crash and no message. Reports it through the
+     * same [PLAYBACK_ERROR_MESSAGE]/isUnavailable state a playback error already
+     * uses, so the *same* play-button-retries-in-place path in [togglePlayPause]
+     * covers reconnecting too. A real CancellationException (the caller's own
+     * coroutine/scope being cancelled, e.g. the screen closing mid-tap) still
+     * propagates normally instead of being reported as a connection failure - see
+     * [ensureConnected]'s own handling of a *timeout* specifically to keep the two
+     * distinguishable here. */
+    private suspend fun ensureConnectedOrReportError(): MediaController? = try {
+        ensureConnected()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Lost connection to PlaybackService", e)
+        _playbackState.value = _playbackState.value.copy(isUnavailable = true, unavailableMessage = PLAYBACK_ERROR_MESSAGE)
+        null
     }
 
     /** Next/previous/jump-to-index all navigate the *logical* queue (see
@@ -965,17 +1016,17 @@ class PlayerController @Inject constructor(
      * skipToQueueIndex, misinterpret a logical index as an Exo one once the two can
      * diverge. */
     suspend fun skipToNext() {
-        ensureConnected()
+        ensureConnectedOrReportError() ?: return
         nextLogicalIndex()?.let { moveToLogicalIndex(it) }
     }
 
     suspend fun skipToPrevious() {
-        ensureConnected()
+        ensureConnectedOrReportError() ?: return
         previousLogicalIndex()?.let { moveToLogicalIndex(it) }
     }
 
     suspend fun skipToQueueIndex(index: Int) {
-        ensureConnected()
+        ensureConnectedOrReportError() ?: return
         moveToLogicalIndex(index)
     }
 
@@ -1089,7 +1140,7 @@ class PlayerController @Inject constructor(
      * offset-restart-only pipe. So this is just a plain seek, unlike the old
      * source-dependent branching. */
     suspend fun seekTo(positionMs: Long) {
-        ensureConnected().seekTo(positionMs)
+        ensureConnectedOrReportError()?.seekTo(positionMs)
     }
 
     /** Manually flips the currently playing track between its stream URL and its local
