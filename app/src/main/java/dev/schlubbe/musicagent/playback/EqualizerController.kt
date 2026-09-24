@@ -2,6 +2,10 @@ package dev.schlubbe.musicagent.playback
 
 import android.media.audiofx.Equalizer
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** EQ presets exposed in Settings. Persisted by name via [dev.schlubbe.musicagent.data.repository.SettingsRepository].
  * [CUSTOM] has no fixed per-frequency formula of its own (see [EqualizerController.bandLevelFor]) -
@@ -31,16 +35,30 @@ class EqualizerController {
     private var pendingPreset: EqPreset = EqPreset.FLAT
     private var attachedSessionId: Int = 0
 
+    // android.media.audiofx.Equalizer's constructor (and release()) makes a real
+    // synchronous Binder call into the audio effects framework - measured on a real
+    // device (not the emulator, which doesn't reproduce this) at several hundred ms.
+    // attach() used to run this directly on PlaybackService's onAudioSessionIdChanged
+    // callback, which fires on the main thread on essentially every track transition
+    // (a fresh audio session id is assigned on most of them) - every single skip/auto
+    // -advance froze the UI for that long. Every public method here is dispatched
+    // through this single-thread context instead (not a shared pool) so `equalizer`
+    // and the preset/gain state are only ever touched from one thread, same as
+    // before this class went multi-threaded.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
     fun attach(audioSessionId: Int) {
         if (audioSessionId == 0 || audioSessionId == attachedSessionId) return
-        release()
-        attachedSessionId = audioSessionId
-        equalizer = runCatching {
-            Equalizer(0, audioSessionId).apply { enabled = true }
-        }.onFailure {
-            Log.w("EqualizerController", "Failed to attach Equalizer to session $audioSessionId", it)
-        }.getOrNull()
-        applyPreset(pendingPreset)
+        scope.launch {
+            releaseInternal()
+            attachedSessionId = audioSessionId
+            equalizer = runCatching {
+                Equalizer(0, audioSessionId).apply { enabled = true }
+            }.onFailure {
+                Log.w("EqualizerController", "Failed to attach Equalizer to session $audioSessionId", it)
+            }.getOrNull()
+            applyPresetInternal(pendingPreset)
+        }
     }
 
     // The last custom gains applied (or pending, if no Equalizer is attached yet) -
@@ -50,9 +68,13 @@ class EqualizerController {
     private var pendingCustomGains: List<Float> = List(5) { 0f }
 
     fun applyPreset(preset: EqPreset) {
+        scope.launch { applyPresetInternal(preset) }
+    }
+
+    private fun applyPresetInternal(preset: EqPreset) {
         pendingPreset = preset
         if (preset == EqPreset.CUSTOM) {
-            applyCustomGains(pendingCustomGains)
+            applyCustomGainsInternal(pendingCustomGains)
             return
         }
         val eq = equalizer ?: return
@@ -74,6 +96,10 @@ class EqualizerController {
      * (beyond remembering [gains] for the next [attach]/[applyPreset]) if no
      * equalizer is attached yet or the pending preset isn't CUSTOM. */
     fun applyCustomGains(gains: List<Float>) {
+        scope.launch { applyCustomGainsInternal(gains) }
+    }
+
+    private fun applyCustomGainsInternal(gains: List<Float>) {
         pendingCustomGains = gains
         if (pendingPreset != EqPreset.CUSTOM) return
         val eq = equalizer ?: return
@@ -95,7 +121,7 @@ class EqualizerController {
     /** Manual per-band override, for a future "custom" preset UI. Safe no-op if no
      * equalizer is attached yet. */
     fun setBandLevel(band: Int, level: Short) {
-        runCatching { equalizer?.setBandLevel(band.toShort(), level) }
+        scope.launch { runCatching { equalizer?.setBandLevel(band.toShort(), level) } }
     }
 
     fun numberOfBands(): Int = equalizer?.numberOfBands?.toInt() ?: 0
@@ -106,6 +132,10 @@ class EqualizerController {
     }
 
     fun release() {
+        scope.launch { releaseInternal() }
+    }
+
+    private fun releaseInternal() {
         equalizer?.release()
         equalizer = null
         attachedSessionId = 0
