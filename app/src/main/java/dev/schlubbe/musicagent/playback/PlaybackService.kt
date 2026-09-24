@@ -41,6 +41,7 @@ import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import dev.schlubbe.musicagent.playback.reverb.ConvolutionReverbAudioProcessor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -96,7 +97,8 @@ class PlaybackService : MediaLibraryService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaLibrarySession? = null
     private val equalizerController = EqualizerController()
-    private val sound3dController = Sound3dController()
+    private val reverbAudioProcessor = ConvolutionReverbAudioProcessor(this)
+    private val sound3dController = Sound3dController(reverbAudioProcessor)
     private val audioVisualizerController = AudioVisualizerController()
     private var crossfadeController: CrossfadeController? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -279,7 +281,7 @@ class PlaybackService : MediaLibraryService() {
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController)))
+                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
                 .build()
         }.apply {
             if (settingsRepository.hiResAudioCached) {
@@ -319,14 +321,15 @@ class PlaybackService : MediaLibraryService() {
             .build()
         player = exoPlayer
 
-        // Equalizer/3D-sound are genuine AudioEffects bound to the audio session (and
-        // unlike the Visualizer effect they need no RECORD_AUDIO). The visualizer is
-        // not in this list: it reads the PCM stream via the TeeAudioProcessor
-        // installed in the audio sink above, so it has no session to attach to.
+        // Equalizer is a genuine AudioEffect bound to the audio session (and unlike
+        // the Visualizer effect it needs no RECORD_AUDIO). Neither the visualizer nor
+        // 3D-sound is in this list: the visualizer reads the PCM stream via the
+        // TeeAudioProcessor installed in the audio sink above, and reverbAudioProcessor
+        // (also installed there) is its own in-process audio processor, not a
+        // platform effect - neither has a session to attach to.
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
                 equalizerController.attach(audioSessionId)
-                sound3dController.attach(audioSessionId)
             }
 
             // While paused no PCM buffers flow, so the spectrum would otherwise freeze
@@ -339,7 +342,6 @@ class PlaybackService : MediaLibraryService() {
         })
         // The session id may already be assigned by the time we attach the listener above.
         equalizerController.attach(exoPlayer.audioSessionId)
-        sound3dController.attach(exoPlayer.audioSessionId)
 
         crossfadeController = CrossfadeController(
             context = this,
@@ -469,7 +471,6 @@ class PlaybackService : MediaLibraryService() {
         audioVisualizerController.release()
         serviceScope.cancel()
         equalizerController.release()
-        sound3dController.release()
         mediaSession?.run {
             player.release()
             release()
