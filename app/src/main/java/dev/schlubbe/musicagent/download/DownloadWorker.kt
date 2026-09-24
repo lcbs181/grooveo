@@ -3,6 +3,9 @@ package dev.schlubbe.musicagent.download
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dagger.assisted.Assisted
@@ -14,6 +17,7 @@ import dev.schlubbe.musicagent.data.extract.di.ExtractionHttpClient
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import dev.schlubbe.musicagent.playback.analysis.TrackAnalysisWorker
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -53,6 +57,7 @@ class DownloadWorker @AssistedInject constructor(
     private val downloadDao: DownloadDao,
     private val streamResolverRegistry: StreamResolverRegistry,
     @ExtractionHttpClient private val okHttpClient: OkHttpClient,
+    private val workManager: WorkManager,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -150,6 +155,19 @@ class DownloadWorker @AssistedInject constructor(
                             createdAt = createdAt,
                             totalBytes = outcome.totalBytes,
                         ),
+                    )
+                    // Smart-transition analysis needs the actual decoded audio, so it
+                    // only makes sense once a track is playable from disk - see
+                    // TrackAnalysisWorker/TrackAnalyzer. KEEP: an already-queued or
+                    // already-cached analysis for this track shouldn't be redone just
+                    // because e.g. a "Alle herunterladen" re-triggered this worker for
+                    // an unrelated reason.
+                    workManager.enqueueUniqueWork(
+                        "analyze:$trackId",
+                        ExistingWorkPolicy.KEEP,
+                        OneTimeWorkRequestBuilder<TrackAnalysisWorker>()
+                            .setInputData(workDataOf(TrackAnalysisWorker.KEY_TRACK_ID to trackId))
+                            .build(),
                     )
                     Result.success()
                 } catch (e: Exception) {

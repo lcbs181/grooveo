@@ -13,6 +13,7 @@ import dev.schlubbe.musicagent.data.local.dao.PlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistTrackDao
 import dev.schlubbe.musicagent.data.local.dao.SavedPlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.SearchHistoryDao
+import dev.schlubbe.musicagent.data.local.dao.TrackAnalysisDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
@@ -21,6 +22,7 @@ import dev.schlubbe.musicagent.data.local.entity.PlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.PlaylistTrackEntity
 import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.SearchHistoryEntity
+import dev.schlubbe.musicagent.data.local.entity.TrackAnalysisEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 
 @Database(
@@ -33,8 +35,9 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         FollowedArtistEntity::class,
         SavedPlaylistEntity::class,
         SearchHistoryEntity::class,
+        TrackAnalysisEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -47,6 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun followedArtistDao(): FollowedArtistDao
     abstract fun savedPlaylistDao(): SavedPlaylistDao
     abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun trackAnalysisDao(): TrackAnalysisDao
 }
 
 // Backend-less variant: likes/playlists move from the (removed) server to local
@@ -201,5 +205,23 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
 val MIGRATION_9_10 = object : Migration(9, 10) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE downloads ADD COLUMN totalBytes INTEGER")
+    }
+}
+
+// Smart-transition analysis: TrackAnalysisWorker decodes a newly-downloaded track
+// once, in the background, and stores where to fade out of it and where to start
+// playing it from when it's the incoming track - see TrackAnalysisEntity and
+// TrackAnalyzer. A track with no row here (not yet analyzed, or never downloaded)
+// falls back to CrossfadeController's existing fixed-duration fade.
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS track_analysis (
+                trackId TEXT NOT NULL PRIMARY KEY,
+                mixOutMs INTEGER NOT NULL,
+                mixInMs INTEGER NOT NULL,
+                analyzedAt INTEGER NOT NULL
+            )""",
+        )
     }
 }

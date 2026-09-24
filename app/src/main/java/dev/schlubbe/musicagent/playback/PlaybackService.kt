@@ -34,6 +34,7 @@ import dev.schlubbe.musicagent.MainActivity
 import dev.schlubbe.musicagent.R
 import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.dao.TrackAnalysisDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
@@ -88,6 +89,9 @@ class PlaybackService : MediaLibraryService() {
 
     @Inject
     lateinit var streamResolverRegistry: StreamResolverRegistry
+
+    @Inject
+    lateinit var trackAnalysisDao: TrackAnalysisDao
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaLibrarySession? = null
@@ -342,6 +346,7 @@ class PlaybackService : MediaLibraryService() {
             mainPlayer = exoPlayer,
             mediaSourceFactory = mediaSourceFactory,
             scope = serviceScope,
+            trackAnalysisDao = trackAnalysisDao,
         )
         // Cancels any in-flight fade the moment something outside CrossfadeController's
         // own control touches the main player - a manual pause, a real skip/seek (not
