@@ -5,14 +5,17 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MediaSource
+import dev.schlubbe.musicagent.data.local.dao.TrackAnalysisDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 
 /** How often the ramp updates both players' volume once a fade has started - see
@@ -38,6 +41,15 @@ private val HALF_PI = (Math.PI / 2).toFloat()
  * are ramped on an equal-power curve so the combined loudness doesn't dip mid-fade the
  * way a linear 0..1 ramp on both would.
  *
+ * When both the outgoing and incoming track have a cached [dev.schlubbe.musicagent.data.local.entity.TrackAnalysisEntity]
+ * (see [TrackAnalyzer][dev.schlubbe.musicagent.playback.analysis.TrackAnalyzer]), the
+ * fade triggers at the outgoing track's marked mix-out point and lands the incoming
+ * track at its marked mix-in point instead of blind position 0 - the "positions to
+ * jump to" a track's own analysis picked out, same idea as djay's Automix. A track
+ * with no analysis (streamed-only, or not analyzed yet) falls back to today's plain
+ * fixed-duration fade from the raw file's end - the two behaviors mix freely per pair
+ * of tracks, there's no "smart mode" toggle.
+ *
  * Owned directly by [PlaybackService] (constructed with its main player and scope),
  * not a Hilt singleton - a fade is inherently tied to one running player instance.
  */
@@ -51,6 +63,7 @@ class CrossfadeController(
     // and a tail that fails to open just aborts the fade (see the error listener).
     private val mediaSourceFactory: MediaSource.Factory,
     private val scope: CoroutineScope,
+    private val trackAnalysisDao: TrackAnalysisDao,
 ) {
     private var secondaryPlayer: ExoPlayer? = null
     private var fadeJob: Job? = null
@@ -76,9 +89,10 @@ class CrossfadeController(
      * configured crossfade length (0 = off) and a hook to mark the outgoing track as
      * "finished" rather than "skipped" for analytics before it's advanced (see
      * [PlayerController.markCurrentTrackCompletedForCrossfade]). Every check here is a
-     * cheap field read/comparison, so the 0-duration (default, crossfade off) path costs
+     * cheap field read/comparison (plus, at most once per transition, one indexed
+     * Room lookup per track), so the 0-duration (default, crossfade off) path costs
      * nothing beyond this one early return - no secondary player, no volume changes. */
-    fun poll(crossfadeDurationMs: Long, onBeforeAdvance: () -> Unit) {
+    suspend fun poll(crossfadeDurationMs: Long, onBeforeAdvance: () -> Unit) {
         if (isFading) {
             return
         }
@@ -98,15 +112,47 @@ class CrossfadeController(
         if (!mainPlayer.hasNextMediaItem()) return
         val duration = mainPlayer.duration
         if (duration == C.TIME_UNSET) return
-        val remaining = duration - mainPlayer.currentPosition
-        if (remaining > crossfadeDurationMs) return
+        val position = mainPlayer.currentPosition
+        val remaining = duration - position
         // Below a second there is no tail worth overlapping - and fading over longer
         // than what is actually left would ramp the incoming track up against silence.
         if (remaining < MIN_FADE_MS) return
-        startFade(remaining, onBeforeAdvance)
+
+        val nextIndex = nextWindowIndex()
+        val nextTrackId = nextIndex.takeIf { it != C.INDEX_UNSET }?.let { mainPlayer.getMediaItemAt(it).mediaId }
+        val mixInMs = nextTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixInMs }
+
+        // mediaId is the app's own "source:sourceId" track id (see
+        // PlayerController.buildMediaItem) - looking it straight up here means this
+        // needs no coupling back to PlayerController's own queue bookkeeping.
+        val mixOutMs = mainPlayer.currentMediaItem?.mediaId
+            ?.let { trackAnalysisDao.getByTrackId(it)?.mixOutMs }
+            // Always leaves at least MIN_FADE_MS of runway - an analysis result a few
+            // ms off the container's own duration (measured independently by decoding,
+            // see TrackAnalyzer) should never produce a negative/zero fade window.
+            ?.coerceAtMost(duration - MIN_FADE_MS)
+
+        if (mixOutMs != null) {
+            if (position < mixOutMs) return
+            val fadeDurationMs = (duration - mixOutMs).coerceIn(MIN_FADE_MS, crossfadeDurationMs)
+            startFade(min(fadeDurationMs, remaining), mixInMs, onBeforeAdvance)
+            return
+        }
+
+        if (remaining > crossfadeDurationMs) return
+        startFade(remaining, mixInMs, onBeforeAdvance)
     }
 
-    private fun startFade(fadeDurationMs: Long, onBeforeAdvance: () -> Unit) {
+    /** The next window Media3 itself would advance to via [ExoPlayer.seekToNextMediaItem]
+     * - [Timeline.getNextWindowIndex] respects repeat/shuffle mode the same way that
+     * call does internally, rather than assuming "current index + 1". */
+    private fun nextWindowIndex(): Int {
+        val timeline = mainPlayer.currentTimeline
+        if (timeline.isEmpty) return C.INDEX_UNSET
+        return timeline.getNextWindowIndex(mainPlayer.currentMediaItemIndex, mainPlayer.repeatMode, mainPlayer.shuffleModeEnabled)
+    }
+
+    private fun startFade(fadeDurationMs: Long, mixInMs: Long?, onBeforeAdvance: () -> Unit) {
         val uri = mainPlayer.currentMediaItem?.localConfiguration?.uri ?: return
         val position = mainPlayer.currentPosition
 
@@ -141,7 +187,12 @@ class CrossfadeController(
         // as a user skip.
         onBeforeAdvance()
         ownAdvanceAtMs = android.os.SystemClock.elapsedRealtime()
-        mainPlayer.seekToNextMediaItem()
+        val nextIndex = nextWindowIndex()
+        if (mixInMs != null && nextIndex != C.INDEX_UNSET) {
+            mainPlayer.seekTo(nextIndex, mixInMs)
+        } else {
+            mainPlayer.seekToNextMediaItem()
+        }
         mainPlayer.volume = 0f
 
         fadeJob = scope.launch {
