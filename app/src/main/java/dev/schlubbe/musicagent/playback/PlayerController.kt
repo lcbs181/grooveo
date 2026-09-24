@@ -247,7 +247,19 @@ class PlayerController @Inject constructor(
     }
 
     private suspend fun ensureConnected(): MediaController = connectMutex.withLock {
-        controller?.let { return@withLock it }
+        // isConnected(), not just "non-null" - the whole point of this fix. A
+        // PlaybackService that dies or gets throttled in the background (MIUI, not
+        // reproducible on the plain AOSP emulator) leaves this exact field holding a
+        // MediaController whose underlying session is gone; every previous command
+        // dispatch (play/pause/skip/...) still "succeeded" against it - Media3 just
+        // posts to a dead binder and drops it - so once a session died mid-playback,
+        // *nothing worked again for the rest of the app's process lifetime*, not just
+        // once. Re-checking this on every single command (cheap - a local flag read,
+        // no IPC) means one dead connection self-heals on the very next tap instead of
+        // needing the app to be force-closed and reopened.
+        controller?.takeIf { it.isConnected() }?.let { return@withLock it }
+        controller?.release()
+        controller = null
 
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val newController = try {
