@@ -2,6 +2,10 @@ package dev.schlubbe.musicagent.playback
 
 import android.media.audiofx.PresetReverb
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** The 7 "Raumklang" presets from Einstellungen > 3D-Sound (see the design
  * handoff's 3D-Sound section) - persisted by name via SettingsRepository. */
@@ -28,22 +32,37 @@ class Sound3dController {
     private var pendingPreset: Sound3dPreset = Sound3dPreset.DISABLED
     private var attachedSessionId: Int = 0
 
+    // Same reasoning as EqualizerController.scope: constructing/releasing a platform
+    // audio effect is a synchronous Binder call the audio effects framework, measured
+    // at several hundred ms on a real device. attach() used to run on the main
+    // thread via PlaybackService's onAudioSessionIdChanged, which fires on nearly
+    // every track transition - freezing the UI for that long on every skip/auto
+    // -advance. Every public method is dispatched through this single-thread
+    // context so `reverb` and the preset state stay single-threaded, same as before.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
     fun attach(audioSessionId: Int) {
         if (audioSessionId == 0 || audioSessionId == attachedSessionId) return
-        release()
-        attachedSessionId = audioSessionId
-        reverb = runCatching {
-            // Priority 0: lowest, so this never steals the effect slot from a
-            // system-level effect (e.g. a accessibility service) - matches
-            // EqualizerController's own priority convention.
-            PresetReverb(0, audioSessionId)
-        }.onFailure {
-            Log.w("Sound3dController", "Failed to attach PresetReverb to session $audioSessionId", it)
-        }.getOrNull()
-        applyPreset(pendingPreset)
+        scope.launch {
+            releaseInternal()
+            attachedSessionId = audioSessionId
+            reverb = runCatching {
+                // Priority 0: lowest, so this never steals the effect slot from a
+                // system-level effect (e.g. a accessibility service) - matches
+                // EqualizerController's own priority convention.
+                PresetReverb(0, audioSessionId)
+            }.onFailure {
+                Log.w("Sound3dController", "Failed to attach PresetReverb to session $audioSessionId", it)
+            }.getOrNull()
+            applyPresetInternal(pendingPreset)
+        }
     }
 
     fun applyPreset(preset: Sound3dPreset) {
+        scope.launch { applyPresetInternal(preset) }
+    }
+
+    private fun applyPresetInternal(preset: Sound3dPreset) {
         pendingPreset = preset
         val fx = reverb ?: return
         runCatching {
@@ -57,6 +76,10 @@ class Sound3dController {
     }
 
     fun release() {
+        scope.launch { releaseInternal() }
+    }
+
+    private fun releaseInternal() {
         reverb?.release()
         reverb = null
         attachedSessionId = 0
