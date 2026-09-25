@@ -19,7 +19,19 @@ import java.util.concurrent.ConcurrentHashMap
  * have no audible effect at all on this device/OS combination, a known issue with
  * several OEMs' own effect-framework implementations).
  *
- * Spliced into [dev.schlubbe.musicagent.playback.PlaybackService]'s
+ * **Currently NOT spliced into the audio sink** - see [dev.schlubbe.musicagent.playback.PlaybackService.buildAudioSink]'s
+ * comment. Confirmed on a real device: playback stuttered constantly with this in
+ * the chain, not just while a preset was actually engaged (which then made it
+ * measurably worse on top) - something about how this buffers input into fixed
+ * [PartitionedConvolver.DEFAULT_BLOCK_SIZE] blocks (even in the dry/bypass path,
+ * since every call still buffers and re-chunks) is fighting the audio sink's own
+ * timing even when producing no audible effect. Pulled back out rather than shipped
+ * half-fixed; the class is kept as the starting point for a properly re-verified
+ * fix, most likely either processing in-place without re-chunking to a fixed block
+ * size, or overriding [isActive] to fully exclude this processor from the graph
+ * whenever [Sound3dPreset.DISABLED] instead of always staying spliced in.
+ *
+ * Intended to be spliced into [dev.schlubbe.musicagent.playback.PlaybackService]'s
  * [androidx.media3.exoplayer.audio.DefaultAudioSink] processor chain, right
  * alongside the visualizer's TeeAudioProcessor - a genuine part of the audio
  * pipeline, not a platform effect bolted onto a session id, so it works identically
@@ -100,10 +112,20 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
         if (frameCount == 0) return
         ensurePendingCapacity(pendingCount + frameCount)
 
-        val shorts = inputBuffer.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        // Absolute-indexed get/put on the buffers ExoPlayer itself hands in/out,
+        // rather than asShortBuffer() - that allocates a brand new view object on
+        // every single call (dozens of times a second, for the entire lifetime of
+        // playback, whether or not a preset is even engaged). Harmless in isolation,
+        // but this runs on the real-time audio thread, and this device was already
+        // under real memory pressure - any avoidable per-call allocation there is
+        // exactly what risks a GC pause landing mid-buffer and showing up as a
+        // stutter, independent of how cheap the DSP itself is.
+        inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
+        val inBase = inputBuffer.position()
         for (i in 0 until frameCount) {
-            pendingLeft[pendingCount + i] = shorts.get(i * 2) / 32768f
-            pendingRight[pendingCount + i] = shorts.get(i * 2 + 1) / 32768f
+            val frameBase = inBase + i * BYTES_PER_FRAME
+            pendingLeft[pendingCount + i] = inputBuffer.getShort(frameBase) / 32768f
+            pendingRight[pendingCount + i] = inputBuffer.getShort(frameBase + 2) / 32768f
         }
         pendingCount += frameCount
         inputBuffer.position(inputBuffer.limit())
@@ -113,7 +135,7 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
 
         val engine = if (currentPreset == Sound3dPreset.DISABLED) null else enginesByPreset[currentPreset]
         val outputBuffer = replaceOutputBuffer(processableFrames * BYTES_PER_FRAME)
-        val outShorts = outputBuffer.asShortBuffer()
+        outputBuffer.order(ByteOrder.LITTLE_ENDIAN)
 
         var offset = 0
         while (offset < processableFrames) {
@@ -124,11 +146,11 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
                 engine.right.process(dryBlockRight, wetBlockRight)
             }
             for (i in 0 until blockSize) {
-                val frame = offset + i
+                val frameBase = (offset + i) * BYTES_PER_FRAME
                 val l = if (engine != null) (dryBlockLeft[i] + wetBlockLeft[i] * engine.wetMix).coerceIn(-1f, 1f) else dryBlockLeft[i]
                 val r = if (engine != null) (dryBlockRight[i] + wetBlockRight[i] * engine.wetMix).coerceIn(-1f, 1f) else dryBlockRight[i]
-                outShorts.put(frame * 2, (l * 32767f).toInt().toShort())
-                outShorts.put(frame * 2 + 1, (r * 32767f).toInt().toShort())
+                outputBuffer.putShort(frameBase, (l * 32767f).toInt().toShort())
+                outputBuffer.putShort(frameBase + 2, (r * 32767f).toInt().toShort())
             }
             offset += blockSize
         }

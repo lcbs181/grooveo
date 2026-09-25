@@ -815,7 +815,7 @@ fun PlayerScreen(
                     modifier = Modifier.padding(top = 22.dp),
                 )
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                    upNext.forEachIndexed { i, track ->
+                    upNext.take(MAX_RENDERED_UPCOMING).forEachIndexed { i, track ->
                         val queueIndex = playbackState.queueIndex + 1 + i
                         val firstUpcoming = playbackState.queueIndex + 1
                         val lastUpcoming = playbackState.queueIndex + upNext.size
@@ -877,6 +877,16 @@ private fun EqPresetMenuItem(
 
 private val SLEEP_TIMER_PRESETS_MIN = listOf(15, 30, 45, 60, 90)
 private const val SLEEP_TIMER_DEFAULT_MIN = 30
+
+// "Als Nächstes" renders into a plain (non-lazy) Column, so every row in it is
+// composed and laid out eagerly regardless of scroll position - fine for a handful
+// of upcoming tracks, but on a long queue (a 147-track Favoriten list, say) every
+// single track transition was recomposing 100+ off-screen rows at once, a visible
+// pause synchronized with every track change. Capping what's actually rendered here
+// (the chip/header still show the true total) keeps the existing "one continuous
+// scroll down the Player screen" layout instead of restructuring it into its own
+// nested lazy list.
+private const val MAX_RENDERED_UPCOMING = 30
 
 @Composable
 private fun SleepTimerDialog(
