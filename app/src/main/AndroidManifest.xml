@@ -23,6 +23,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.MusicAgent">
+        <!-- Lets `simpleperf`/Android Studio profile the release build from adb. -->
+        <profileable android:shell="true" />
 
         <!-- Tells Android Auto/Automotive (and the Google Assistant media-browse path) that
              this app offers a media browse tree at all - without it, PlaybackService's

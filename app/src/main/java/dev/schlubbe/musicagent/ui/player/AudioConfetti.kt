@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.ui.components.animationFrameBucket
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -265,6 +267,7 @@ fun AudioConfettiHost(
     isPlaying: Boolean,
     frame: State<VisualizerFrame>,
     playerOpen: Boolean,
+    onTick: (Long) -> Unit = {},
 ) {
     val active = variant == "pulse" && isPlaying
     val field = remember { ConfettiField() }
@@ -284,8 +287,14 @@ fun AudioConfettiHost(
             frameMs.floatValue += 1f
             return@LaunchedEffect
         }
+        var lastBucket = -1L
         while (true) {
             withFrameNanos { now ->
+                // ~30fps, in phase with the Player's other animations.
+                val bucket = animationFrameBucket(now)
+                if (bucket == lastBucket) return@withFrameNanos
+                lastBucket = bucket
+                onTick(bucket)
                 val previous = field.lastFrameNanos
                 field.lastFrameNanos = now
                 if (previous != 0L) {

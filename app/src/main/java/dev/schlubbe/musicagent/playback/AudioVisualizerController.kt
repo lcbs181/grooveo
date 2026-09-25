@@ -482,7 +482,13 @@ class AudioVisualizerController : TeeAudioProcessor.AudioBufferSink {
      * samples to the analysis thread - and does nothing else. No transform, no
      * allocation, no lock, no wait.
      */
+    /** False while nothing on screen draws the visualizer (Player closed, pulse
+     * variant off) - the tap then skips decoding entirely and the analysis thread
+     * stays parked. Was ~10% CPU for invisible output. */
+    @Volatile var enabled: Boolean = true
+
     override fun handleBuffer(buffer: ByteBuffer) {
+        if (!enabled) return
         val pcm = buffer.order(ByteOrder.LITTLE_ENDIAN)
         val channels = channelCount
         var pending = 0
@@ -694,9 +700,9 @@ class AudioVisualizerController : TeeAudioProcessor.AudioBufferSink {
      * update rate back to roughly the buffer rate and looks like a stutter. Overflow is
      * handled where it belongs, by the ring dropping its oldest entry once genuinely
      * full; when the queue has run dry the last frame simply stands. */
-    fun pumpNextFrame() {
+    fun pumpNextFrame(): VisualizerFrame? {
         val next = synchronized(queueLock) {
-            if (queueCount == 0) return
+            if (queueCount == 0) return null
             val frame = queue[queueHead]
             queue[queueHead] = null
             queueHead = (queueHead + 1) % MAX_QUEUED_FRAMES
@@ -704,6 +710,7 @@ class AudioVisualizerController : TeeAudioProcessor.AudioBufferSink {
             frame
         }
         if (next != null) _frames.value = next
+        return next
     }
 
     private fun enqueue(frame: VisualizerFrame) {

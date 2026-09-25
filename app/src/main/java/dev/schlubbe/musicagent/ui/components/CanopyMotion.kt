@@ -1,5 +1,11 @@
 package dev.schlubbe.musicagent.ui.components
 
+import androidx.compose.runtime.withFrameNanos
+
+import androidx.compose.runtime.mutableFloatStateOf
+
+import androidx.compose.runtime.derivedStateOf
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
@@ -280,32 +286,56 @@ private fun DrawScope.rotateRect(
 // overlay) on every animation frame while a track was playing, not just the one
 // property that actually needed to change.
 fun rememberBreathingScale(isPlaying: Boolean): State<Float> {
-    val transition = rememberInfiniteTransition(label = "breathe")
-    return transition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (isPlaying) 1.028f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (isPlaying) 2200 else Int.MAX_VALUE / 2, easing = LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
-        ),
-        label = "breatheScale",
-    )
+    val clock = rememberThrottledClockMs(isPlaying)
+    return remember(clock) {
+        derivedStateOf { if (isPlaying) 1f + 0.028f * triangle(clock.value, 2200f) else 1f }
+    }
 }
 
 /** The accent glow behind the Player artwork, pulsing over 3.6s. Returns a
  * [State] of the alpha multiplier - see [rememberBreathingScale]'s kdoc for why. */
 @Composable
 fun rememberGlowAlpha(isPlaying: Boolean): State<Float> {
-    val transition = rememberInfiniteTransition(label = "glow")
-    return transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = if (isPlaying) 0.55f else 0.35f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (isPlaying) 1800 else Int.MAX_VALUE / 2, easing = LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
-        ),
-        label = "glowAlpha",
-    )
+    val clock = rememberThrottledClockMs(isPlaying)
+    return remember(clock) {
+        derivedStateOf { if (isPlaying) 0.35f + 0.2f * triangle(clock.value, 1800f) else 0.35f }
+    }
+}
+
+/** ~30fps tick shared by every continuous animation on screen. Bucketing by absolute
+ * frame time (not "every other frame" per loop) keeps independent loops in phase, so
+ * they all land on the same display frames instead of together filling all 60. */
+fun animationFrameBucket(frameNanos: Long): Long = frameNanos / 33_333_333L
+
+/** 0..1..0 over 2 * [halfPeriodMs] - same shape as the old LinearEasing/Reverse tween. */
+private fun triangle(timeMs: Float, halfPeriodMs: Float): Float {
+    val phase = (timeMs % (2 * halfPeriodMs)) / halfPeriodMs
+    return if (phase <= 1f) phase else 2f - phase
+}
+
+/** Milliseconds since first composition, advanced every other display frame (~30fps)
+ * and only while [running]. Replaces rememberInfiniteTransition here: that ticked at
+ * the full display rate even while paused (its "paused" tween still runs), which
+ * re-rendered the whole artwork/visualizer layer 60 times a second - the Player
+ * screen's RenderThread measured ~57% of a core on a real device. */
+@Composable
+fun rememberThrottledClockMs(running: Boolean): State<Float> {
+    val clock = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(running) {
+        if (!running) return@LaunchedEffect
+        var previous = 0L
+        var lastBucket = -1L
+        while (true) {
+            withFrameNanos { now ->
+                val bucket = animationFrameBucket(now)
+                if (bucket == lastBucket) return@withFrameNanos
+                lastBucket = bucket
+                if (previous != 0L) clock.floatValue += (now - previous) / 1_000_000f
+                previous = now
+            }
+        }
+    }
+    return clock
 }
 
 /** `ds-fade-up`: 10dp rise + fade, 400ms, for section entrances. Returns a

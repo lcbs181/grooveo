@@ -76,7 +76,11 @@ class PlayerViewModel @Inject constructor(
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
     val vizVariant: StateFlow<String> = playerController.vizVariant
-    val visualizerFrame: StateFlow<VisualizerFrame> = playerController.visualizerFrame
+    val visualizerFrame: androidx.compose.runtime.State<VisualizerFrame> get() = playerController.visualizerFrame
+
+    fun setVisualizerDemand(demand: Boolean) = playerController.setVisualizerDemand(demand)
+
+    fun pumpVisualizerFrame(frameBucket: Long) = playerController.pumpVisualizerFrame(frameBucket)
     fun setVizVariant(variant: String) = playerController.setVizVariant(variant)
 
     val eqPreset: StateFlow<EqPreset> = settingsRepository.eqPreset
