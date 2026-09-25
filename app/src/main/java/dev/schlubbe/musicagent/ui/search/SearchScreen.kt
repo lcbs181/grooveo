@@ -1,5 +1,8 @@
 package dev.schlubbe.musicagent.ui.search
 
+import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
+
 import android.widget.Toast
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
@@ -92,6 +95,7 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val analyzer = LocalTrackAnalyzer.current
 
     LaunchedEffect(uiState.artistNavTarget) {
         uiState.artistNavTarget?.let { (source, sourceId) ->
@@ -157,6 +161,7 @@ fun SearchScreen(
                     onHistoryTapped = viewModel::onHistoryQueryTapped,
                     onHistoryDeleted = viewModel::onHistoryQueryDeleted,
                     trackActions = TrackActions(
+                        onAnalyze = { track -> analyzer.analyzeTracks(listOf(track)) },
                         onLikeToggle = viewModel::onLikeToggled,
                         onDownload = { track ->
                             viewModel.onDownloadClicked(track)
@@ -469,6 +474,7 @@ private fun HistorySearchChip(
 }
 
 private class TrackActions(
+    val onAnalyze: (TrackResultDto) -> Unit,
     val onLikeToggle: (TrackResultDto) -> Unit,
     val onDownload: (TrackResultDto) -> Unit,
     val onAddToQueue: (TrackResultDto) -> Unit,
@@ -499,7 +505,10 @@ private fun TrackActionsMenu(
         item("Zur Warteschlange hinzufügen", "list-plus") { actions.onAddToQueue(track) }
         item("Zu Playlist hinzufügen", "plus-circle") { actions.onAddToPlaylist(track) }
         when {
-            download == DownloadState.COMPLETED -> item("Offline verfügbar", "check-circle", enabled = false) {}
+            download == DownloadState.COMPLETED -> {
+                item("Offline verfügbar", "check-circle", enabled = false) {}
+                item(ANALYZE_LABEL, "waveform") { actions.onAnalyze(track) }
+            }
             download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
                 item("Wird heruntergeladen …", "download-simple", enabled = false) {}
             else -> item("Herunterladen", "download-simple") { actions.onDownload(track) }

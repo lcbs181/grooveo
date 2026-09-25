@@ -1,4 +1,7 @@
 package dev.schlubbe.musicagent.ui.library
+import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
+import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -347,6 +350,7 @@ private fun LikesTab(
     onPlayAll: (shuffle: Boolean) -> Unit,
     viewModel: LibraryViewModel,
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val dimens = rememberResponsiveDimens()
     when {
         uiState.isLoadingLikes && uiState.likes.isEmpty() -> Box(modifier = Modifier.padding(dimens.horizontalPadding)) {
@@ -371,6 +375,7 @@ private fun LikesTab(
                     onPlay = { onPlayAll(false) },
                     onShuffle = { onPlayAll(true) },
                     onDownloadAll = viewModel::downloadAllLikes,
+                    onAnalyze = { analyzer.analyzeIds(visibleLikes.map { it.track.trackKey() }) },
                 )
             }
             if (visibleLikes.isEmpty()) {
@@ -418,6 +423,7 @@ private fun LikesHeader(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onDownloadAll: () -> Unit,
+    onAnalyze: () -> Unit,
 ) {
     val dimens = rememberResponsiveDimens()
     val allOffline = offlineCount == trackCount
@@ -443,6 +449,13 @@ private fun LikesHeader(
                 leadingIcon = phosphorIcon("shuffle"),
             )
             Spacer(modifier = Modifier.weight(1f))
+            CanopyIconButton(
+                icon = phosphorIcon("waveform"),
+                onClick = onAnalyze,
+                shape = CircleShape,
+                variant = CanopyButtonVariant.Secondary,
+                contentDescription = ANALYZE_LABEL,
+            )
             CanopyIconButton(
                 icon = phosphorIcon(if (allOffline) "check-circle" else "download-simple"),
                 onClick = onDownloadAll,
@@ -823,6 +836,7 @@ private fun DownloadRow(
     onResumeClick: () -> Unit,
     onRetryClick: () -> Unit,
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val entity = item.entity
     val track = item.track
     val haptic = LocalHapticFeedback.current
@@ -912,6 +926,9 @@ private fun DownloadRow(
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (item.entity.state == dev.schlubbe.musicagent.data.local.entity.DownloadState.COMPLETED) {
+                                AnalyzeMenuItem { menuExpanded = false; analyzer.analyzeIds(listOf(item.entity.trackId)) }
+                            }
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
                                 leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
@@ -967,6 +984,7 @@ private fun LikeRow(
     onDownloadClick: () -> Unit,
     onArtistClick: (String) -> Unit,
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val dimens = rememberResponsiveDimens()
@@ -1035,6 +1053,9 @@ private fun LikeRow(
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (isDownloaded) {
+                                AnalyzeMenuItem { menuExpanded = false; analyzer.analyzeIds(listOf(like.track.trackKey())) }
+                            }
                             DropdownMenuItem(
                                 text = { Text("Zu Playlist hinzufügen") },
                                 leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },

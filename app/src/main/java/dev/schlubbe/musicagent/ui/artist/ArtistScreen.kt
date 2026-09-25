@@ -1,4 +1,6 @@
 package dev.schlubbe.musicagent.ui.artist
+import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.WindowInsets
@@ -632,6 +634,7 @@ private fun ArtistTrackRow(
     onAddToQueueClick: () -> Unit,
     onDownloadClick: () -> Unit,
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     var sweepTrigger by remember { mutableIntStateOf(0) }
@@ -737,6 +740,7 @@ private fun ArtistTrackRow(
                         contentDescription = "Mehr",
                     )
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        AnalyzeMenuItem { menuExpanded = false; analyzer.analyzeTracks(listOf(track)) }
                         DropdownMenuItem(
                             text = { Text("Zu Playlist hinzufügen") },
                             leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },

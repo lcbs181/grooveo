@@ -1,4 +1,6 @@
 package dev.schlubbe.musicagent.ui.navigation
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
+import dev.schlubbe.musicagent.ui.components.rememberTrackAnalyzer
 
 import android.net.Uri
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -171,6 +173,7 @@ fun MusicAgentNavGraph(
     // should come from) and by AudioConfettiHost below (which draws it).
     val confettiState = remember { AudioConfettiState() }
     val playerViewModel: PlayerViewModel = hiltViewModel()
+    val trackAnalyzer = rememberTrackAnalyzer()
     val playbackState by playerViewModel.playbackState.collectAsState()
     val vizVariant by playerViewModel.vizVariant.collectAsState()
     // Only the open Player and the pulse variant's mini-player spray draw the
@@ -181,6 +184,7 @@ fun MusicAgentNavGraph(
     CompositionLocalProvider(
         LocalCanopyOverlay provides overlayState,
         LocalAudioConfetti provides confettiState,
+        LocalTrackAnalyzer provides trackAnalyzer,
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(

@@ -1,4 +1,7 @@
 package dev.schlubbe.musicagent.ui.playlist
+import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
+import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.WindowInsets
@@ -79,6 +82,7 @@ fun PlaylistDetailScreen(
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     viewModel: PlaylistDetailViewModel = hiltViewModel(),
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val uiState by viewModel.uiState.collectAsState()
     val playlist = uiState.playlist
     var showEditSheet by remember { mutableStateOf(false) }
@@ -143,6 +147,14 @@ fun PlaylistDetailScreen(
                             Box {
                                 CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
                                 DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text(ANALYZE_LABEL) },
+                                        leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
+                                        onClick = {
+                                            showTopMenu = false
+                                            analyzer.analyzeIds(playlist.tracks.map { "${it.track.source}:${it.track.sourceId}" })
+                                        },
+                                    )
                                     DropdownMenuItem(
                                         text = { Text("Beschreibung & Stimmung") },
                                         leadingIcon = { Icon(phosphorIcon("pencil-simple"), contentDescription = null, tint = Canopy.accent) },
@@ -395,6 +407,7 @@ private fun PlaylistTrackRow(
     onDownloadClick: () -> Unit,
     onArtistClick: (String) -> Unit,
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     var sweepTrigger by remember { mutableIntStateOf(0) }
@@ -491,6 +504,10 @@ private fun PlaylistTrackRow(
                         Box {
                             CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                AnalyzeMenuItem {
+                                    menuExpanded = false
+                                    analyzer.analyzeIds(listOf("${item.track.source}:${item.track.sourceId}"))
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Zu Playlist hinzufügen") },
                                     leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },

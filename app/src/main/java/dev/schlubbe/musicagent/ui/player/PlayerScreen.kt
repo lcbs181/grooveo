@@ -1,5 +1,8 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
+
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -167,6 +170,7 @@ fun PlayerScreen(
     // as-is so only the Visualizer's own Canvas/graphicsLayer draw phases read
     // `.value`, which redraws without recomposing (see Visualizer.kt's kdoc).
     val visualizerFrame = viewModel.visualizerFrame
+    val analyzer = LocalTrackAnalyzer.current
     val confetti = LocalAudioConfetti.current
     var likeTrigger by remember { mutableIntStateOf(0) }
 
@@ -286,6 +290,16 @@ fun PlayerScreen(
                         onClick = { showMoreMenu = false; viewModel.onAddToPlaylistClicked() },
                         enabled = playbackState.currentTrackId != null,
                     )
+                    if (playbackState.hasLocalDownload) {
+                        DropdownMenuItem(
+                            text = { Text(ANALYZE_LABEL) },
+                            leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
+                            onClick = {
+                                showMoreMenu = false
+                                playbackState.currentTrackId?.let { analyzer.analyzeIds(listOf(it)) }
+                            },
+                        )
+                    }
                     if (!playbackState.hasLocalDownload) {
                         DropdownMenuItem(
                             text = { Text("Herunterladen") },
