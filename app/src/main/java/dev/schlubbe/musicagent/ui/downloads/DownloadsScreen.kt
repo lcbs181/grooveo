@@ -1,4 +1,12 @@
 package dev.schlubbe.musicagent.ui.downloads
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.saveable.rememberSaveable
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
+import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
@@ -50,12 +58,31 @@ private const val CONTENT_BOTTOM_PADDING = 150
 
 @Composable
 fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewModel = hiltViewModel()) {
+    val analyzer = LocalTrackAnalyzer.current
     val downloads by viewModel.downloads.collectAsState()
     val dataSaver by viewModel.dataSaverMode.collectAsState()
     val storage by viewModel.storage.collectAsState()
 
     val queue = downloads.filter { it.entity.state != DownloadState.COMPLETED }
-    val onDevice = downloads.filter { it.entity.state == DownloadState.COMPLETED }
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(DownloadsSort.NEWEST) }
+    val allOnDevice = downloads.filter { it.entity.state == DownloadState.COMPLETED }
+    val onDevice = remember(allOnDevice, query, sort) {
+        val q = query.trim()
+        allOnDevice
+            .filter {
+                q.isEmpty() || it.track?.title?.contains(q, ignoreCase = true) == true ||
+                    it.track?.artist?.contains(q, ignoreCase = true) == true
+            }
+            .let { list ->
+                when (sort) {
+                    DownloadsSort.NEWEST -> list.sortedByDescending { it.entity.createdAt }
+                    DownloadsSort.TITLE -> list.sortedBy { it.track?.title?.lowercase() ?: "" }
+                    DownloadsSort.ARTIST -> list.sortedBy { it.track?.artist?.lowercase() ?: "" }
+                    DownloadsSort.SIZE -> list.sortedByDescending { it.entity.totalBytes ?: 0L }
+                }
+            }
+    }
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         LazyColumn(
@@ -133,10 +160,22 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
                 }
             }
 
+            if (allOnDevice.isNotEmpty()) {
+                item {
+                    DownloadsSearchRow(
+                        query = query,
+                        sort = sort,
+                        onQueryChange = { query = it },
+                        onSortChange = { sort = it },
+                    )
+                }
+            }
             if (onDevice.isNotEmpty()) {
                 item {
                     CanopySectionHeader(
                         title = "Auf dem Gerät",
+                        action = ANALYZE_LABEL,
+                        onActionClick = analyzer::analyzeAllDownloads,
                         modifier = Modifier.padding(top = 24.dp),
                     )
                 }
@@ -348,4 +387,70 @@ private fun formatBytes(bytes: Long): String = when {
     bytes <= 0L -> "0 MB"
     bytes >= 1_000_000_000L -> String.format("%.1f GB", bytes / 1_000_000_000.0)
     else -> String.format("%.0f MB", bytes / 1_000_000.0)
+}
+
+private enum class DownloadsSort(val label: String) {
+    NEWEST("Zuletzt heruntergeladen"),
+    TITLE("Titel A–Z"),
+    ARTIST("Künstler A–Z"),
+    SIZE("Größte zuerst"),
+}
+
+/** Search + sort for the on-device list - with hundreds of downloads the plain
+ * newest-first list was unusable for finding one track. */
+@Composable
+private fun DownloadsSearchRow(
+    query: String,
+    sort: DownloadsSort,
+    onQueryChange: (String) -> Unit,
+    onSortChange: (DownloadsSort) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = { Text("In Downloads suchen") },
+            singleLine = true,
+            leadingIcon = {
+                Icon(phosphorIcon("magnifying-glass"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(18.dp))
+            },
+            trailingIcon = if (query.isBlank()) null else {
+                {
+                    CanopyIconButton(
+                        icon = phosphorIcon("x"),
+                        onClick = { onQueryChange("") },
+                        size = 32.dp,
+                        contentDescription = "Suche löschen",
+                    )
+                }
+            },
+            shape = CanopyPillShape,
+            modifier = Modifier.weight(1f),
+        )
+        var sortMenu by remember { mutableStateOf(false) }
+        Box {
+            CanopyIconButton(
+                icon = phosphorIcon("sliders-horizontal"),
+                onClick = { sortMenu = true },
+                shape = CircleShape,
+                variant = CanopyButtonVariant.Secondary,
+                contentDescription = "Sortieren",
+            )
+            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                DownloadsSort.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        leadingIcon = {
+                            if (option == sort) Icon(phosphorIcon("check"), contentDescription = null, tint = Canopy.accent)
+                        },
+                        onClick = { sortMenu = false; onSortChange(option) },
+                    )
+                }
+            }
+        }
+    }
 }

@@ -31,7 +31,12 @@ class TrackAnalysisWorker @AssistedInject constructor(
         val download = downloadDao.getByTrackId(trackId) ?: return Result.success()
         val uriString = download.mediaStoreUri ?: return Result.success()
 
-        val result = trackAnalyzer.analyze(Uri.parse(uriString)) ?: return Result.success()
+        val result = trackAnalyzer.analyze(Uri.parse(uriString))
+        if (result == null) {
+            android.util.Log.i("TrackAnalysisWorker", "no usable mix points for $trackId")
+            return Result.success()
+        }
+        android.util.Log.i("TrackAnalysisWorker", "analyzed $trackId: in=${result.mixInMs}ms out=${result.mixOutMs}ms")
         trackAnalysisDao.upsert(
             TrackAnalysisEntity(
                 trackId = trackId,

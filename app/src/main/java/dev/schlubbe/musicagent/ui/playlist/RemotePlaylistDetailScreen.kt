@@ -1,4 +1,7 @@
 package dev.schlubbe.musicagent.ui.playlist
+import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
+import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
+import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.WindowInsets
@@ -68,6 +71,7 @@ fun RemotePlaylistDetailScreen(
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     viewModel: RemotePlaylistDetailViewModel = hiltViewModel(),
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val uiState by viewModel.uiState.collectAsState()
     val detail = uiState.detail
     var showTopMenu by remember { mutableStateOf(false) }
@@ -111,6 +115,11 @@ fun RemotePlaylistDetailScreen(
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
                         DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(ANALYZE_LABEL) },
+                                leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
+                                onClick = { showTopMenu = false; analyzer.analyzeTracks(detail.tracks) },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
                                 leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
@@ -277,6 +286,7 @@ private fun RemotePlaylistTrackRow(
     onDownloadClick: () -> Unit,
     onArtistClick: () -> Unit,
 ) {
+    val analyzer = LocalTrackAnalyzer.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -304,6 +314,7 @@ private fun RemotePlaylistTrackRow(
                 Box {
                     CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        AnalyzeMenuItem { menuExpanded = false; analyzer.analyzeTracks(listOf(track)) }
                         DropdownMenuItem(
                             text = { Text("Zu Playlist hinzufügen") },
                             leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },

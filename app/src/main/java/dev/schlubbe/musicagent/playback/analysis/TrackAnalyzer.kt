@@ -7,7 +7,7 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -51,19 +51,16 @@ class TrackAnalyzer @Inject constructor(
      * callers treat that exactly like "not analyzed yet": fall back to
      * [dev.schlubbe.musicagent.playback.CrossfadeController]'s plain fixed-duration
      * fade. */
-    suspend fun analyze(uri: Uri): TrackAnalysisResult? = withContext(Dispatchers.Default) {
-        val envelope = runCatching { decodeEnergyEnvelope(uri) }.onFailure {
+    suspend fun analyze(uri: Uri): TrackAnalysisResult? = withContext(analysisDispatcher) {
+        val w = runCatching { decodeWindows(uri) }.onFailure {
             Log.w(TAG, "Failed to decode $uri for analysis", it)
         }.getOrNull() ?: return@withContext null
 
-        if (envelope.size < MIN_BODY_MS / FRAME_MS) return@withContext null
-        val peak = envelope.max()
-        if (peak <= 0f) return@withContext null
+        if (w.totalMs < MIN_BODY_MS || w.intro.isEmpty() || w.outro.isEmpty()) return@withContext null
+        if (w.peak <= 0f) return@withContext null
 
-        val mixInFrame = findMixInFrame(envelope, peak)
-        val mixOutFrame = findMixOutFrame(envelope, peak)
-        val mixInMs = mixInFrame * FRAME_MS
-        val mixOutMs = mixOutFrame * FRAME_MS
+        val mixInMs = w.introStartMs + findMixInFrame(w.intro, w.peak) * FRAME_MS
+        val mixOutMs = w.outroStartMs + findMixOutFrame(w.outro, w.peak) * FRAME_MS
 
         if (mixOutMs - mixInMs < MIN_BODY_MS) return@withContext null
         TrackAnalysisResult(mixOutMs = mixOutMs, mixInMs = mixInMs)
@@ -111,29 +108,61 @@ class TrackAnalyzer @Inject constructor(
         return lastIndex
     }
 
-    /** Decodes the whole track to PCM and reduces it, on the fly, to one RMS value
-     * per [FRAME_MS] (multi-channel audio mixed to mono first) - never holds more
-     * than a [FRAME_MS]-sized accumulator plus the (tiny) resulting envelope in
-     * memory, regardless of track length. */
-    private fun decodeEnergyEnvelope(uri: Uri): List<Float> {
+    // One background-priority thread for every analysis: "Übergänge analysieren" on
+    // hundreds of downloads queues hundreds of workers, and running their decodes in
+    // parallel at normal priority competed with playback for CPU.
+    private val analysisDispatcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            r.run()
+        }, "TrackAnalysis")
+    }.asCoroutineDispatcher()
+
+    private class Windows(
+        val intro: List<Float>,
+        val introStartMs: Long,
+        val outro: List<Float>,
+        val outroStartMs: Long,
+        val peak: Float,
+        val totalMs: Long,
+    )
+
+    /** Only the start and end of a track decide its mix points, so a long track is
+     * decoded in three short windows - start, middle (a peak reference for the
+     * thresholds) and end - instead of end to end. Analysis cost stays roughly
+     * constant per track; a 2-hour DJ set used to decode for minutes. Short tracks
+     * are decoded whole. Envelope is one RMS value per [FRAME_MS], mixed to mono. */
+    private fun decodeWindows(uri: Uri): Windows? {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(context, uri, null)
             val trackIndex = (0 until extractor.trackCount).firstOrNull {
                 extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-            } ?: return emptyList()
+            } ?: return null
             val format = extractor.getTrackFormat(trackIndex)
             extractor.selectTrack(trackIndex)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: return emptyList()
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
             val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
             val frameSamples = (sampleRate * FRAME_MS / 1000L).toInt().coerceAtLeast(1)
 
             val codec = MediaCodec.createDecoderByType(mime)
             try {
                 codec.configure(format, null, null, 0)
                 codec.start()
-                return runDecodeLoop(extractor, codec, channelCount, frameSamples)
+                val edgeUs = EDGE_WINDOW_MS * 1000L
+                if (durationUs <= 0 || durationUs < 3 * edgeUs) {
+                    val (start, env) = decodeRange(extractor, codec, channelCount, frameSamples, 0L, Long.MAX_VALUE)
+                    val total = if (durationUs > 0) durationUs / 1000 else env.size * FRAME_MS
+                    return Windows(env, start, env, start, env.maxOrNull() ?: 0f, total)
+                }
+                val (introStart, intro) = decodeRange(extractor, codec, channelCount, frameSamples, 0L, edgeUs)
+                val mid = durationUs / 2
+                val (_, middle) = decodeRange(extractor, codec, channelCount, frameSamples, mid - edgeUs / 2, mid + edgeUs / 2)
+                val (outroStart, outro) = decodeRange(extractor, codec, channelCount, frameSamples, durationUs - edgeUs, Long.MAX_VALUE)
+                val peak = maxOf(intro.maxOrNull() ?: 0f, middle.maxOrNull() ?: 0f, outro.maxOrNull() ?: 0f)
+                return Windows(intro, introStart, outro, outroStart, peak, durationUs / 1000)
             } finally {
                 codec.stop()
                 codec.release()
@@ -143,16 +172,23 @@ class TrackAnalyzer @Inject constructor(
         }
     }
 
-    private fun runDecodeLoop(
+    /** Decodes from [startUs] (snapped back to the previous sync sample) until
+     * [endUs] or end of stream. Returns the actual start time in ms and the envelope. */
+    private fun decodeRange(
         extractor: MediaExtractor,
         codec: MediaCodec,
         channelCount: Int,
         frameSamples: Int,
-    ): List<Float> {
+        startUs: Long,
+        endUs: Long,
+    ): Pair<Long, List<Float>> {
+        extractor.seekTo(startUs.coerceAtLeast(0L), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        codec.flush()
         val envelope = mutableListOf<Float>()
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEos = false
         var sawOutputEos = false
+        var firstPtsUs = -1L
         var accum = 0.0
         var accumCount = 0
 
@@ -160,9 +196,9 @@ class TrackAnalyzer @Inject constructor(
             if (!sawInputEos) {
                 val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
                 if (inIndex >= 0) {
-                    val inputBuffer = codec.getInputBuffer(inIndex) ?: continue
-                    val sampleSize = extractor.readSampleData(inputBuffer, 0)
-                    if (sampleSize < 0) {
+                    val inputBuffer = codec.getInputBuffer(inIndex)
+                    val sampleSize = if (inputBuffer == null) -1 else extractor.readSampleData(inputBuffer, 0)
+                    if (sampleSize < 0 || extractor.sampleTime > endUs) {
                         codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                         sawInputEos = true
                     } else {
@@ -176,6 +212,7 @@ class TrackAnalyzer @Inject constructor(
             if (outIndex >= 0) {
                 val outputBuffer = codec.getOutputBuffer(outIndex)
                 if (outputBuffer != null && bufferInfo.size > 0) {
+                    if (firstPtsUs < 0) firstPtsUs = bufferInfo.presentationTimeUs
                     val shorts = outputBuffer.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
                     var i = 0
                     val total = shorts.remaining()
@@ -197,11 +234,8 @@ class TrackAnalyzer @Inject constructor(
                 if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawOutputEos = true
             }
         }
-        // A trailing partial frame (shorter than frameSamples) still carries real
-        // signal - dropping it would bias findMixOutFrame's backward scan to start
-        // one frame early on every track.
         if (accumCount > 0) envelope += sqrt(accum / accumCount).toFloat()
-        return envelope
+        return (firstPtsUs.coerceAtLeast(0L) / 1000) to envelope
     }
 
     companion object {
@@ -212,5 +246,6 @@ class TrackAnalyzer @Inject constructor(
         private const val MIN_SUSTAIN_FRAMES = 6
         private const val MAX_EDGE_SKIP_MS = 15_000L
         private const val MIN_BODY_MS = 20_000L
+        private const val EDGE_WINDOW_MS = 30_000L
     }
 }
