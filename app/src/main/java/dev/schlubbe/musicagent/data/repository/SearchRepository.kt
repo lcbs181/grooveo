@@ -40,7 +40,7 @@ class SearchRepository @Inject constructor(
             else -> coroutineScope {
                 val sc = async { runCatching { soundCloud.search(query, limit) }.getOrDefault(emptyList()) }
                 val yt = async { runCatching { youTube.search(query, limit) }.getOrDefault(emptyList()) }
-                sc.await() + yt.await()
+                interleave(sc.await(), yt.await())
             }
         }
 
@@ -51,7 +51,7 @@ class SearchRepository @Inject constructor(
             else -> coroutineScope {
                 val sc = async { runCatching { soundCloud.searchArtists(query, limit) }.getOrDefault(emptyList()) }
                 val yt = async { runCatching { youTube.searchArtists(query, limit) }.getOrDefault(emptyList()) }
-                sc.await() + yt.await()
+                interleave(sc.await(), yt.await())
             }
         }
 
@@ -62,7 +62,7 @@ class SearchRepository @Inject constructor(
             else -> coroutineScope {
                 val sc = async { runCatching { soundCloud.searchPlaylists(query, limit) }.getOrDefault(emptyList()) }
                 val yt = async { runCatching { youTube.searchPlaylists(query, limit) }.getOrDefault(emptyList()) }
-                sc.await() + yt.await()
+                interleave(sc.await(), yt.await())
             }
         }
 
@@ -73,7 +73,7 @@ class SearchRepository @Inject constructor(
             else -> coroutineScope {
                 val sc = async { runCatching { soundCloud.searchAlbums(query, limit) }.getOrDefault(emptyList()) }
                 val yt = async { runCatching { youTube.searchAlbums(query, limit) }.getOrDefault(emptyList()) }
-                sc.await() + yt.await()
+                interleave(sc.await(), yt.await())
             }
         }
 
@@ -109,7 +109,7 @@ class SearchRepository @Inject constructor(
         else -> coroutineScope {
             val sc = async { runCatching { soundCloud.getTrending(limit) }.getOrDefault(emptyList()) }
             val yt = async { runCatching { youTube.getTrending(limit) }.getOrDefault(emptyList()) }
-            sc.await() + yt.await()
+            interleave(sc.await(), yt.await())
         }
     }.filterForDiscovery(settingsRepository.contentSafetyFilterCached)
 
@@ -175,4 +175,16 @@ class SearchRepository @Inject constructor(
     // list) - callers only invoke this for source == "soundcloud" artists.
     suspend fun getFollowersPage(sourceId: String, cursorUrl: String?): SoundCloudFollowersPage =
         soundCloud.getFollowersPage(sourceId, cursorUrl)
+
+    // Round-robin, not sc + yt: concatenating buried every YouTube Music result
+    // behind a full page of SoundCloud ones, so e.g. the official Daft Punk artist
+    // (87M) only showed up after 25 SoundCloud uploader accounts.
+    private fun <T> interleave(a: List<T>, b: List<T>): List<T> {
+        val out = ArrayList<T>(a.size + b.size)
+        for (i in 0 until maxOf(a.size, b.size)) {
+            a.getOrNull(i)?.let(out::add)
+            b.getOrNull(i)?.let(out::add)
+        }
+        return out
+    }
 }

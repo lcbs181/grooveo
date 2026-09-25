@@ -42,7 +42,7 @@ sealed interface UpdateCheckResult {
  * Release tags on that repo must follow "v<versionCode>" (e.g. "v6"), matching
  * android/app/build.gradle.kts's versionCode for that build - see
  * parseVersionCode. After building a new release APK:
- *   gh release create v<versionCode> app-debug.apk --repo lcbs181/grooveo \
+ *   gh release create v<versionCode> app-release.apk --repo lcbs181/grooveo \
  *     --title "<versionName>" --notes "..."
  *
  * Uses [ExtractionHttpClient] (the same plain client SoundCloud/YouTube calls

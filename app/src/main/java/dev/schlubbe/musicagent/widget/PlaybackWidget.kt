@@ -49,7 +49,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import dev.schlubbe.musicagent.MainActivity
 import dev.schlubbe.musicagent.R
@@ -180,7 +180,7 @@ private suspend fun loadArtwork(context: Context, url: String): Bitmap? = withCo
             // with the widget host process this way.
             .allowHardware(false)
             .build()
-        (ImageLoader(context).execute(request).drawable as? BitmapDrawable)?.bitmap
+        (context.imageLoader.execute(request).drawable as? BitmapDrawable)?.bitmap
     }.getOrNull()
 }
 

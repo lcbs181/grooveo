@@ -34,6 +34,11 @@ class StreamResolverRegistry @Inject constructor(
 ) {
     private val semaphore = Semaphore(MAX_CONCURRENT_RESOLVES)
 
+    // DRM-only is a permanent property of a SoundCloud track, but queue fills and
+    // skips kept re-resolving the same ones (each a few network round trips) -
+    // remembered for the process lifetime instead.
+    private val drmOnly = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** The resolve every playback path should use - in-app ([dev.schlubbe.musicagent.playback.PlayerController])
      * and the car's browse tree ([dev.schlubbe.musicagent.playback.BrowseTree]) alike.
      *
@@ -71,6 +76,7 @@ class StreamResolverRegistry @Inject constructor(
      * those. Throws (same as before) if both attempts fail; logs the actual cause each
      * time so a repeat report is diagnosable from logcat. */
     suspend fun resolve(source: String, sourceId: String, preferProgressive: Boolean = false): ResolvedStream {
+        if ("$source:$sourceId" in drmOnly) throw SoundCloudDrmOnlyException("$source:$sourceId is DRM-only (cached)")
         var lastError: Throwable? = null
         for (attempt in 1..2) {
             val result = semaphore.withPermit {
@@ -82,7 +88,10 @@ class StreamResolverRegistry @Inject constructor(
             Log.w(TAG, "resolve failed for $source:$sourceId (attempt $attempt/2)", error)
             // A DRM-only track will fail identically every time - retrying just
             // doubles the wait for a result that's already known.
-            if (error is SoundCloudDrmOnlyException) break
+            if (error is SoundCloudDrmOnlyException) {
+                drmOnly += "$source:$sourceId"
+                break
+            }
         }
         throw lastError ?: IllegalStateException("resolve failed for $source:$sourceId")
     }
