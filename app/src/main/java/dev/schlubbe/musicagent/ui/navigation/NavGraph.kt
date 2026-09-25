@@ -173,7 +173,11 @@ fun MusicAgentNavGraph(
     val playerViewModel: PlayerViewModel = hiltViewModel()
     val playbackState by playerViewModel.playbackState.collectAsState()
     val vizVariant by playerViewModel.vizVariant.collectAsState()
-    val visualizerFrame = playerViewModel.visualizerFrame.collectAsState()
+    // Only the open Player and the pulse variant's mini-player spray draw the
+    // spectrum; everywhere else the analysis would run for nothing.
+    val visualizerNeeded = currentRoute == Routes.PLAYER || vizVariant == "pulse"
+    LaunchedEffect(visualizerNeeded) { playerViewModel.setVisualizerDemand(visualizerNeeded) }
+    val visualizerFrame = playerViewModel.visualizerFrame
     CompositionLocalProvider(
         LocalCanopyOverlay provides overlayState,
         LocalAudioConfetti provides confettiState,
@@ -417,6 +421,7 @@ fun MusicAgentNavGraph(
             isPlaying = playbackState.isPlaying,
             frame = visualizerFrame,
             playerOpen = currentRoute == Routes.PLAYER,
+            onTick = playerViewModel::pumpVisualizerFrame,
         )
     }
     }

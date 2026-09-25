@@ -147,8 +147,34 @@ class PlayerController @Inject constructor(
     // Real-time FFT-derived spectrum + beat scalars from AudioVisualizerController,
     // pushed by PlaybackService (which owns the actual audio session) - see that
     // class's kdoc for the capture/reduction details.
-    private val _visualizerFrame = MutableStateFlow(EMPTY_VISUALIZER_FRAME)
-    val visualizerFrame: StateFlow<VisualizerFrame> = _visualizerFrame.asStateFlow()
+    // Compose State rather than a StateFlow: the UI's animation tick pumps a new
+    // spectrum and must see it in the same frame. Through a flow it arrived one or
+    // two dispatches later, so spectrum redraws and clock redraws landed on
+    // alternate display frames and the Player rendered at 60fps instead of 30.
+    private val _visualizerFrame = androidx.compose.runtime.mutableStateOf(EMPTY_VISUALIZER_FRAME)
+    val visualizerFrame: androidx.compose.runtime.State<VisualizerFrame> get() = _visualizerFrame
+
+    private val _visualizerDemand = MutableStateFlow(true)
+    /** Whether any on-screen UI currently draws [visualizerFrame] - see
+     * AudioVisualizerController.enabled. */
+    val visualizerDemand: StateFlow<Boolean> = _visualizerDemand.asStateFlow()
+
+    /** Set by PlaybackService - releases the next queued spectrum. Driven from the
+     * UI's own animation tick (see Visualizer's onTick) instead of a timer in the
+     * service, so a spectrum update never lands on a display frame of its own. */
+    var visualizerPump: (() -> VisualizerFrame?)? = null
+    private var lastPumpBucket = -1L
+
+    fun pumpVisualizerFrame(frameBucket: Long) {
+        // Player visualizer and the pulse confetti host can both tick on one frame.
+        if (frameBucket == lastPumpBucket) return
+        lastPumpBucket = frameBucket
+        visualizerPump?.invoke()?.let { _visualizerFrame.value = it }
+    }
+
+    fun setVisualizerDemand(demand: Boolean) {
+        _visualizerDemand.value = demand
+    }
     fun updateVisualizerFrame(frame: VisualizerFrame) {
         _visualizerFrame.value = frame
     }

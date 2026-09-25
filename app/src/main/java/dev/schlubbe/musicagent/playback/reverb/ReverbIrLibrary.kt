@@ -57,8 +57,25 @@ object ReverbIrLibrary {
             left[i] = shorts.get(i * 2) / 32768f
             right[i] = shorts.get(i * 2 + 1) / 32768f
         }
-        if (targetSampleRate == BUNDLED_SAMPLE_RATE) return left to right
-        return resample(left, targetSampleRate) to resample(right, targetSampleRate)
+        val l = if (targetSampleRate == BUNDLED_SAMPLE_RATE) left else resample(left, targetSampleRate)
+        val r = if (targetSampleRate == BUNDLED_SAMPLE_RATE) right else resample(right, targetSampleRate)
+        normalizeEnergy(l, r)
+        return l to r
+    }
+
+    /** Scales both channels so the impulse response has unit energy (sum of squares
+     * averaged over the two channels = 1). The assets are only peak-normalized, and
+     * a dense multi-second tail convolved at peak level came out several times
+     * louder than the dry signal and clipped - wet gain in the processor is only
+     * meaningful relative to a unit-energy IR. */
+    private fun normalizeEnergy(left: FloatArray, right: FloatArray) {
+        var energy = 0.0
+        for (v in left) energy += v * v
+        for (v in right) energy += v * v
+        if (energy <= 0.0) return
+        val scale = (1.0 / kotlin.math.sqrt(energy / 2)).toFloat()
+        for (i in left.indices) left[i] *= scale
+        for (i in right.indices) right[i] *= scale
     }
 
     /** Plain linear-interpolation resampler - entirely adequate here: the source is

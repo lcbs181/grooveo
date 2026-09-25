@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.ui.components.animationFrameBucket
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -107,13 +109,21 @@ private fun hump(progress: Float): Float = sin(progress * PI.toFloat())
  * The loop also stops when paused, instead of requesting frames at 60fps forever for
  * as long as the Player screen is open. */
 @Composable
-private fun rememberVizClockMs(isPlaying: Boolean): State<Float> {
+private fun rememberVizClockMs(isPlaying: Boolean, onTick: (Long) -> Unit): State<Float> {
     val clock = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(isPlaying) {
         if (!isPlaying) return@LaunchedEffect
         var previousFrameNanos = 0L
+        var lastBucket = -1L
         while (true) {
             withFrameNanos { frameNanos ->
+                // ~30fps, in phase with every other screen animation - see
+                // animationFrameBucket. The spectrum is advanced on the same tick so
+                // a new frame and a clock step never cost two separate redraws.
+                val bucket = animationFrameBucket(frameNanos)
+                if (bucket == lastBucket) return@withFrameNanos
+                lastBucket = bucket
+                onTick(bucket)
                 if (previousFrameNanos != 0L) {
                     val deltaMs = (frameNanos - previousFrameNanos) / 1_000_000f
                     clock.floatValue = (clock.floatValue + deltaMs) % VIZ_CLOCK_PERIOD_MS
@@ -147,8 +157,9 @@ fun Visualizer(
     modifier: Modifier = Modifier,
     color: Color = Color.White.copy(alpha = 0.92f),
     count: Int = 22,
+    onTick: (Long) -> Unit = {},
 ) {
-    val clockMs = rememberVizClockMs(isPlaying)
+    val clockMs = rememberVizClockMs(isPlaying, onTick)
     when (variant) {
         "bars" -> BarsVisualizer(count, color, isPlaying, clockMs, frame, modifier)
         "orb" -> OrbVisualizer(color, isPlaying, clockMs, frame, modifier)
@@ -419,7 +430,9 @@ private class SpherePoint(
  *
  * A count this high is only affordable because the points are drawn in batches rather
  * than one at a time - see [SPHERE_COLOR_BUCKETS]. */
-private const val SPHERE_POINTS = 1000
+// 600, not 1000: at 1000 with halos the Player screen cost ~95% of a core even at
+// 30fps on a real device - fill rate, not draw calls.
+private const val SPHERE_POINTS = 600
 
 /**
  * Points are bucketed by colour and by brightness, and each bucket is drawn with a
@@ -443,7 +456,7 @@ private const val SPHERE_LEVEL_BUCKETS = 6
 /** Brightness buckets at or above this index also get the wide, faint halo pass that
  * produces the bloom. Restricted to the brightest points because the halo covers ~9x
  * the area of the core dot, so it costs fill rate rather than draw calls. */
-private const val SPHERE_HALO_FROM_LEVEL = 4
+private const val SPHERE_HALO_FROM_LEVEL = 5
 
 /** Golden angle, in radians, at full double precision.
  *

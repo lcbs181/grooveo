@@ -1,5 +1,9 @@
 package dev.schlubbe.musicagent.ui.components
 
+import androidx.compose.runtime.remember
+
+import androidx.compose.runtime.derivedStateOf
+
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
@@ -106,20 +110,19 @@ fun EqualizerBadge(
 
 @Composable
 private fun EqBar(spec: EqBarSpec, width: Dp, maxHeight: Dp, color: Color) {
-    val transition = rememberInfiniteTransition(label = "eqBar")
-    // Not destructured with `by` - read as `.value` only inside graphicsLayer below,
-    // so a scale tick redraws this one bar without recomposing (badges appear in
-    // several list rows at once, e.g. Home's genre-trends shelf).
-    val scale = transition.animateFloat(
-        initialValue = 0.28f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(spec.durationMs, easing = EaseInOut),
-            repeatMode = RepeatMode.Reverse,
-            initialStartOffset = StartOffset(spec.delayMs, StartOffsetType.Delay),
-        ),
-        label = "eqBarScale",
-    )
+    // Shared ~30fps clock instead of rememberInfiniteTransition, which ticks at the
+    // full display rate and kept Home rendering 60 frames a second while anything
+    // played. Read only inside graphicsLayer below, so a tick redraws just this bar.
+    val clock = rememberThrottledClockMs(running = true)
+    val scale = remember(clock) {
+        derivedStateOf {
+            val t = (clock.value - spec.delayMs).coerceAtLeast(0f)
+            val phase = (t % (2f * spec.durationMs)) / spec.durationMs
+            val linear = if (phase <= 1f) phase else 2f - phase
+            val eased = linear * linear * (3f - 2f * linear)
+            0.28f + 0.72f * eased
+        }
+    }
     Box(
         modifier = Modifier
             .width(width)

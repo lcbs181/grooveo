@@ -49,6 +49,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -281,12 +282,7 @@ class PlaybackService : MediaLibraryService() {
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-                // reverbAudioProcessor is deliberately NOT in this chain right now -
-                // see its own file header for why. Splicing it in made playback
-                // stutter constantly (not just while a preset is engaged), confirmed
-                // on a real device - pulled back out rather than left half-fixed
-                // while still investigating.
-                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController)))
+                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
                 .build()
         }.apply {
             if (settingsRepository.hiResAudioCached) {
@@ -401,13 +397,11 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        playerController.visualizerPump = { audioVisualizerController.pumpNextFrame() }
         serviceScope.launch {
-            // The controller queues spectra as the audio thread produces them - in
-            // bursts, one decoded buffer at a time - and this releases them at display
-            // rate. See AudioVisualizerController.MAX_QUEUED_FRAMES for why.
-            while (isActive) {
-                audioVisualizerController.pumpNextFrame()
-                delay(VISUALIZER_PUMP_INTERVAL_MS)
+            playerController.visualizerDemand.collect { demand ->
+                audioVisualizerController.enabled = demand
+                if (!demand) audioVisualizerController.reset()
             }
         }
         serviceScope.launch {
@@ -472,6 +466,7 @@ class PlaybackService : MediaLibraryService() {
         crossfadeController = null
         // reset() before cancelling the scope, so the zeroed spectrum it publishes
         // still reaches the collector above rather than being dropped on the floor.
+        playerController.visualizerPump = null
         audioVisualizerController.reset()
         audioVisualizerController.release()
         serviceScope.cancel()
@@ -489,7 +484,6 @@ class PlaybackService : MediaLibraryService() {
         private const val STALE_CHECK_INTERVAL_MS = 250L
 
         /** How often queued spectra are released to the UI - one display frame at 60Hz. */
-        private const val VISUALIZER_PUMP_INTERVAL_MS = 16L
 
         /** How often the crossfade trigger condition is checked - see
          * CrossfadeController.poll's kdoc. */

@@ -19,19 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  * have no audible effect at all on this device/OS combination, a known issue with
  * several OEMs' own effect-framework implementations).
  *
- * **Currently NOT spliced into the audio sink** - see [dev.schlubbe.musicagent.playback.PlaybackService.buildAudioSink]'s
- * comment. Confirmed on a real device: playback stuttered constantly with this in
- * the chain, not just while a preset was actually engaged (which then made it
- * measurably worse on top) - something about how this buffers input into fixed
- * [PartitionedConvolver.DEFAULT_BLOCK_SIZE] blocks (even in the dry/bypass path,
- * since every call still buffers and re-chunks) is fighting the audio sink's own
- * timing even when producing no audible effect. Pulled back out rather than shipped
- * half-fixed; the class is kept as the starting point for a properly re-verified
- * fix, most likely either processing in-place without re-chunking to a fixed block
- * size, or overriding [isActive] to fully exclude this processor from the graph
- * whenever [Sound3dPreset.DISABLED] instead of always staying spliced in.
- *
- * Intended to be spliced into [dev.schlubbe.musicagent.playback.PlaybackService]'s
+ * Spliced into [dev.schlubbe.musicagent.playback.PlaybackService]'s
  * [androidx.media3.exoplayer.audio.DefaultAudioSink] processor chain, right
  * alongside the visualizer's TeeAudioProcessor - a genuine part of the audio
  * pipeline, not a platform effect bolted onto a session id, so it works identically
@@ -45,7 +33,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioProcessor() {
 
-    private class Engine(val left: PartitionedConvolver, val right: PartitionedConvolver, val wetMix: Float)
+    private class Engine(val left: PartitionedConvolver, val right: PartitionedConvolver, val wetMix: Float) {
+        // Keeps overall loudness roughly level when a preset is engaged instead of
+        // stacking the wet tail on top of full-level dry signal.
+        val dryMix = 1f - wetMix * 0.5f
+    }
 
     private val blockSize = PartitionedConvolver.DEFAULT_BLOCK_SIZE
 
@@ -110,6 +102,11 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
     override fun queueInput(inputBuffer: ByteBuffer) {
         val frameCount = inputBuffer.remaining() / BYTES_PER_FRAME
         if (frameCount == 0) return
+        val preset = currentPreset
+        if (preset == Sound3dPreset.DISABLED || enginesByPreset[preset] == null) {
+            passThrough(inputBuffer)
+            return
+        }
         ensurePendingCapacity(pendingCount + frameCount)
 
         // Absolute-indexed get/put on the buffers ExoPlayer itself hands in/out,
@@ -147,18 +144,40 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
             }
             for (i in 0 until blockSize) {
                 val frameBase = (offset + i) * BYTES_PER_FRAME
-                val l = if (engine != null) (dryBlockLeft[i] + wetBlockLeft[i] * engine.wetMix).coerceIn(-1f, 1f) else dryBlockLeft[i]
-                val r = if (engine != null) (dryBlockRight[i] + wetBlockRight[i] * engine.wetMix).coerceIn(-1f, 1f) else dryBlockRight[i]
+                val l = if (engine != null) softClip(dryBlockLeft[i] * engine.dryMix + wetBlockLeft[i] * engine.wetMix) else dryBlockLeft[i]
+                val r = if (engine != null) softClip(dryBlockRight[i] * engine.dryMix + wetBlockRight[i] * engine.wetMix) else dryBlockRight[i]
                 outputBuffer.putShort(frameBase, (l * 32767f).toInt().toShort())
                 outputBuffer.putShort(frameBase + 2, (r * 32767f).toInt().toShort())
             }
             offset += blockSize
         }
 
+        // Absolute puts leave position/limit untouched, and replaceOutputBuffer()
+        // hands back a clear()ed, possibly larger reused buffer - without this the
+        // sink played everything up to capacity, stale bytes included (the crackle).
+        outputBuffer.position(0)
+        outputBuffer.limit(processableFrames * BYTES_PER_FRAME)
+
         val remaining = pendingCount - processableFrames
         System.arraycopy(pendingLeft, processableFrames, pendingLeft, 0, remaining)
         System.arraycopy(pendingRight, processableFrames, pendingRight, 0, remaining)
         pendingCount = remaining
+    }
+
+    /** Off (or engine not built yet): straight copy, no block re-chunking and no
+     * added latency - plus whatever dry samples were still queued from before the
+     * preset was switched off, so nothing is dropped at the switch. */
+    private fun passThrough(inputBuffer: ByteBuffer) {
+        val inBytes = inputBuffer.remaining()
+        val out = replaceOutputBuffer(pendingCount * BYTES_PER_FRAME + inBytes)
+        out.order(ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until pendingCount) {
+            out.putShort((pendingLeft[i] * 32767f).toInt().toShort())
+            out.putShort((pendingRight[i] * 32767f).toInt().toShort())
+        }
+        pendingCount = 0
+        out.put(inputBuffer)
+        out.flip()
     }
 
     override fun onFlush() {
@@ -195,12 +214,22 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
 
     private fun wetMixFor(preset: Sound3dPreset): Float = when (preset) {
         Sound3dPreset.DISABLED -> 0f
-        Sound3dPreset.STUDIO -> 0.35f
-        Sound3dPreset.HEIMKINO -> 0.55f
-        Sound3dPreset.RAVE -> 0.7f
-        Sound3dPreset.KINO -> 0.65f
-        Sound3dPreset.KONZERT -> 0.75f
-        Sound3dPreset.KIRCHE -> 0.8f
+        Sound3dPreset.STUDIO -> 0.12f
+        Sound3dPreset.HEIMKINO -> 0.18f
+        Sound3dPreset.RAVE -> 0.22f
+        Sound3dPreset.KINO -> 0.22f
+        Sound3dPreset.KONZERT -> 0.26f
+        Sound3dPreset.KIRCHE -> 0.3f
+    }
+
+    // Linear below 0.8, smooth knee above - residual overs from a loud transient
+    // bend instead of hard-clipping into audible crackle.
+    private fun softClip(x: Float): Float {
+        val a = kotlin.math.abs(x)
+        if (a <= 0.8f) return x
+        val over = a - 0.8f
+        val shaped = 0.8f + 0.2f * (over / (over + 0.2f))
+        return if (x < 0) -shaped else shaped
     }
 
     companion object {

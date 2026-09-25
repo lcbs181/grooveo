@@ -166,7 +166,7 @@ fun PlayerScreen(
     // second would otherwise recompose this entire screen at that rate. Passed down
     // as-is so only the Visualizer's own Canvas/graphicsLayer draw phases read
     // `.value`, which redraws without recomposing (see Visualizer.kt's kdoc).
-    val visualizerFrame = viewModel.visualizerFrame.collectAsState()
+    val visualizerFrame = viewModel.visualizerFrame
     val confetti = LocalAudioConfetti.current
     var likeTrigger by remember { mutableIntStateOf(0) }
 
@@ -432,6 +432,7 @@ fun PlayerScreen(
                             variant = vizVariant,
                             isPlaying = playbackState.isPlaying,
                             frame = visualizerFrame,
+                            onTick = viewModel::pumpVisualizerFrame,
                             modifier = Modifier
                                 .padding(bottom = 2.dp)
                                 .width(230.dp)
