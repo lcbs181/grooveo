@@ -68,6 +68,16 @@ class CrossfadeController(
     private var secondaryPlayer: ExoPlayer? = null
     private var fadeJob: Job? = null
 
+    // Mix-point lookups only need to happen once per track, not on every ~200ms
+    // poll tick for that track's entire runtime - caching by the last-looked-up
+    // trackId (mediaId can be null for a placeholder item) turned a real device's
+    // CPU usage during ordinary single-track playback from ~25% to 85-120%,
+    // confirmed by disabling crossfade entirely and watching it drop back down.
+    private var cachedCurrentTrackId: String? = "unset"
+    private var cachedMixOutMs: Long? = null
+    private var cachedNextTrackId: String? = "unset"
+    private var cachedMixInMs: Long? = null
+
     /** Whether a fade is currently ramping - gates [poll] against starting a second one
      * on top of an in-progress fade. */
     val isFading: Boolean get() = fadeJob != null
@@ -120,13 +130,21 @@ class CrossfadeController(
 
         val nextIndex = nextWindowIndex()
         val nextTrackId = nextIndex.takeIf { it != C.INDEX_UNSET }?.let { mainPlayer.getMediaItemAt(it).mediaId }
-        val mixInMs = nextTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixInMs }
+        if (nextTrackId != cachedNextTrackId) {
+            cachedNextTrackId = nextTrackId
+            cachedMixInMs = nextTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixInMs }
+        }
+        val mixInMs = cachedMixInMs
 
         // mediaId is the app's own "source:sourceId" track id (see
         // PlayerController.buildMediaItem) - looking it straight up here means this
         // needs no coupling back to PlayerController's own queue bookkeeping.
-        val mixOutMs = mainPlayer.currentMediaItem?.mediaId
-            ?.let { trackAnalysisDao.getByTrackId(it)?.mixOutMs }
+        val currentTrackId = mainPlayer.currentMediaItem?.mediaId
+        if (currentTrackId != cachedCurrentTrackId) {
+            cachedCurrentTrackId = currentTrackId
+            cachedMixOutMs = currentTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixOutMs }
+        }
+        val mixOutMs = cachedMixOutMs
             // Always leaves at least MIN_FADE_MS of runway - an analysis result a few
             // ms off the container's own duration (measured independently by decoding,
             // see TrackAnalyzer) should never produce a negative/zero fade window.

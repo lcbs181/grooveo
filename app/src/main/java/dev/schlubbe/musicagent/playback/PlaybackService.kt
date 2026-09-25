@@ -281,7 +281,12 @@ class PlaybackService : MediaLibraryService() {
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
+                // reverbAudioProcessor is deliberately NOT in this chain right now -
+                // see its own file header for why. Splicing it in made playback
+                // stutter constantly (not just while a preset is engaged), confirmed
+                // on a real device - pulled back out rather than left half-fixed
+                // while still investigating.
+                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController)))
                 .build()
         }.apply {
             if (settingsRepository.hiResAudioCached) {
