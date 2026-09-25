@@ -24,16 +24,19 @@ and the update-check code has been repointed accordingly
    against.
 2. Build the release APK:
    ```
-   ./gradlew :app:assembleDebug
+   ./gradlew :app:assembleRelease
    ```
-   (There's no signed release build configured yet — `assembleDebug` is what
-   gets distributed today; see `buildTypes.release.isMinifyEnabled = false`
-   in `app/build.gradle.kts`.)
+   The `release` build type is signed with this machine's debug keystore
+   (`~/.android/debug.keystore`) so it installs as an in-place update over the
+   earlier debug-built releases. Build releases on the same machine, or copy
+   that keystore - a different key means users must uninstall first. Never ship
+   `assembleDebug`: a debuggable APK runs largely in the ART interpreter and was
+   measured at ~3x slower cold start with heavy UI jank.
 3. Create the GitHub release, with a tag of the form `v<versionCode>`
    (e.g. `v14`) — the update checker parses the version code back out of the
    tag name, so this format is load-bearing:
    ```
-   gh release create v<versionCode> app/build/outputs/apk/debug/app-debug.apk \
+   gh release create v<versionCode> app/build/outputs/apk/release/app-release.apk \
      --repo lcbs181/grooveo \
      --title "<versionName>" \
      --notes "<what changed, in German, matching the in-app What's New tone>"

@@ -164,7 +164,7 @@ fun RemotePlaylistDetailScreen(
                                 Text(detail.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
                                     CanopyBadge(if (detail.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
-                                    val subtitle = listOfNotNull(detail.owner, detail.trackCount?.let { "$it Titel" })
+                                    val subtitle = listOfNotNull(detail.owner?.takeIf { it.isNotBlank() }, detail.trackCount?.let { "$it Titel" })
                                         .joinToString(" · ")
                                     if (subtitle.isNotBlank()) {
                                         Text(

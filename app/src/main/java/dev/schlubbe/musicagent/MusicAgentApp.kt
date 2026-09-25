@@ -8,6 +8,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import coil.imageLoader
 import dagger.hilt.android.HiltAndroidApp
 import dev.schlubbe.musicagent.data.extract.youtube.NewPipeDownloader
 import dev.schlubbe.musicagent.data.repository.AuthRepository
@@ -45,6 +46,10 @@ class MusicAgentApp : Application(), Configuration.Provider {
         super.onCreate()
 
         NewPipe.init(newPipeDownloader)
+        // Coil's disk cache reads its whole journal on first use under a lock. Left
+        // lazy, the first artwork on Home did that on the main thread (measured 1.1s
+        // of monitor contention on a real device); touching it here moves it to IO.
+        appScope.launch { runCatching { imageLoader.diskCache?.size } }
         schedulePeriodicUpdateCheck()
 
         // No login screen in this backend-less variant, but analytics events

@@ -118,10 +118,13 @@ class YouTubeMusicSearchClient @Inject constructor() {
         RemotePlaylistDetailDto(
             source = "ytmusic",
             sourceId = playlistUrl,
-            title = info.name,
+            // Album playlists (OLAK5uy_...) come back named "Album – <title>" with
+            // no uploader - use the tracks' own artist instead of a blank owner.
+            title = info.name.removePrefix("Album – ").removePrefix("Album - "),
             thumbnailUrl = info.thumbnails.maxByOrNull { it.height }?.url,
             trackCount = tracks.size,
-            owner = info.uploaderName,
+            owner = info.uploaderName?.takeIf { it.isNotBlank() }
+                ?: tracks.mapNotNull { it.artist }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key,
             webpageUrl = playlistUrl,
             // PlaylistInfo.description is a Description wrapper (unlike ChannelInfo's
             // plain String used for artist bios above) - its content can be HTML for

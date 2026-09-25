@@ -53,6 +53,12 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Signed with the same debug keystore the published debug APKs used, so
+            // this installs as an in-place update over them. The point of release
+            // over debug is debuggable=false: a debuggable build runs mostly in the
+            // ART interpreter (measured ~90% of main-thread startup time on a real
+            // device), which is where the startup/scroll jank came from.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

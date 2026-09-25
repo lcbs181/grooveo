@@ -286,15 +286,17 @@ fun PlayerScreen(
                         onClick = { showMoreMenu = false; viewModel.onAddToPlaylistClicked() },
                         enabled = playbackState.currentTrackId != null,
                     )
-                    DropdownMenuItem(
-                        text = { Text("Herunterladen") },
-                        leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
-                        onClick = {
-                            showMoreMenu = false
-                            viewModel.onDownloadClicked()?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
-                        },
-                        enabled = playbackState.currentTrackId != null,
-                    )
+                    if (!playbackState.hasLocalDownload) {
+                        DropdownMenuItem(
+                            text = { Text("Herunterladen") },
+                            leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
+                            onClick = {
+                                showMoreMenu = false
+                                viewModel.onDownloadClicked()?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                            },
+                            enabled = playbackState.currentTrackId != null,
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Zum Künstler") },
                         leadingIcon = { Icon(phosphorIcon("user-circle"), contentDescription = null, tint = Canopy.accent) },
