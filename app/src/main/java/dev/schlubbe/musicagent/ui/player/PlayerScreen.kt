@@ -668,6 +668,15 @@ fun PlayerScreen(
                         tint = Canopy.accent900.copy(alpha = transportAlpha),
                         modifier = Modifier.size(30.dp),
                     )
+                    // Ring, not a replacement: the control stays recognisable (and
+                    // tappable to cancel) while the stream resolves or buffers.
+                    if (playbackState.showLoading) {
+                        CircularProgressIndicator(
+                            color = Canopy.accent900.copy(alpha = 0.8f),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(64.dp),
+                        )
+                    }
                 }
                 CanopyIconButton(
                     icon = phosphorIcon("skip-forward"),

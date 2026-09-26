@@ -96,6 +96,7 @@ fun SearchScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val analyzer = LocalTrackAnalyzer.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     LaunchedEffect(uiState.artistNavTarget) {
         uiState.artistNavTarget?.let { (source, sourceId) ->
@@ -153,6 +154,8 @@ fun SearchScreen(
                 else -> ResultsList(
                     uiState = uiState,
                     onTrackClick = {
+                        // Otherwise the keyboard stays up over the Player it opens.
+                        focusManager.clearFocus()
                         viewModel.onTrackClicked(it)
                         onTrackSelected()
                     },
