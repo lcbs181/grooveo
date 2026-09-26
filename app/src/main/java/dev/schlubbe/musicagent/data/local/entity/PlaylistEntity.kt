@@ -17,4 +17,7 @@ data class PlaylistEntity(
     // string column rather than a join table since this is a small fixed set,
     // not a growing list.
     val moodTags: String? = null,
+    // Absolute path of a user-picked cover image copied into app storage (see
+    // PlaylistRepository.setCover) - null shows the accent-color tile.
+    val coverPath: String? = null,
 )

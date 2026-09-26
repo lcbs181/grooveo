@@ -117,6 +117,13 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.kotlinx.coroutines.guava)
     implementation(libs.coil.compose)
+    // Performance tracing: named Perfetto slices for composables (runtime-tracing)
+    // plus our own sections (androidx.tracing). Inert unless a trace is recording -
+    // see tools/perf/trace.sh.
+    implementation("androidx.compose.runtime:runtime-tracing")
+    implementation("androidx.tracing:tracing-ktx:1.2.0")
+    implementation("androidx.tracing:tracing-perfetto:1.0.0")
+    implementation("androidx.tracing:tracing-perfetto-binary:1.0.0")
 
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)

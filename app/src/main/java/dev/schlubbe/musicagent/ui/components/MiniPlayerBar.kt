@@ -115,8 +115,8 @@ fun MiniPlayerBar(
                 // longest. A control that disappears reads as a glitch; one that keeps
                 // its glyph and gains a progress ring reads as busy.
                 Icon(
-                    phosphorIcon(if (playbackState.isPlaying) "pause" else "play", filled = true),
-                    contentDescription = if (playbackState.isPlaying) "Pause" else "Abspielen",
+                    phosphorIcon(if (playbackState.showPause) "pause" else "play", filled = true),
+                    contentDescription = if (playbackState.showPause) "Pause" else "Abspielen",
                     tint = Canopy.neutral100,
                     modifier = Modifier.size(20.dp),
                 )

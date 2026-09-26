@@ -287,7 +287,7 @@ private fun DrawScope.rotateRect(
 // property that actually needed to change.
 fun rememberBreathingScale(isPlaying: Boolean): State<Float> {
     val clock = rememberThrottledClockMs(isPlaying)
-    return remember(clock) {
+    return remember(clock, isPlaying) {
         derivedStateOf { if (isPlaying) 1f + 0.028f * triangle(clock.value, 2200f) else 1f }
     }
 }
@@ -297,7 +297,7 @@ fun rememberBreathingScale(isPlaying: Boolean): State<Float> {
 @Composable
 fun rememberGlowAlpha(isPlaying: Boolean): State<Float> {
     val clock = rememberThrottledClockMs(isPlaying)
-    return remember(clock) {
+    return remember(clock, isPlaying) {
         derivedStateOf { if (isPlaying) 0.35f + 0.2f * triangle(clock.value, 1800f) else 0.35f }
     }
 }

@@ -52,17 +52,21 @@ class TrackAnalyzer @Inject constructor(
      * [dev.schlubbe.musicagent.playback.CrossfadeController]'s plain fixed-duration
      * fade. */
     suspend fun analyze(uri: Uri): TrackAnalysisResult? = withContext(analysisDispatcher) {
+        androidx.tracing.trace("TrackAnalyzer.analyze") { analyzeBlocking(uri) }
+    }
+
+    private fun analyzeBlocking(uri: Uri): TrackAnalysisResult? = run {
         val w = runCatching { decodeWindows(uri) }.onFailure {
             Log.w(TAG, "Failed to decode $uri for analysis", it)
-        }.getOrNull() ?: return@withContext null
+        }.getOrNull() ?: return@run null
 
-        if (w.totalMs < MIN_BODY_MS || w.intro.isEmpty() || w.outro.isEmpty()) return@withContext null
-        if (w.peak <= 0f) return@withContext null
+        if (w.totalMs < MIN_BODY_MS || w.intro.isEmpty() || w.outro.isEmpty()) return@run null
+        if (w.peak <= 0f) return@run null
 
         val mixInMs = w.introStartMs + findMixInFrame(w.intro, w.peak) * FRAME_MS
         val mixOutMs = w.outroStartMs + findMixOutFrame(w.outro, w.peak) * FRAME_MS
 
-        if (mixOutMs - mixInMs < MIN_BODY_MS) return@withContext null
+        if (mixOutMs - mixInMs < MIN_BODY_MS) return@run null
         TrackAnalysisResult(mixOutMs = mixOutMs, mixInMs = mixInMs)
     }
 

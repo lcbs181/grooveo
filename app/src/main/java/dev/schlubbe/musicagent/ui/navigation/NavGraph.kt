@@ -178,7 +178,7 @@ fun MusicAgentNavGraph(
     val vizVariant by playerViewModel.vizVariant.collectAsState()
     // Only the open Player and the pulse variant's mini-player spray draw the
     // spectrum; everywhere else the analysis would run for nothing.
-    val visualizerNeeded = currentRoute == Routes.PLAYER || vizVariant == "pulse"
+    val visualizerNeeded = (currentRoute == Routes.PLAYER && vizVariant != "none") || vizVariant == "pulse"
     LaunchedEffect(visualizerNeeded) { playerViewModel.setVisualizerDemand(visualizerNeeded) }
     val visualizerFrame = playerViewModel.visualizerFrame
     CompositionLocalProvider(

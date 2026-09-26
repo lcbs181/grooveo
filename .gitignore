@@ -33,3 +33,7 @@ captures/
 /full_log*.txt
 /*_log*.txt
 .claude/
+
+# Perf tooling
+tools/perf/.venv/
+tools/perf/traces/

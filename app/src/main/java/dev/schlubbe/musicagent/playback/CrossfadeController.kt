@@ -102,7 +102,10 @@ class CrossfadeController(
      * cheap field read/comparison (plus, at most once per transition, one indexed
      * Room lookup per track), so the 0-duration (default, crossfade off) path costs
      * nothing beyond this one early return - no secondary player, no volume changes. */
-    suspend fun poll(crossfadeDurationMs: Long, onBeforeAdvance: () -> Unit) {
+    suspend fun poll(crossfadeDurationMs: Long, onBeforeAdvance: () -> Unit) =
+        androidx.tracing.traceAsync("Crossfade.poll", 0) { pollTraced(crossfadeDurationMs, onBeforeAdvance) }
+
+    private suspend fun pollTraced(crossfadeDurationMs: Long, onBeforeAdvance: () -> Unit) {
         if (isFading) {
             return
         }

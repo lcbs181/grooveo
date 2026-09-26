@@ -1,4 +1,9 @@
 package dev.schlubbe.musicagent.ui.playlist
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
 import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
@@ -88,6 +93,9 @@ fun PlaylistDetailScreen(
     var showEditSheet by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.setCover(uri)
+    }
     val haptic = LocalHapticFeedback.current
     val overlay = LocalCanopyOverlay.current
 
@@ -201,6 +209,9 @@ fun PlaylistDetailScreen(
                 item {
                     PlaylistHeader(
                         playlist = playlist,
+                        onCoverClick = {
+                            coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
                         isEditing = isEditing,
                         editedName = editedName,
                         onEditedNameChange = { editedName = it },
@@ -590,6 +601,7 @@ private fun playlistMetaLine(tracks: List<PlaylistTrackOutDto>): String {
 @Composable
 private fun PlaylistHeader(
     playlist: PlaylistDetailOutDto,
+    onCoverClick: () -> Unit,
     isEditing: Boolean,
     editedName: String,
     onEditedNameChange: (String) -> Unit,
@@ -605,13 +617,23 @@ private fun PlaylistHeader(
                 modifier = Modifier
                     .size(120.dp)
                     .clip(CanopyShapes.medium)
-                    .background(accentColorFor(playlist.accentColorKey, playlist.id)),
+                    .background(accentColorFor(playlist.accentColorKey, playlist.id))
+                    // The system photo picker needs no storage permission and only
+                    // hands over the one image picked.
+                    .clickable(onClickLabel = "Cover wählen", onClick = onCoverClick),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(phosphorIcon("stack"), contentDescription = null, tint = Canopy.text, modifier = Modifier.size(30.dp))
+                if (playlist.coverPath != null) {
+                    AsyncImage(
+                        model = java.io.File(playlist.coverPath),
+                        contentDescription = "Playlist-Cover",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                } else {
+                    Icon(phosphorIcon("stack"), contentDescription = null, tint = Canopy.text, modifier = Modifier.size(30.dp))
+                }
             }
-            // Camera overlay is visual-only, matching the prototype: there's no
-            // image-picker action wired to PlaylistDetailViewModel to back it.
             if (isEditing) {
                 Column(
                     modifier = Modifier

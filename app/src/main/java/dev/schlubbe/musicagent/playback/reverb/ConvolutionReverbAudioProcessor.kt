@@ -99,7 +99,9 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
         return inputAudioFormat
     }
 
-    override fun queueInput(inputBuffer: ByteBuffer) {
+    override fun queueInput(inputBuffer: ByteBuffer) = androidx.tracing.trace("Reverb.queueInput") { queueInputTraced(inputBuffer) }
+
+    private fun queueInputTraced(inputBuffer: ByteBuffer) {
         val frameCount = inputBuffer.remaining() / BYTES_PER_FRAME
         if (frameCount == 0) return
         val preset = currentPreset

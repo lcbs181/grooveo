@@ -27,6 +27,7 @@ data class PlaylistOutDto(
     val description: String? = null,
     val accentColorKey: String? = null,
     val moodTags: List<String> = emptyList(),
+    val coverPath: String? = null,
 )
 
 data class PlaylistTrackOutDto(
@@ -43,6 +44,7 @@ data class PlaylistDetailOutDto(
     val description: String? = null,
     val accentColorKey: String? = null,
     val moodTags: List<String> = emptyList(),
+    val coverPath: String? = null,
 )
 
 fun TrackOutDto.toTrackResultDto(): TrackResultDto = TrackResultDto(

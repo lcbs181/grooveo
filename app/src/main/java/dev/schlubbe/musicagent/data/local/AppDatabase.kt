@@ -37,7 +37,7 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         SearchHistoryEntity::class,
         TrackAnalysisEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -223,5 +223,12 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
                 analyzedAt INTEGER NOT NULL
             )""",
         )
+    }
+}
+
+// Playlist cover images picked from the photo picker (see PlaylistRepository.setCover).
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE playlists ADD COLUMN coverPath TEXT")
     }
 }

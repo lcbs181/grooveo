@@ -94,6 +94,12 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val downloads by viewModel.downloads.collectAsState()
+    // Coming back from a playlist (renamed, new cover, tracks added) - the list is
+    // a one-shot load, not a live query, so re-read it on every return.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        viewModel.refreshPlaylists()
+        onPauseOrDispose { }
+    }
     val likedTrackIds by viewModel.likedTrackIds.collectAsState()
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
     val nowPlayingTrackId by viewModel.nowPlayingTrackId.collectAsState()
@@ -1149,12 +1155,22 @@ private fun PlaylistGridCard(item: LibraryPlaylistItem, onClick: () -> Unit) {
                         .background(accentColorFor(item.playlist.accentColorKey, item.playlist.id)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        phosphorIcon("stack"),
-                        contentDescription = null,
-                        tint = Canopy.text,
-                        modifier = Modifier.size(coverSize * 0.22f),
-                    )
+                    val cover = item.playlist.coverPath
+                    if (cover != null) {
+                        coil.compose.AsyncImage(
+                            model = java.io.File(cover),
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                    } else {
+                        Icon(
+                            phosphorIcon("stack"),
+                            contentDescription = null,
+                            tint = Canopy.text,
+                            modifier = Modifier.size(coverSize * 0.22f),
+                        )
+                    }
                 }
                 is LibraryPlaylistItem.Saved -> TrackThumbnail(
                     item.playlist.thumbnailUrl,
