@@ -219,7 +219,8 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun refreshPlaylists() {
-        _uiState.value = _uiState.value.copy(isLoadingPlaylists = true)
+        // Spinner only for the first load - a silent refresh on return keeps the grid.
+        if (_uiState.value.playlists.isEmpty()) _uiState.value = _uiState.value.copy(isLoadingPlaylists = true)
         viewModelScope.launch {
             runCatching { playlistRepository.list() }
                 .onSuccess { playlists ->

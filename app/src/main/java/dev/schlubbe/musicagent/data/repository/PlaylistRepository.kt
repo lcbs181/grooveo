@@ -21,6 +21,7 @@ import javax.inject.Singleton
  * needs no changes. */
 @Singleton
 class PlaylistRepository @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val playlistDao: PlaylistDao,
     private val playlistTrackDao: PlaylistTrackDao,
 ) {
@@ -44,8 +45,42 @@ class PlaylistRepository @Inject constructor(
             description = playlist.description,
             accentColorKey = playlist.accentColorKey,
             moodTags = playlist.moodTags?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+            coverPath = playlist.coverPath,
         )
     }
+
+    /** Copies [image] (a photo-picker Uri) into app storage, scaled to at most
+     * [COVER_MAX_PX] on the long side, and makes it the playlist's cover; null
+     * removes the cover. A private copy rather than keeping the picker Uri: picker
+     * grants don't survive a restart, and a full-size photo would be decoded for a
+     * 120dp tile. The file name carries a timestamp so image caches keyed by path
+     * pick up a replaced cover. */
+    suspend fun setCover(playlistId: String, image: android.net.Uri?) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val old = playlistDao.getById(playlistId)?.coverPath
+        val newPath = image?.let { uri ->
+            val dir = java.io.File(context.filesDir, "playlist_covers").apply { mkdirs() }
+            val out = java.io.File(dir, "$playlistId-${System.currentTimeMillis()}.jpg")
+            val bitmap = decodeScaled(uri) ?: return@withContext false
+            out.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+            bitmap.recycle()
+            out.absolutePath
+        }
+        playlistDao.updateCover(playlistId, newPath)
+        old?.let { java.io.File(it).delete() }
+        true
+    }
+
+    private fun decodeScaled(uri: android.net.Uri): android.graphics.Bitmap? = runCatching {
+        val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val longSide = maxOf(info.size.width, info.size.height)
+            if (longSide > COVER_MAX_PX) {
+                val scale = COVER_MAX_PX.toFloat() / longSide
+                decoder.setTargetSize((info.size.width * scale).toInt(), (info.size.height * scale).toInt())
+            }
+            decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    }.getOrNull()
 
     /** Persists the playlist edit sheet's full set of fields at once (name,
      * description, accent color, mood tags) -- a single call rather than one
@@ -68,7 +103,10 @@ class PlaylistRepository @Inject constructor(
             ?: error("playlist not found: $playlistId")
     }
 
-    suspend fun delete(playlistId: String) = playlistDao.delete(playlistId)
+    suspend fun delete(playlistId: String) {
+        playlistDao.getById(playlistId)?.coverPath?.let { java.io.File(it).delete() }
+        playlistDao.delete(playlistId)
+    }
 
     suspend fun addTrack(playlistId: String, track: TrackResultDto): PlaylistDetailOutDto {
         // insertAtEnd reads the max position and inserts in one transaction - see its
@@ -93,5 +131,9 @@ class PlaylistRepository @Inject constructor(
     suspend fun reorder(playlistId: String, trackIds: List<String>): PlaylistDetailOutDto {
         playlistTrackDao.reorder(playlistId, trackIds)
         return get(playlistId)
+    }
+
+    private companion object {
+        const val COVER_MAX_PX = 800
     }
 }

@@ -132,6 +132,8 @@ private val VizOptions = listOf(
     // is the closest mapped stand-in for a circular/orb concept.
     VizOption("orb", "circles-three"),
     VizOption("pulse", "broadcast"),
+    // Off: nothing drawn, no spectrum analysis - the cheapest Player screen.
+    VizOption("none", "prohibit"),
 )
 
 @Composable
@@ -375,13 +377,21 @@ fun PlayerScreen(
                     // The glow's `inset:-18px` in CSS -> a child 36dp larger than the art,
                     // centered; Box doesn't clip its children by default, so the overflow
                     // paints outside the 232dp footprint without disturbing layout.
+                    // No Modifier.blur here: its RenderEffect re-blurred this layer on
+                    // every glow animation frame, the single most expensive thing on
+                    // the Player screen in a Perfetto trace. A radial gradient fading to
+                    // transparent is already soft-edged; the extra outer stop stands in
+                    // for the blur's spread.
                     Box(
                         modifier = Modifier
                             .size(PlayerArtSize + 36.dp)
-                            .blur(18.dp)
                             .drawBehind {
                                 drawRoundRect(
-                                    brush = Brush.radialGradient(listOf(accentColor.copy(alpha = glowAlpha.value), Color.Transparent)),
+                                    brush = Brush.radialGradient(
+                                        0f to accentColor.copy(alpha = glowAlpha.value),
+                                        0.7f to accentColor.copy(alpha = glowAlpha.value * 0.35f),
+                                        1f to Color.Transparent,
+                                    ),
                                     cornerRadius = CornerRadius(34.dp.toPx(), 34.dp.toPx()),
                                 )
                             },
@@ -431,7 +441,7 @@ fun PlayerScreen(
                     }
                     // Bottom scrim + Visualizer overlay (GrooveoApp.dc.html lines 296-298):
                     // 104/232 of the art's height, rounded only on the bottom corners.
-                    Box(
+                    if (vizVariant != "none") Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .size(PlayerArtSize, PlayerArtSize * (104f / 232f))
@@ -627,12 +637,16 @@ fun PlayerScreen(
                 // track, only skip-back/skip-forward (unaffected above/below) can move
                 // the user off of it.
                 val transportEnabled = !playbackState.isUnavailable
+                // Disabled look comes from the colors, not Modifier.alpha: that adds a
+                // separate graphics layer, and on a real device the button was once
+                // composited without it - accent circle gone, glyph barely visible.
+                val transportAlpha = if (transportEnabled) 1f else 0.5f
+                val accentFill = Canopy.accent.copy(alpha = transportAlpha)
                 Box(
                     modifier = Modifier
                         .size(76.dp)
                         .clip(CircleShape)
-                        .background(Canopy.accent)
-                        .alpha(if (transportEnabled) 1f else 0.5f)
+                        .background(accentFill)
                         .clickable(enabled = transportEnabled) {
                             haptic.performHapticFeedback(
                                 if (playbackState.isPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
@@ -646,12 +660,12 @@ fun PlayerScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        phosphorIcon(if (playbackState.isPlaying) "pause" else "play", filled = true),
-                        contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
+                        phosphorIcon(if (playbackState.showPause) "pause" else "play", filled = true),
+                        contentDescription = if (playbackState.showPause) "Pause" else "Play",
                         // The design's play/pause circle uses --accent-900 text on the accent
                         // fill (not white, unlike every other "filled" IconButton), for extra
                         // contrast on its own biggest control.
-                        tint = Canopy.accent900,
+                        tint = Canopy.accent900.copy(alpha = transportAlpha),
                         modifier = Modifier.size(30.dp),
                     )
                 }

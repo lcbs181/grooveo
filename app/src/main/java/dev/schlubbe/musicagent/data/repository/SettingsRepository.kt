@@ -46,6 +46,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val PLAYER_STYLE = stringPreferencesKey("player_style")
         val AUTOPLAY_RADIO = booleanPreferencesKey("autoplay_radio")
         val SOUND_3D_PRESET = stringPreferencesKey("sound_3d_preset")
+        val VIZ_VARIANT = stringPreferencesKey("viz_variant")
         val DOWNLOADS_WIFI_ONLY = booleanPreferencesKey("downloads_wifi_only")
         val NOTIFY_NEW_UPLOADS = booleanPreferencesKey("notify_new_uploads")
         val AUTO_BACKUP = booleanPreferencesKey("auto_backup")
@@ -112,6 +113,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     // One of Sound3dPreset's names (see playback/Sound3dController.kt), or null/
     // "DISABLED" for off.
     val sound3dPreset: Flow<String> = dataStore.data.map { it[Keys.SOUND_3D_PRESET] ?: "DISABLED" }
+    val vizVariant: Flow<String> = dataStore.data.map { it[Keys.VIZ_VARIANT] ?: "particles" }
     val downloadsWifiOnly: Flow<Boolean> = dataStore.data.map { it[Keys.DOWNLOADS_WIFI_ONLY] ?: false }
     val notifyNewUploads: Flow<Boolean> = dataStore.data.map { it[Keys.NOTIFY_NEW_UPLOADS] ?: false }
     val autoBackup: Flow<Boolean> = dataStore.data.map { it[Keys.AUTO_BACKUP] ?: false }
@@ -263,6 +265,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setAutoplayRadio(enabled: Boolean) {
         dataStore.edit { it[Keys.AUTOPLAY_RADIO] = enabled }
+    }
+
+    suspend fun setVizVariant(variant: String) {
+        dataStore.edit { it[Keys.VIZ_VARIANT] = variant }
     }
 
     suspend fun setSound3dPreset(preset: String) {

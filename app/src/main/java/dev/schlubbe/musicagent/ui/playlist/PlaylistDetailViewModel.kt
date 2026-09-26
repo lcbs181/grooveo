@@ -110,6 +110,13 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 
+    fun setCover(image: android.net.Uri?) {
+        viewModelScope.launch {
+            runCatching { playlistRepository.setCover(playlistId, image) }
+            load()
+        }
+    }
+
     fun delete(onDeleted: () -> Unit) {
         viewModelScope.launch {
             runCatching { playlistRepository.delete(playlistId) }

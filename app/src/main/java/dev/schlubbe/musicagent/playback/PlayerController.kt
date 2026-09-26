@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -71,6 +72,11 @@ private const val SESSION_CONTEXT_SIZE = 5
 
 data class PlaybackUiState(
     val isPlaying: Boolean = false,
+    // playWhenReady: true the moment play() is issued, before buffering finishes.
+    // Play/pause icons and togglePlayPause key off this (Media3's own
+    // shouldShowPlayButton logic) - keyed off isPlaying, the icon lagged the audio
+    // and a tap while buffering issued a second play() instead of pausing.
+    val playWhenReady: Boolean = false,
     val title: String? = null,
     val artist: String? = null,
     // From the search result's own duration metadata, not the stream -- kept as the
@@ -111,7 +117,14 @@ data class PlaybackUiState(
     // exoIndexForLogical for how a track can be "selected" here without being loaded.
     val isUnavailable: Boolean = false,
     val unavailableMessage: String? = null,
-)
+    val playerState: Int = androidx.media3.common.Player.STATE_IDLE,
+) {
+    /** Media3's shouldShowPauseButton rule, from UI state. */
+    val showPause: Boolean
+        get() = playWhenReady && !isUnavailable &&
+            playerState != androidx.media3.common.Player.STATE_IDLE &&
+            playerState != androidx.media3.common.Player.STATE_ENDED
+}
 
 /** Single shared [MediaController], connected lazily, that every screen plays through. */
 @Singleton
@@ -139,9 +152,12 @@ class PlayerController @Inject constructor(
     // per-screen remembered state) so it survives closing and reopening the
     // Player, the same way the queue/current track already do.
     private val _vizVariant = MutableStateFlow("particles")
+    /** "none" switches the visualizer off entirely - no drawing and no spectrum
+     * analysis (see NavGraph's visualizerNeeded). Persisted. */
     val vizVariant: StateFlow<String> = _vizVariant.asStateFlow()
     fun setVizVariant(variant: String) {
         _vizVariant.value = variant
+        scope.launch { settingsRepository.setVizVariant(variant) }
     }
 
     // Real-time FFT-derived spectrum + beat scalars from AudioVisualizerController,
@@ -239,6 +255,10 @@ class PlayerController @Inject constructor(
     // without needing a ViewModel's viewModelScope in hand.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    init {
+        scope.launch { _vizVariant.value = settingsRepository.vizVariant.first() }
+    }
+
     // Guards extendQueue() against two passes running at once - see that function.
     private val extendQueueMutex = Mutex()
 
@@ -302,6 +322,10 @@ class PlayerController @Inject constructor(
         }
 
         newController.addListener(object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                _playbackState.value = _playbackState.value.copy(playWhenReady = playWhenReady)
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) resetPlaybackErrorState()
                 _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
@@ -451,6 +475,7 @@ class PlayerController @Inject constructor(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                _playbackState.value = _playbackState.value.copy(playerState = playbackState)
                 if (playbackState == Player.STATE_ENDED) {
                     currentTrack?.let { eventReporter.playComplete(it, currentPositionMs()) }
                     currentTrackCompleted = true
@@ -475,6 +500,9 @@ class PlayerController @Inject constructor(
         _playbackState.value = _playbackState.value.copy(
             shuffleEnabled = newController.shuffleModeEnabled,
             repeatMode = newController.repeatMode,
+            playWhenReady = newController.playWhenReady,
+            isPlaying = newController.isPlaying,
+            playerState = newController.playbackState,
         )
         return newController
     }
@@ -521,7 +549,12 @@ class PlayerController @Inject constructor(
      * unplayable placeholder (see [currentQueue]'s kdoc) rather than being dropped, so
      * landing on one - by tapping it directly, or the queue naturally reaching it -
      * shows "Titel nicht verfügbar" instead of silently continuing past it. */
-    suspend fun playQueue(tracks: List<TrackResultDto>, startIndex: Int) {
+    suspend fun playQueue(tracks: List<TrackResultDto>, startIndex: Int) =
+        androidx.tracing.traceAsync("PlayerController.playQueue", traceCookie++) { playQueueTraced(tracks, startIndex) }
+
+    private var traceCookie = 0
+
+    private suspend fun playQueueTraced(tracks: List<TrackResultDto>, startIndex: Int) {
         if (tracks.isEmpty()) return
         val requestedStartTrack = tracks[startIndex]
         val requestedKey = "${requestedStartTrack.source}:${requestedStartTrack.sourceId}"
@@ -1005,11 +1038,11 @@ class PlayerController @Inject constructor(
             return
         }
         val mediaController = ensureConnectedOrReportError() ?: return
-        if (mediaController.isPlaying) {
+        if (!androidx.media3.common.util.Util.shouldShowPlayButton(mediaController)) {
             resetPlaybackErrorState()
             mediaController.pause()
         } else {
-            mediaController.play()
+            androidx.media3.common.util.Util.handlePlayButtonAction(mediaController)
         }
     }
 

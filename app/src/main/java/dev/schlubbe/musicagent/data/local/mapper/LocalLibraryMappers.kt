@@ -38,6 +38,7 @@ fun PlaylistWithCount.toPlaylistOutDto(): PlaylistOutDto = PlaylistOutDto(
     description = playlist.description,
     accentColorKey = playlist.accentColorKey,
     moodTags = playlist.moodTags?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+    coverPath = playlist.coverPath,
 )
 
 fun PlaylistTrackEntity.toPlaylistTrackOutDto(): PlaylistTrackOutDto =

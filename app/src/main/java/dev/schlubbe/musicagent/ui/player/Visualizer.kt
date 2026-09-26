@@ -159,6 +159,7 @@ fun Visualizer(
     count: Int = 22,
     onTick: (Long) -> Unit = {},
 ) {
+    if (variant == "none") return
     val clockMs = rememberVizClockMs(isPlaying, onTick)
     when (variant) {
         "bars" -> BarsVisualizer(count, color, isPlaying, clockMs, frame, modifier)
