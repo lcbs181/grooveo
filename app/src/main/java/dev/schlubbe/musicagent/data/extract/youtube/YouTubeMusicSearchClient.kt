@@ -45,6 +45,17 @@ class YouTubeMusicSearchClient @Inject constructor() {
             .take(limit)
     }
 
+    /** Plain YouTube video search (not YT Music songs) - some official releases only
+     * exist as label-channel videos. Used by YouTubeFallback as a last resort. */
+    suspend fun searchVideos(query: String, limit: Int): List<TrackResultDto> = withContext(Dispatchers.IO) {
+        val handler = ServiceList.YouTube.searchQHFactory
+            .fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.VIDEOS), "")
+        val info = SearchInfo.getInfo(ServiceList.YouTube, handler)
+        info.relatedItems.filterIsInstance<StreamInfoItem>()
+            .mapNotNull { it.toTrackResultDto() }
+            .take(limit)
+    }
+
     /** YouTube's own search-as-you-type suggestions - the same list its search box
      * shows, so a half-typed or misspelled artist still leads somewhere. */
     suspend fun suggestions(query: String, limit: Int): List<String> = withContext(Dispatchers.IO) {

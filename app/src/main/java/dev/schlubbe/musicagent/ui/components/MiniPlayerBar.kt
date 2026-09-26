@@ -120,7 +120,7 @@ fun MiniPlayerBar(
                     tint = Canopy.neutral100,
                     modifier = Modifier.size(20.dp),
                 )
-                if (playbackState.isLoading) {
+                if (playbackState.showLoading) {
                     CircularProgressIndicator(
                         color = Canopy.neutral100.copy(alpha = 0.75f),
                         strokeWidth = 2.dp,

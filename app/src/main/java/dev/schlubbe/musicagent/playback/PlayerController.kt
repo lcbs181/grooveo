@@ -120,6 +120,11 @@ data class PlaybackUiState(
     val playerState: Int = androidx.media3.common.Player.STATE_IDLE,
 ) {
     /** Media3's shouldShowPauseButton rule, from UI state. */
+    /** Resolving the stream, or play requested but still buffering - drives the
+     * progress ring around the play buttons. */
+    val showLoading: Boolean
+        get() = isLoading || (playWhenReady && playerState == androidx.media3.common.Player.STATE_BUFFERING)
+
     val showPause: Boolean
         get() = playWhenReady && !isUnavailable &&
             playerState != androidx.media3.common.Player.STATE_IDLE &&

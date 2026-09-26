@@ -243,16 +243,26 @@ class PlaybackService : MediaLibraryService() {
             mediaItems: MutableList<MediaItem>,
             startIndex: Int,
             startPositionMs: Long,
-        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = serviceScope.future {
-            browseTree.buildQueue(mediaItems, startIndex, startPositionMs)
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            // The app's own PlayerController already sends resolved items (with a
+            // URI). Only browse-tree stubs from external controllers need resolving -
+            // re-resolving everything here re-ran every network lookup (YouTube
+            // fallback searches included) before the player even received the item,
+            // measured at 16s of extra start delay, and made player events lag the UI.
+            if (mediaItems.all { it.localConfiguration != null }) {
+                return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs))
+            }
+            return serviceScope.future { browseTree.buildQueue(mediaItems, startIndex, startPositionMs) }
         }
 
         override fun onAddMediaItems(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
-        ): ListenableFuture<MutableList<MediaItem>> = serviceScope.future {
-            browseTree.resolvePlayable(mediaItems).toMutableList()
+        ): ListenableFuture<MutableList<MediaItem>> {
+            // See onSetMediaItems: in-app items arrive resolved - pass them through.
+            if (mediaItems.all { it.localConfiguration != null }) return Futures.immediateFuture(mediaItems)
+            return serviceScope.future { browseTree.resolvePlayable(mediaItems).toMutableList() }
         }
     }
 
