@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop
 
+import dev.schlubbe.musicagent.playback.eq.LoudnessCache
 import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
 import dev.schlubbe.musicagent.data.extract.YouTubeFallback
 import dev.schlubbe.musicagent.data.extract.di.extractionHttpClient
@@ -52,7 +53,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     val backup = BackupManager(store, settings, File(dataDir, "backups"))
     val updates = UpdateChecker(http, APP_VERSION)
     val player = PlayerController(
-        AudioEngine({ FfmpegDeck(it) }, JavaSoundSink()),
+        AudioEngine({ FfmpegDeck(it) }, JavaSoundSink()).apply { loudnessCache = LoudnessCache(File(dataDir, "loudness.json")) },
         resolveRemote = { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec) },
         recommend = { recent, exclude, limit -> feed.predictNext(recent, exclude, limit) },
         store = store,

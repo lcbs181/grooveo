@@ -128,6 +128,16 @@ class AudioEngineTest {
         waitFor(2000) { !engine.state.value.buffering && engine.state.value.playing }
     }
 
+    @Test fun `known track loudness is normalised per deck`() {
+        val cache = LoudnessCache(java.nio.file.Files.createTempDirectory("grooveo-ln").resolve("l.json").toFile())
+        cache.put("2", -4.0) // 6 dB louder than the target
+        engine.loudnessCache = cache
+        engine.normalize = true
+        engine.play(AudioSource("2", "x"))
+        waitFor { sink.samples.size > 6000 }
+        assertEquals(0.2f * 0.5012f, sink.samples[5000], 1e-3f)
+    }
+
     @Test fun `volume uses cubic curve`() {
         engine.volume = 0.5f
         engine.play(AudioSource("5", "x"))

@@ -41,6 +41,14 @@ class AudioEngine(
     private val sink: PcmSink,
 ) {
     private val decks = arrayOf(deckFactory("a"), deckFactory("b"))
+    /** "Lautstärke angleichen", one per deck so both tracks of a crossfade are levelled on their own. */
+    private val norms = arrayOf(LoudnessNormalizer(SAMPLE_RATE), LoudnessNormalizer(SAMPLE_RATE))
+    /** Stored loudness per track id; measurements are written back when a deck loads the next track. */
+    @Volatile var loudnessCache: LoudnessCache? = null
+    /** Turns loudness normalisation on or off (glides, no jump). */
+    var normalize: Boolean
+        get() = norms[0].enabled
+        set(v) { norms.forEach { it.enabled = v } }
     @Volatile private var cur = 0
     private val ctl = Executors.newSingleThreadExecutor { r -> Thread(r, "engine-ctl").apply { isDaemon = true } }
     private val lock = Any()
@@ -81,6 +89,7 @@ class AudioEngine(
             mixOutSec = null
         }
         other.stop()
+        startLoudness(cur, source)
         current.load(source)
         spectrum.reset()
         sink.flush()
@@ -95,7 +104,7 @@ class AudioEngine(
         if (source == next && (source == null || other.source == source)) return@execute
         if (fadeTotal > 0) return@execute // the idle deck is busy fading out
         next = source
-        if (source == null) other.stop() else other.load(source)
+        if (source == null) other.stop() else { startLoudness(1 - cur, source); other.load(source) }
     }
 
     fun pause() {
@@ -155,6 +164,14 @@ class AudioEngine(
     }
 
     /** Fills [buf] from [deck] until [frames] frames, deck end, error, pause or epoch change. */
+    /** Stores what deck [i] measured for its previous track and primes it for [source]. */
+    private fun startLoudness(i: Int, source: AudioSource) {
+        val cache = loudnessCache
+        norms[i].trackId?.let { id -> norms[i].measuredLufs()?.let { cache?.put(id, it) } }
+        norms[i].startTrack(source.id, cache?.get(source.id))
+        cache?.save()
+    }
+
     private fun readFull(deck: Deck, buf: FloatArray, frames: Int, myEpoch: Int): Int {
         var got = 0
         var waitedMs = 0
@@ -170,6 +187,7 @@ class AudioEngine(
         // clear the flag set by play()/seek() too, not only after a stall: audio that
         // arrives within 150 ms otherwise left the play button spinning while playing
         if (got > 0 && (waitedMs >= 150 || _state.value.buffering)) publish(buffering = false)
+        if (got > 0) norms[if (deck === decks[0]) 0 else 1].process(buf, got)
         return got
     }
 
@@ -269,6 +287,7 @@ class AudioEngine(
     }
 
     private fun output(buf: FloatArray) {
+        equalizer.forceLimiter = norms.any { it.currentGainDb > 0.05 }
         equalizer.setVolume(volume)
         equalizer.process(buf, BLOCK)
         reverb.process(buf)
@@ -285,6 +304,8 @@ class AudioEngine(
     val activeSource: AudioSource? get() = if (fadeTotal > 0) other.source else current.source
 
     fun close() {
+        norms.forEach { n -> n.trackId?.let { id -> n.measuredLufs()?.let { loudnessCache?.put(id, it) } } }
+        loudnessCache?.save()
         running = false
         mixer.interrupt()
         ctl.shutdownNow()

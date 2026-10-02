@@ -83,6 +83,25 @@ class ParametricEqAudioProcessorTest {
         assertTrue(out.drop(4410).all { abs(it) <= 0.95f }, "peak ${out.maxOf { abs(it) }}")
     }
 
+    @Test fun `loudness normalisation levels a known track even with the eq off`() {
+        val p = configured(C.ENCODING_PCM_16BIT).apply {
+            setProfile(EqProfile(enabled = false))
+            setNormalization(true)
+            startTrack("soundcloud:1", -4.0) // 6 dB above the -10 LUFS target
+        }
+        val out = run(p, sine16(1000.0, 44100, 2, 44100), false, 2)
+        val dry = run(configured(C.ENCODING_PCM_16BIT).apply { setProfile(EqProfile(enabled = false)) }, sine16(1000.0, 44100, 2, 44100), false, 2)
+        assertEquals(-6.0, rmsDb(out, 22050) - rmsDb(dry, 22050), 0.1)
+    }
+
+    @Test fun `measured loudness is reported for the playing track`() {
+        val p = configured(C.ENCODING_PCM_16BIT).apply { setNormalization(true); startTrack("ytmusic:a", null) }
+        run(p, sine16(997.0, 44100 * 25, 2, 44100, amp = 0.1), false, 2)
+        val (id, lufs) = p.measured()!!
+        assertEquals("ytmusic:a", id)
+        assertEquals(-20.0, lufs, 0.2)
+    }
+
     @Test fun `unsupported formats are rejected`() {
         assertFailsWith<AudioProcessor.UnhandledAudioFormatException> {
             ParametricEqAudioProcessor().configure(AudioProcessor.AudioFormat(44100, 6, C.ENCODING_PCM_16BIT))

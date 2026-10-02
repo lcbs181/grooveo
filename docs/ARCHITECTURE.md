@@ -87,7 +87,12 @@ The **parametric equalizer** (`playback/eq/`) is the same code the desktop app
 runs: Vicanek matched biquads in double precision, up to 16 bands (bell,
 shelves, high/low-pass up to 48 dB/oct, notch), a subsonic filter, a
 psychoacoustic bass enhancer, loudness compensation and a look-ahead limiter
-(details in [DESKTOP.md](DESKTOP.md#audio-engine)).
+(details in [DESKTOP.md](DESKTOP.md#audio-engine)), plus the dynamic stages
+"Dynamischer Bass" and "Schärfe zähmen" and loudness normalisation
+("Lautstärke angleichen", BS.1770, on by default, independent of the EQ
+switch). PlaybackService tells the processor which track plays
+(`onMediaItemTransition`) and keeps measured track loudness in
+`filesDir/loudness.json`.
 `ParametricEqAudioProcessor` handles 16-bit and float PCM (the hi-res path),
 mono or stereo, at the device's sample rate. It replaces the old
 `android.media.audiofx.Equalizer`, whose band count and frequencies varied by

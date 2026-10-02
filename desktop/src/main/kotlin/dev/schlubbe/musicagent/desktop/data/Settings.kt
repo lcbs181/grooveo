@@ -32,6 +32,8 @@ data class Settings(
     val homeScPromoDismissed: Boolean = false,
     val soundCloudClientId: String = "",
     val volume: Float = 0.8f,
+    /** "Lautstärke angleichen"; null in files written before it existed (= on). */
+    val loudnessNormalization: Boolean? = true,
     val eq: EqProfile = EqProfile.flat(),
     val eqUserPresets: List<EqProfile> = emptyList(),
     val downloadDir: String = "",
@@ -59,6 +61,7 @@ data class Settings(
             themeMode = themeMode ?: "system",
             crossfadeSeconds = crossfadeSeconds.coerceIn(0, 12),
             volume = if (volume.isNaN()) d.volume else volume.coerceIn(0f, 1f),
+            loudnessNormalization = loudnessNormalization ?: true,
         )
     }
 

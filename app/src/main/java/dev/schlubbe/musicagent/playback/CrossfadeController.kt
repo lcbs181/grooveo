@@ -66,6 +66,9 @@ class CrossfadeController(
     // Audio sink for the tail player: carries its own EQ instance so the outgoing
     // track doesn't lose the EQ for the length of the fade.
     private val renderersFactory: RenderersFactory? = null,
+    // Called with the outgoing track's media id when its tail starts on the secondary
+    // player, so that player's EQ/loudness normalisation knows which track it plays.
+    private val onTailStarted: (mediaId: String) -> Unit = {},
     private val scope: CoroutineScope,
     private val trackAnalysisDao: TrackAnalysisDao,
 ) {
@@ -180,6 +183,7 @@ class CrossfadeController(
     private fun startFade(fadeDurationMs: Long, mixInMs: Long?, onBeforeAdvance: () -> Unit) {
         val uri = mainPlayer.currentMediaItem?.localConfiguration?.uri ?: return
         val position = mainPlayer.currentPosition
+        mainPlayer.currentMediaItem?.mediaId?.takeIf { it.isNotEmpty() }?.let(onTailStarted)
 
         // Only the EQ is wired up here (see renderersFactory); the visualizer tap and
         // 3D-sound stay on the main player.
