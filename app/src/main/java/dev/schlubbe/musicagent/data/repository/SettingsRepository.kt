@@ -40,6 +40,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // Parametric EQ profile and the user's saved profiles, as JSON (see EqCodec).
         val EQ_PROFILE = stringPreferencesKey("eq_profile")
         val EQ_USER_PRESETS = stringPreferencesKey("eq_user_presets")
+        // "Lautstärke angleichen" (loudness normalisation, see LoudnessNormalizer); on by default.
+        val LOUDNESS_NORMALIZATION = booleanPreferencesKey("loudness_normalization")
         val PROFILE_NAME = stringPreferencesKey("profile_name")
         val PROFILE_COLOR_STYLE = stringPreferencesKey("profile_color_style")
         // Home "Startseite personalisieren" toggles (Einstellungen section) -- Home
@@ -102,6 +104,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         )
     }
     val eqUserPresets: Flow<List<EqProfile>> = dataStore.data.map { EqCodec.decodeList(it[Keys.EQ_USER_PRESETS]) }
+    val loudnessNormalization: Flow<Boolean> = dataStore.data.map { it[Keys.LOUDNESS_NORMALIZATION] ?: true }
     val profileName: Flow<String> = dataStore.data.map { it[Keys.PROFILE_NAME] ?: "" }
     val profileColorStyle: Flow<String> = dataStore.data.map { it[Keys.PROFILE_COLOR_STYLE] ?: "auto" }
     val showMixControls: Flow<Boolean> = dataStore.data.map { it[Keys.SHOW_MIX_CONTROLS] ?: true }
@@ -231,6 +234,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     suspend fun setEqProfile(profile: EqProfile) {
         eqProfileCache.value = profile
         dataStore.edit { it[Keys.EQ_PROFILE] = EqCodec.encode(profile) }
+    }
+
+    suspend fun setLoudnessNormalization(enabled: Boolean) {
+        dataStore.edit { it[Keys.LOUDNESS_NORMALIZATION] = enabled }
     }
 
     suspend fun setEqUserPresets(presets: List<EqProfile>) {

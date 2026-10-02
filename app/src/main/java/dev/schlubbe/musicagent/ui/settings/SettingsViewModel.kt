@@ -45,6 +45,7 @@ data class SettingsUiState(
     val hiResAudio: Boolean = false,
     val eqProfile: EqProfile = EqProfile.flat(),
     val eqUserPresets: List<EqProfile> = emptyList(),
+    val loudnessNormalization: Boolean = true,
     val playerStyle: String = "waveform",
     val autoplayRadio: Boolean = false,
     val contentSafetyFilter: Boolean = true,
@@ -103,6 +104,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.eqProfile.collect { profile ->
                 _uiState.value = _uiState.value.copy(eqProfile = profile)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.loudnessNormalization.collect { on ->
+                _uiState.value = _uiState.value.copy(loudnessNormalization = on)
             }
         }
         viewModelScope.launch {
@@ -210,6 +216,11 @@ class SettingsViewModel @Inject constructor(
             settingsRepository.setEqProfile(p)
             settingsRepository.setEqUserPresets(list)
         }
+    }
+
+    fun onLoudnessNormalizationChanged(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(loudnessNormalization = enabled)
+        viewModelScope.launch { settingsRepository.setLoudnessNormalization(enabled) }
     }
 
     fun onDeleteEqPreset(name: String) {

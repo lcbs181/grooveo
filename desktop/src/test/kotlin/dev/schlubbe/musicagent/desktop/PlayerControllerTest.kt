@@ -23,7 +23,7 @@ class PlayerControllerTest {
     private val dir = Files.createTempDirectory("grooveo-pc").toFile()
     private val store = LibraryStore(dir)
     private val settings = SettingsRepository(File(dir, "settings.json")).apply {
-        update { it.copy(autoplayRadio = false, eq = dev.schlubbe.musicagent.playback.eq.EqProfile(enabled = false)) }
+        update { it.copy(autoplayRadio = false, eq = dev.schlubbe.musicagent.playback.eq.EqProfile(enabled = false), loudnessNormalization = false) }
     }
     private val resolved = mutableListOf<String>()
     private var radio: List<dev.schlubbe.musicagent.data.remote.dto.TrackResultDto> = emptyList()

@@ -43,6 +43,7 @@ import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import dev.schlubbe.musicagent.playback.eq.LoudnessCache
 import dev.schlubbe.musicagent.playback.eq.ParametricEqAudioProcessor
 import dev.schlubbe.musicagent.playback.reverb.ConvolutionReverbAudioProcessor
 import kotlinx.coroutines.CoroutineScope
@@ -105,6 +106,8 @@ class PlaybackService : MediaLibraryService() {
     // crossfade tail player gets its own so the outgoing track keeps its EQ).
     private val eqAudioProcessor = ParametricEqAudioProcessor()
     private val tailEqAudioProcessor = ParametricEqAudioProcessor()
+    // Measured loudness per track, so a track heard before is normalised from its first sample.
+    private val loudnessCache by lazy { LoudnessCache(java.io.File(filesDir, "loudness.json")) }
     private val reverbAudioProcessor = ConvolutionReverbAudioProcessor(this)
     private val sound3dController = Sound3dController(reverbAudioProcessor)
     private val audioVisualizerController = AudioVisualizerController()
@@ -359,6 +362,10 @@ class PlaybackService : MediaLibraryService() {
                 override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
                     DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(tailEqAudioProcessor)).build()
             },
+            onTailStarted = { id ->
+                val known = loudnessCache[id] ?: eqAudioProcessor.measured()?.takeIf { it.first == id }?.second
+                tailEqAudioProcessor.startTrack(id, known)
+            },
             scope = serviceScope,
             trackAnalysisDao = trackAnalysisDao,
         )
@@ -376,6 +383,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                onTrackChangedForLoudness(mediaItem)
                 if (crossfadeController?.isOwnAdvance == true) return
                 crossfadeController?.cancelFade()
             }
@@ -428,6 +436,12 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        serviceScope.launch {
+            settingsRepository.loudnessNormalization.collect { on ->
+                eqAudioProcessor.setNormalization(on)
+                tailEqAudioProcessor.setNormalization(on)
+            }
+        }
         serviceScope.launch {
             settingsRepository.eqProfile.collect { profile ->
                 eqAudioProcessor.setProfile(profile)
@@ -485,7 +499,18 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
+    /** Stores the loudness measured for the track that just ended and tells the
+     * normaliser which track plays now (with its stored loudness, if heard before). */
+    private fun onTrackChangedForLoudness(mediaItem: MediaItem?) {
+        eqAudioProcessor.measured()?.let { (id, lufs) -> loudnessCache.put(id, lufs) }
+        val id = mediaItem?.mediaId?.takeIf { it.isNotEmpty() } ?: return
+        eqAudioProcessor.startTrack(id, loudnessCache[id])
+        serviceScope.launch(Dispatchers.IO) { loudnessCache.save() }
+    }
+
     override fun onDestroy() {
+        eqAudioProcessor.measured()?.let { (id, lufs) -> loudnessCache.put(id, lufs) }
+        loudnessCache.save()
         // Releases the secondary player (if a fade happened to be running) before the
         // main player and scope go away, rather than leaking it.
         crossfadeController?.cancelFade()

@@ -18,11 +18,20 @@ import java.nio.ByteOrder
  *
  * Handles 16-bit and float PCM, mono or stereo, at any sample rate (filters are
  * redesigned for the actual rate in [onConfigure]).
+ *
+ * Runs the [LoudnessNormalizer] first ("Lautstärke angleichen"), independent of
+ * whether the EQ itself is on; [startTrack] tells it which track is playing.
  */
 class ParametricEqAudioProcessor : BaseAudioProcessor() {
     @Volatile private var profile: EqProfile = EqProfile.flat()
     @Volatile private var volume = 1f
     private var eq: EqProcessor? = null
+    @Volatile private var normalize = false
+    @Volatile private var track: Pair<String, Double?>? = null
+    // kept across flushes (seeks) of the same sample rate, so a seek neither
+    // restarts the measurement nor jumps the gain
+    private var normalizer: LoudnessNormalizer? = null
+    private var normalizerRate = 0
     private var work = FloatArray(0)
 
     /** Safe from any thread; takes effect with the next buffer (smoothly, no clicks). */
@@ -37,6 +46,25 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         eq?.setVolume(v)
     }
 
+    /** Turns loudness normalisation on or off (glides, no jump). */
+    fun setNormalization(enabled: Boolean) {
+        normalize = enabled
+        normalizer?.enabled = enabled
+    }
+
+    /** A new track starts playing: [id] is "source:sourceId", [knownLufs] its stored loudness. */
+    fun startTrack(id: String, knownLufs: Double?) {
+        track = id to knownLufs
+        normalizer?.startTrack(id, knownLufs)
+    }
+
+    /** The current track's measured loudness, once enough of it was heard to store it. */
+    fun measured(): Pair<String, Double>? {
+        val n = normalizer ?: return null
+        val id = n.trackId ?: return null
+        return n.measuredLufs()?.let { id to it }
+    }
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         val enc = inputAudioFormat.encoding
         if ((enc != C.ENCODING_PCM_16BIT && enc != C.ENCODING_PCM_FLOAT) || inputAudioFormat.channelCount !in 1..2) {
@@ -48,14 +76,24 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
     override fun onFlush() {
         // fresh filter/limiter state after a seek or format change, so no tail of the
         // previous position leaks into the new one
-        eq = EqProcessor(inputAudioFormat.sampleRate.toDouble()).also {
+        val rate = inputAudioFormat.sampleRate
+        eq = EqProcessor(rate.toDouble()).also {
             it.setProfile(profile)
             it.setVolume(volume)
+        }
+        if (normalizer == null || normalizerRate != rate) {
+            normalizerRate = rate
+            normalizer = LoudnessNormalizer(rate.toDouble()).also { n ->
+                n.enabled = normalize
+                track?.let { (id, k) -> n.startTrack(id, k) }
+            }
         }
     }
 
     override fun onReset() {
         eq = null
+        normalizer = null
+        normalizerRate = 0
         work = FloatArray(0)
     }
 
@@ -77,6 +115,10 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
             }
         }
         inputBuffer.position(inputBuffer.limit())
+        normalizer?.let { n ->
+            n.process(work, frames)
+            p.forceLimiter = n.currentGainDb > 0.05
+        }
         p.process(work, frames)
         val out = replaceOutputBuffer(frames * channels * sampleBytes).order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until frames) {

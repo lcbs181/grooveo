@@ -119,6 +119,20 @@ FfmpegDeck B ─┘  (gapless hand-over,
     - a stereo-linked look-ahead limiter (5 ms look-ahead, 50 ms hold,
       200 ms release). It never follows single bass cycles, measured below
       0.2 % THD at 10 dB gain reduction on 50 Hz.
+  * **Dynamics** (`DynamicEqBand`): "Dynamischer Bass" is a low shelf
+    whose lift follows the spectral balance (energy below 150 Hz against the
+    full band), short-term and over ~10 s. Thin mixes are filled up towards
+    -3 dB; bass-heavy tracks, which measure -3..-0.5 dB, get nothing, also in
+    their breaks. "Schärfe zähmen" is a 4.5 kHz bell that dips only while
+    2.5-8 kHz rises 3 dB above the track's own average (like a de-esser).
+    Both thresholds were calibrated on real tracks across genres.
+  * **Loudness normalisation** (`Loudness.kt`): ITU-R BS.1770-4 integrated
+    loudness (K-weighting, gated 400 ms blocks), target -10 LUFS, at most
+    +8 dB boost (the limiter then stays on). A track's measurement is stored
+    in `loudness.json`, so a track heard before is levelled from its first
+    sample; unknown tracks start at the previous track's gain and glide to
+    their measured value. On the desktop each deck has its own normaliser,
+    so both tracks of a crossfade are levelled on their own.
   * **Presets**: bass presets lift the low shelf and the sub band and cut the
     250 Hz "mud" range, so bass sounds full rather than boomy. Every preset
     gets an automatic preamp for headroom.

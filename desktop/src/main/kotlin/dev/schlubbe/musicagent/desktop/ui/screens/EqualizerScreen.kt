@@ -216,6 +216,7 @@ fun EqualizerScreen() {
 
         Spacer(Modifier.height(16.dp))
         Panel(Modifier.fillMaxWidth()) { BassSection(eq, ::set) }
+        Panel(Modifier.fillMaxWidth()) { DynamicsSection(eq, ::set) }
 
         Spacer(Modifier.height(16.dp))
         Panel(Modifier.fillMaxWidth()) {
@@ -501,6 +502,44 @@ private fun BassSection(eq: EqProfile, set: (EqProfile) -> Unit) {
                         valueRange = 40f..160f, enabled = eq.bassEnhance > 0, colors = SliderDefaults.colors(thumbColor = c.accent2, activeTrackColor = c.accent2))
                     Text("${eq.bassEnhanceFreq.roundToInt()} Hz", style = MaterialTheme.typography.labelLarge, color = c.text, modifier = Modifier.width(52.dp).padding(start = 8.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DynamicsSection(eq: EqProfile, set: (EqProfile) -> Unit) {
+    val ui = LocalUi.current
+    val c = C.c
+    val settings by ui.graph.settings.state.collectAsState()
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Dynamik & Lautstärke", style = MaterialTheme.typography.titleLarge, color = c.text)
+        Text("Passt sich laufend an die Musik an, statt fest anzuheben oder abzusenken.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Dynamischer Bass", style = MaterialTheme.typography.titleSmall, color = c.text)
+                Text("Füllt dünn abgemischte Titel mit Bass auf, basslastige bleiben unverändert – auch in Breaks.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(eq.dynamicBass.toFloat(), { set(eq.copy(dynamicBass = it.roundToInt().toDouble())) }, Modifier.weight(1f),
+                        valueRange = 0f..EqProfile.MAX_DYNAMIC_BASS_DB.toFloat(), colors = SliderDefaults.colors(thumbColor = c.accent2, activeTrackColor = c.accent2))
+                    Text(if (eq.dynamicBass == 0.0) "Aus" else String.format(Locale.GERMAN, "bis %+.0f dB", eq.dynamicBass), style = MaterialTheme.typography.labelLarge,
+                        color = c.text, modifier = Modifier.width(80.dp).padding(start = 8.dp))
+                }
+                Text("Schärfe zähmen", style = MaterialTheme.typography.titleSmall, color = c.text)
+                Text("Senkt 2–8 kHz nur ab, wenn es gerade sticht – scharfe S-Laute, schrille Synths.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(eq.tameHarsh.toFloat(), { set(eq.copy(tameHarsh = (it * 10).roundToInt() / 10.0)) }, Modifier.weight(1f),
+                        colors = SliderDefaults.colors(thumbColor = c.accent2, activeTrackColor = c.accent2))
+                    Text(if (eq.tameHarsh == 0.0) "Aus" else "${(eq.tameHarsh * 100).roundToInt()} %", style = MaterialTheme.typography.labelLarge,
+                        color = c.text, modifier = Modifier.width(80.dp).padding(start = 8.dp))
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ToggleRow(
+                    "Lautstärke angleichen",
+                    "Alle Titel gleich laut (−10 LUFS nach ITU BS.1770) – kein Nachregeln zwischen leisen und lauten Songs. Gilt auch bei ausgeschaltetem EQ; einmal gehörte Titel stimmen ab dem ersten Ton.",
+                    settings.loudnessNormalization != false,
+                ) { on -> ui.graph.settings.update { it.copy(loudnessNormalization = on) } }
             }
         }
     }

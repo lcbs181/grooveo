@@ -230,6 +230,40 @@ fun EqualizerScreen(
                     )
                 }
 
+                // — Dynamik —
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Dynamik", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "Passt sich laufend an die Musik an, statt fest anzuheben oder abzusenken.",
+                        style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500,
+                    )
+                    LabeledSlider(
+                        "Dynamischer Bass", if (eq.dynamicBass == 0.0) "Aus" else "bis ${formatDb(eq.dynamicBass)}",
+                        eq.dynamicBass.toFloat(), 0f..EqProfile.MAX_DYNAMIC_BASS_DB.toFloat(), Canopy.accent2,
+                    ) { set(eq.copy(dynamicBass = it.roundToInt().toDouble())) }
+                    Text(
+                        "Füllt dünn abgemischte Titel mit Bass auf, basslastige bleiben unverändert.",
+                        style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500,
+                    )
+                    LabeledSlider(
+                        "Schärfe zähmen", if (eq.tameHarsh == 0.0) "Aus" else "${(eq.tameHarsh * 100).roundToInt()} %",
+                        eq.tameHarsh.toFloat(), 0f..1f, Canopy.accent2,
+                    ) { set(eq.copy(tameHarsh = (it * 10).roundToInt() / 10.0)) }
+                    Text(
+                        "Senkt 2–8 kHz nur ab, wenn es gerade sticht – scharfe S-Laute, schrille Synths.",
+                        style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500,
+                    )
+                }
+
+                // — Lautstärke —
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 14.dp)) {
+                    ToggleRow(
+                        "Lautstärke angleichen",
+                        "Alle Titel gleich laut (−10 LUFS) – kein Nachregeln zwischen leisen und lauten Songs. Gilt auch bei ausgeschaltetem EQ.",
+                        uiState.loudnessNormalization,
+                    ) { viewModel.onLoudnessNormalizationChanged(it) }
+                }
+
                 // — Voreinstellungen —
                 Column {
                     CanopySectionHeader(title = "Voreinstellungen", action = "Speichern", onActionClick = { showSave = true })

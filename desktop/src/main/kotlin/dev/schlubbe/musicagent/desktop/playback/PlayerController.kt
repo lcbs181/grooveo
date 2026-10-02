@@ -79,10 +79,11 @@ class PlayerController(
             override fun onError(source: AudioSource, message: String) { scope.launch { onPlaybackError(source, message) } }
         }
         scope.launch {
-            settings.state.distinctUntilChangedBy { Triple(it.eq, it.sound3dPreset, it.crossfadeSeconds) }.collect { s ->
+            settings.state.distinctUntilChangedBy { listOf(it.eq, it.sound3dPreset, it.crossfadeSeconds, it.loudnessNormalization) }.collect { s ->
                 engine.setEq(s.eq)
                 engine.setReverb(Sound3dPreset.of(s.sound3dPreset))
                 engine.crossfadeSec = s.crossfadeSeconds
+                engine.normalize = s.loudnessNormalization != false
             }
         }
         engine.volume = settings.current.volume

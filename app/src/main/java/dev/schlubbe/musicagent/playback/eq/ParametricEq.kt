@@ -72,6 +72,10 @@ data class EqProfile(
     val bassEnhanceFreq: Double = 90.0,
     /** Equal-loudness compensation: more bass/treble at low volume (ISO 226). */
     val loudness: Boolean = false,
+    /** "Dynamischer Bass": maximum lift in dB (0 = off) for mixes thinner than [DynamicEqBand.BASS_TARGET_DB]. */
+    val dynamicBass: Double = 0.0,
+    /** "Schärfe zähmen": 0..1, scales the maximum dip of the 2.5-8 kHz band. */
+    val tameHarsh: Double = 0.0,
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized(): EqProfile = copy(
@@ -82,6 +86,8 @@ data class EqProfile(
         preampDb = preampDb.coerceIn(-24.0, 12.0),
         bassEnhance = if (bassEnhance.isNaN()) 0.0 else bassEnhance.coerceIn(0.0, 1.0),
         bassEnhanceFreq = if (bassEnhanceFreq < 40.0) 90.0 else bassEnhanceFreq.coerceAtMost(160.0),
+        dynamicBass = if (dynamicBass.isNaN()) 0.0 else dynamicBass.coerceIn(0.0, MAX_DYNAMIC_BASS_DB),
+        tameHarsh = if (tameHarsh.isNaN()) 0.0 else tameHarsh.coerceIn(0.0, 1.0),
     )
 
     /** Combined static response (dB) of all bands plus preamp (excludes loudness/enhancer). */
@@ -109,6 +115,7 @@ data class EqProfile(
 
     companion object {
         const val MAX_BANDS = 16
+        const val MAX_DYNAMIC_BASS_DB = 9.0
         val SUBSONIC = EqBand(FilterType.HIGH_PASS, 20.0, 0.0, 0.7071, slope = 2)
 
         val DEFAULT_LAYOUT = listOf(
@@ -123,11 +130,16 @@ data class EqProfile(
 
         fun flat() = EqProfile()
 
-        private fun layout(name: String, vararg gains: Double, enhance: Double = 0.0, loudness: Boolean = false) = EqProfile(
+        private fun layout(
+            name: String, vararg gains: Double, enhance: Double = 0.0, loudness: Boolean = false,
+            dynamicBass: Double = 0.0, tameHarsh: Double = 0.0,
+        ) = EqProfile(
             name = name,
             bands = DEFAULT_LAYOUT.mapIndexed { i, b -> b.copy(gainDb = gains[i]) },
             bassEnhance = enhance,
             loudness = loudness,
+            dynamicBass = dynamicBass,
+            tameHarsh = tameHarsh,
         ).withAutoPreamp()
 
         /**
@@ -138,6 +150,8 @@ data class EqProfile(
         val PRESETS: List<EqProfile> = listOf(
             flat(),
             layout("Sattes Fundament", 5.0, 2.5, -2.0, 0.0, 0.0, 0.0, 0.5, enhance = 0.25),
+            // only dynamic stages: lifts thin mixes, leaves full ones alone, tames harsh peaks
+            layout("Adaptiv", 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, enhance = 0.15, dynamicBass = 6.0, tameHarsh = 0.6),
             layout("Bass-Boost", 7.0, 4.0, -2.5, -0.5, 0.0, 0.0, 0.0, enhance = 0.35),
             layout("Sub-Bass", 3.0, 7.0, -1.5, 0.0, 0.0, 0.0, 0.0, enhance = 0.15),
             layout("Höhen-Boost", 0.0, 0.0, -1.0, 0.0, 2.0, 3.0, 6.0),
