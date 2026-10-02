@@ -58,10 +58,12 @@ The release notes also explain how to build the Linux app from source.
    ```
    git archive --format=tar.gz --prefix=grooveo-<version>/ -o dist/grooveo-<version>-source.tar.gz master
    ```
-7. **Draft release** (creates the tag on `master`):
+7. **Tag and draft release**. A draft does not create its tag, but the
+   workflow checks the tag out, so push the tag first:
    ```
+   git tag v<code> master && git push origin v<code>
    gh release create v<code> dist/Grooveo-<version>.apk dist/grooveo-<version>-source.tar.gz \
-     --repo lcbs181/grooveo --target master --draft --title "<version>" --notes-file dist/notes.md
+     --repo lcbs181/grooveo --verify-tag --draft --title "<version>" --notes-file dist/notes.md
    ```
 8. **Desktop builds**:
    ```
