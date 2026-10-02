@@ -18,5 +18,10 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Grooveo"
-include(":app")
+// The Android app needs an Android SDK; without one (e.g. building only the Linux
+// desktop app from the source tarball) it is left out and :desktop still builds,
+// since it compiles the shared sources straight from app/src.
+val hasAndroidSdk = listOf("ANDROID_HOME", "ANDROID_SDK_ROOT").any { !System.getenv(it).isNullOrBlank() } ||
+    file("local.properties").takeIf { it.isFile }?.readLines()?.any { it.trimStart().startsWith("sdk.dir=") } == true
+if (hasAndroidSdk) include(":app") else logger.lifecycle("No Android SDK found - building without :app")
 include(":desktop")
