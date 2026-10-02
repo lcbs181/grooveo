@@ -136,3 +136,20 @@ class ScreenLogicTest {
         assertNull(topTrack(emptyList()))
     }
 }
+
+class HiResArtworkTest {
+    @Test fun `soundcloud artwork is requested at 1080 px`() {
+        kotlin.test.assertEquals("https://i1.sndcdn.com/artworks-abc-0-t1080x1080.jpg", hiResArtwork("https://i1.sndcdn.com/artworks-abc-0-t500x500.jpg"))
+        kotlin.test.assertEquals("https://i1.sndcdn.com/avatars-x-large.png".replace("large", "t1080x1080"), hiResArtwork("https://i1.sndcdn.com/avatars-x-large.png"))
+    }
+
+    @Test fun `youtube artwork sizes are rewritten`() {
+        kotlin.test.assertEquals("https://lh3.googleusercontent.com/abc=w1080-h1080-l90-rj", hiResArtwork("https://lh3.googleusercontent.com/abc=w120-h120-l90-rj"))
+        kotlin.test.assertEquals("https://yt3.ggpht.com/abc=s1080-c-k", hiResArtwork("https://yt3.ggpht.com/abc=s88-c-k"))
+        kotlin.test.assertEquals("https://i.ytimg.com/vi/xyz/maxresdefault.jpg", hiResArtwork("https://i.ytimg.com/vi/xyz/hqdefault.jpg?sqp=abc&rs=def"))
+    }
+
+    @Test fun `unknown urls are unchanged`() {
+        kotlin.test.assertEquals("https://example.com/a.jpg", hiResArtwork("https://example.com/a.jpg"))
+    }
+}

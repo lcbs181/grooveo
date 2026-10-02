@@ -21,7 +21,7 @@ import dev.schlubbe.musicagent.data.repository.LyricsRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
-import dev.schlubbe.musicagent.playback.EqPreset
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import dev.schlubbe.musicagent.playback.PlaybackUiState
 import dev.schlubbe.musicagent.playback.PlayerController
 import dev.schlubbe.musicagent.playback.VisualizerFrame
@@ -83,11 +83,13 @@ class PlayerViewModel @Inject constructor(
     fun pumpVisualizerFrame(frameBucket: Long) = playerController.pumpVisualizerFrame(frameBucket)
     fun setVizVariant(variant: String) = playerController.setVizVariant(variant)
 
-    val eqPreset: StateFlow<EqPreset> = settingsRepository.eqPreset
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EqPreset.FLAT)
+    val eqProfile: StateFlow<EqProfile> = settingsRepository.eqProfile
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EqProfile.flat())
+    val eqUserPresets: StateFlow<List<EqProfile>> = settingsRepository.eqUserPresets
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun setEqPreset(preset: EqPreset) {
-        viewModelScope.launch { settingsRepository.setEqPreset(preset) }
+    fun setEqProfile(profile: EqProfile) {
+        viewModelScope.launch { settingsRepository.setEqProfile(profile) }
     }
 
     val playerStyle: StateFlow<String> = settingsRepository.playerStyle

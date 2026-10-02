@@ -8,6 +8,32 @@ plugins {
 
 kotlin { jvmToolchain(21) }
 
+val versionName = providers.gradleProperty("grooveo.versionName").get()
+val versionCode = providers.gradleProperty("grooveo.versionCode").get().toInt()
+
+// FFmpeg/JavaCPP natives for the OS doing the build (jpackage cannot cross-package,
+// so Windows installers are built on Windows, see .github/workflows/release.yml).
+val nativePlatform = System.getProperty("os.name").lowercase().let { os ->
+    val arm = System.getProperty("os.arch").contains("aarch64")
+    when {
+        "win" in os -> "windows-x86_64"
+        "mac" in os -> if (arm) "macosx-arm64" else "macosx-x86_64"
+        else -> if (arm) "linux-arm64" else "linux-x86_64"
+    }
+}
+
+// APP_VERSION constant generated from gradle.properties (single version source).
+val generateBuildInfo by tasks.registering {
+    val out = layout.buildDirectory.dir("generated/buildinfo")
+    inputs.property("version", versionName)
+    outputs.dir(out)
+    doLast {
+        val f = out.get().file("dev/schlubbe/musicagent/desktop/BuildInfo.kt").asFile
+        f.parentFile.mkdirs()
+        f.writeText("package dev.schlubbe.musicagent.desktop\n\nconst val APP_VERSION = \"$versionName\"\n")
+    }
+}
+
 // Platform-independent sources shared verbatim with the Android app (:app).
 // Android-only types they reference (android.util.Log, Room DAOs, DataStore-backed
 // SettingsRepository, ...) are provided by desktop implementations with the same
@@ -15,6 +41,7 @@ kotlin { jvmToolchain(21) }
 // DSP logic land in both apps at once.
 val sharedRoot = rootProject.file("app/src/main/java/dev/schlubbe/musicagent")
 val sharedFiles = listOf(
+    "data/extract/di/ExtractionHttpClient.kt",
     "data/extract/ResolvedStream.kt",
     "data/extract/StreamResolverRegistry.kt",
     "data/extract/YouTubeFallback.kt",
@@ -37,6 +64,9 @@ val sharedFiles = listOf(
     "data/backup/BackupModels.kt",
     "playback/reverb/Fft.kt",
     "playback/reverb/PartitionedConvolver.kt",
+    "playback/eq/ParametricEq.kt",
+    "playback/eq/MatchedBiquad.kt",
+    "playback/eq/EqProcessor.kt",
 )
 val syncShared by tasks.registering(Sync::class) {
     from(sharedRoot) { sharedFiles.forEach { include(it) } }
@@ -49,6 +79,7 @@ val syncFonts by tasks.registering(Sync::class) {
 }
 sourceSets.main {
     kotlin.srcDir(syncShared.map { layout.buildDirectory.dir("shared").get() })
+    kotlin.srcDir(generateBuildInfo.map { layout.buildDirectory.dir("generated/buildinfo").get() })
     resources.srcDir(rootProject.file("app/src/main/assets"))
     resources.srcDir(syncFonts.map { layout.buildDirectory.dir("sharedRes").get() })
 }
@@ -66,7 +97,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("javax.inject:javax.inject:1")
     implementation("androidx.room:room-common:${libs.versions.room.get()}")
-    // FFmpeg (libavformat/libavcodec for decoding, libavfilter for the parametric EQ),
+    // FFmpeg (libavformat/libavcodec for decoding),
     // in-process via JavaCPP presets. Only the FFmpeg parts of JavaCV are needed.
     implementation("org.bytedeco:javacv:1.5.14") {
         listOf("opencv", "openblas", "flycapture", "libdc1394", "libfreenect", "libfreenect2", "librealsense",
@@ -78,8 +109,8 @@ dependencies {
     // MPRIS2 (media keys, GNOME/KDE media controls) over the D-Bus session bus
     implementation("com.github.hypfvieh:dbus-java-core:5.2.2")
     implementation("com.github.hypfvieh:dbus-java-transport-native-unixsocket:5.2.2")
-    runtimeOnly("org.bytedeco:ffmpeg:8.1.2-1.5.14:linux-x86_64")
-    runtimeOnly("org.bytedeco:javacpp:1.5.14:linux-x86_64")
+    runtimeOnly("org.bytedeco:ffmpeg:8.1.2-1.5.14:$nativePlatform")
+    runtimeOnly("org.bytedeco:javacpp:1.5.14:$nativePlatform")
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
@@ -93,13 +124,25 @@ compose.desktop {
     application {
         mainClass = "dev.schlubbe.musicagent.desktop.MainKt"
         nativeDistributions {
-            targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm)
+            targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi)
             packageName = "Grooveo"
             // from `./gradlew :desktop:suggestRuntimeModules`; jdk.security.auth is needed by dbus-java (MPRIS)
             modules("java.instrument", "java.management", "java.net.http", "java.sql", "jdk.dynalink", "jdk.security.auth", "jdk.unsupported")
-            packageVersion = "1.0.0"
+            packageVersion = versionName
             description = "Grooveo desktop music player"
+            vendor = "lcbs181"
             linux { iconFile.set(project.file("src/main/resources/grooveo.png")) }
+            windows {
+                iconFile.set(project.file("src/main/resources/grooveo.ico"))
+                // MSI versions need MAJOR > 0, so the installer carries 1.0.<versionCode>
+                packageVersion = "1.0.$versionCode"
+                upgradeUuid = "6c1b5c0e-3f0a-4c2e-9a51-6a8f0f2d7b41"
+                menu = true
+                menuGroup = "Grooveo"
+                shortcut = true
+                perUserInstall = true
+                dirChooser = true
+            }
         }
     }
 }

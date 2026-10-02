@@ -1,14 +1,17 @@
 package dev.schlubbe.musicagent.ui.settings
 
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,31 +19,43 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import dev.schlubbe.musicagent.playback.EqPreset
+import android.widget.Toast
 import dev.schlubbe.musicagent.playback.Sound3dPreset
+import dev.schlubbe.musicagent.playback.eq.EqBand
+import dev.schlubbe.musicagent.playback.eq.EqProfile
+import dev.schlubbe.musicagent.playback.eq.FilterType
+import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
@@ -48,119 +63,76 @@ import dev.schlubbe.musicagent.ui.components.CanopyToggle
 import dev.schlubbe.musicagent.ui.components.canopyCard
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
-import kotlin.math.round
+import java.util.Locale
+import kotlin.math.hypot
+import kotlin.math.ln
+import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
-// Design source: design_handoff_grooveo/GrooveoApp.dc.html lines 839-910 ("EQUALIZER").
-// Band layout + preset gains are copied verbatim from the handoff / README, and mirror
-// EqualizerController.kt's own EqPreset enum (FLAT / BASS_BOOST / TREBLE_BOOST / VOCAL /
-// CUSTOM) - see the KDoc on EqualizerScreen for exactly what's UI-only here vs. real.
+/** Pure mapping between graph pixels and frequency/gain (log frequency axis). Unit-tested. */
+internal object EqGraph {
+    const val MIN_F = 20.0
+    const val MAX_F = 20000.0
+    const val RANGE_DB = 15.0
+    private val SPAN = log10(MAX_F / MIN_F)
 
-internal data class EqBandSpec(val hz: String, val role: String)
+    fun freqToX(f: Double, w: Float): Float = (log10(f / MIN_F) / SPAN * w).toFloat()
+    fun xToFreq(x: Float, w: Float): Double = MIN_F * 10.0.pow((x / w).coerceIn(0f, 1f) * SPAN)
+    fun dbToY(db: Double, h: Float): Float = (h / 2 - db / RANGE_DB * (h / 2)).toFloat()
+    fun yToDb(y: Float, h: Float): Double = ((h / 2 - y) / (h / 2) * RANGE_DB).coerceIn(-RANGE_DB, RANGE_DB)
 
-internal val EQ_BAND_SPECS = listOf(
-    EqBandSpec("60 Hz", "Sub"),
-    EqBandSpec("230 Hz", "Bass"),
-    EqBandSpec("910 Hz", "Mitten"),
-    EqBandSpec("3,6 kHz", "Präsenz"),
-    EqBandSpec("14 kHz", "Höhen"),
-)
+    /** Snaps to 3 significant digits (1 Hz below 100 Hz), as typed in EQ software. */
+    fun roundFreq(f: Double): Double {
+        val step = 10.0.pow((log10(f).toInt() - 2).coerceAtLeast(0).toDouble())
+        return ((f / step).roundToInt() * step).coerceIn(MIN_F, MAX_F)
+    }
 
-internal val EQ_PRESET_GAINS: Map<EqPreset, List<Float>> = mapOf(
-    EqPreset.FLAT to listOf(0f, 0f, 0f, 0f, 0f),
-    EqPreset.BASS_BOOST to listOf(9f, 6f, 0f, -1f, 0f),
-    EqPreset.TREBLE_BOOST to listOf(0f, -1f, 0f, 6f, 9f),
-    EqPreset.VOCAL to listOf(-3f, 0f, 5f, 4f, -2f),
-)
+    fun roundDb(db: Double): Double = (db * 2).roundToInt() / 2.0
 
-internal val EQ_PRESET_ORDER = listOf(
-    EqPreset.FLAT to "Flach",
-    EqPreset.BASS_BOOST to "Bass-Boost",
-    EqPreset.TREBLE_BOOST to "Höhen-Boost",
-    EqPreset.VOCAL to "Vocal",
-)
+    /** Index of the node nearest to ([x],[y]) within [radius] px, or -1. */
+    fun hit(bands: List<EqBand>, x: Float, y: Float, w: Float, h: Float, radius: Float): Int {
+        var best = -1
+        var bestD = radius
+        bands.forEachIndexed { i, b ->
+            val d = hypot(x - freqToX(b.freq, w), y - dbToY(nodeDb(b), h))
+            if (d <= bestD) { bestD = d; best = i }
+        }
+        return best
+    }
 
-internal const val EQ_MIN_DB = -12f
-internal const val EQ_MAX_DB = 12f
-private const val PREAMP_MIN_DB = -12f
-private const val PREAMP_MAX_DB = 6f
-
-internal fun eqPresetLabel(preset: EqPreset): String =
-    if (preset == EqPreset.CUSTOM) "Eigen" else EQ_PRESET_ORDER.firstOrNull { it.first == preset }?.second ?: "Flach"
-
-private fun formatDb(value: Float): String {
-    val rounded = round(value).toInt()
-    return if (rounded > 0) "+$rounded dB" else "$rounded dB"
+    fun nodeDb(b: EqBand): Double = if (b.type.hasGain) b.gainDb else 0.0
 }
 
+internal fun formatFreq(f: Double): String =
+    if (f >= 1000) String.format(Locale.GERMAN, "%.${if (f >= 10000) 1 else 2}f kHz", f / 1000).replace(",00 ", " ").replace(",0 ", " ")
+    else "${f.roundToInt()} Hz"
+
+private fun formatDb(db: Double): String = String.format(Locale.GERMAN, "%+.1f dB", db)
+
 /**
- * Full-screen Equalizer (design_handoff_grooveo section "10 Equalizer" -- new screen,
- * no prior Compose implementation existed).
- *
- * What's real vs. UI-only:
- * - The preset chips (Flach/Bass-Boost/Höhen-Boost/Vocal/Eigen) are all REAL: they call
- *   [SettingsViewModel.onEqPresetChanged], persisted via SettingsRepository and applied
- *   to the platform Equalizer by PlaybackService's collector
- *   (`settingsRepository.eqPreset.collect { equalizerController.applyPreset(it) }`).
- * - The header on/off Toggle is REAL in effect (best-effort): switching it off applies
- *   [EqPreset.FLAT] (silences all bands) via the same real path, and switching back on
- *   re-applies whichever preset was active before. There is no dedicated "enabled" flag
- *   in the data layer, so this is implemented as a preset swap, not a true bypass toggle.
- * - The five per-band vertical faders are REAL: dragging one calls
- *   [SettingsViewModel.onCustomEqGainsChanged], which persists the 5-value gain list and
- *   switches the active preset to [EqPreset.CUSTOM] - applied via
- *   [dev.schlubbe.musicagent.playback.EqualizerController.applyCustomGains], which maps
- *   each real device band onto whichever of the 5 reference frequencies is closest.
- * - The pre-amp slider is still UI-ONLY (switches the preset to CUSTOM for chip-display
- *   consistency, but the dB value itself doesn't reach [android.media.audiofx.Equalizer] -
- *   there's no pre-amp concept in that platform API to map it onto).
+ * Parametric equalizer (same DSP and presets as the desktop app, see
+ * [dev.schlubbe.musicagent.playback.eq.ParametricEqAudioProcessor]): response graph
+ * with draggable band nodes, per-band editor, preamp/limiter, bass tools, presets
+ * and Equalizer APO / AutoEQ import/export via the clipboard.
  */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun EqualizerScreen(
     onNavigateBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val eq = uiState.eqProfile
+    var selected by remember { mutableIntStateOf(0) }
+    var showSave by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val sel = selected.coerceIn(0, (eq.bands.size - 1).coerceAtLeast(0))
 
-    var eqOn by remember { mutableStateOf(true) }
-    var presetBeforeOff by remember { mutableStateOf(uiState.eqPreset.takeIf { it != EqPreset.CUSTOM } ?: EqPreset.FLAT) }
-    var preampDb by remember { mutableFloatStateOf(0f) }
-
-    // CUSTOM and its 5 band gains are both real, persisted SettingsRepository state
-    // now (via SettingsViewModel.onCustomEqGainsChanged) - previously "isCustom"/
-    // "gains" were local-only Compose state that never reached EqualizerController
-    // or survived leaving this screen.
-    val isCustom = uiState.eqPreset == EqPreset.CUSTOM
-    val gains = if (isCustom) uiState.customEqGains else EQ_PRESET_GAINS[uiState.eqPreset] ?: List(5) { 0f }
-
-    fun selectPreset(preset: EqPreset) {
-        presetBeforeOff = preset
-        viewModel.onEqPresetChanged(preset)
-    }
-
-    fun onEqToggle(on: Boolean) {
-        eqOn = on
-        if (!on) {
-            presetBeforeOff = uiState.eqPreset.takeIf { it != EqPreset.CUSTOM } ?: presetBeforeOff
-            viewModel.onEqPresetChanged(EqPreset.FLAT)
-        } else {
-            viewModel.onEqPresetChanged(presetBeforeOff)
-        }
-    }
-
-    fun onBandDrag(index: Int, value: Float) {
-        if (!eqOn) return
-        val newGains = gains.toMutableList().also { it[index] = value.coerceIn(EQ_MIN_DB, EQ_MAX_DB) }
-        viewModel.onCustomEqGainsChanged(newGains)
-    }
-
-    fun onReset() {
-        preampDb = 0f
-        presetBeforeOff = EqPreset.FLAT
-        viewModel.onEqPresetChanged(EqPreset.FLAT)
-    }
-
-    val presetLabel = eqPresetLabel(uiState.eqPreset)
-    val sound3dOn = uiState.sound3dPreset != Sound3dPreset.DISABLED
+    fun set(p: EqProfile) = viewModel.onEqProfileChanged(p)
+    fun setBand(i: Int, f: (EqBand) -> EqBand) =
+        set(eq.copy(name = "Eigen", bands = eq.bands.mapIndexed { j, b -> if (j == i) f(b).clamped() else b }))
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxWidth()) {
@@ -169,105 +141,137 @@ fun EqualizerScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
-                Text(
-                    "Equalizer",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(start = 6.dp).weight(1f),
-                )
-                CanopyToggle(checked = eqOn, onCheckedChange = ::onEqToggle)
+                Text("Equalizer", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp).weight(1f))
+                CanopyToggle(checked = eq.enabled, onCheckedChange = { set(eq.copy(enabled = it)) })
             }
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // — Frequenzverlauf —
-                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top,
-                    ) {
+                // — Frequenzgang —
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
-                            Text("FREQUENZVERLAUF", style = MaterialTheme.typography.titleSmall, color = Canopy.neutral400)
-                            Spacer(modifier = Modifier.padding(top = 6.dp))
-                            Text(presetLabel, style = MaterialTheme.typography.labelLarge, color = Canopy.accent)
+                            Text("FREQUENZGANG", style = MaterialTheme.typography.titleSmall, color = Canopy.neutral400)
+                            Text(eq.name, style = MaterialTheme.typography.labelLarge, color = Canopy.accent, modifier = Modifier.padding(top = 4.dp))
                         }
-                        Text("±12 dB", style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500)
+                        Text("±15 dB", style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500)
                     }
-                    Spacer(modifier = Modifier.padding(top = 10.dp))
-                    EqCurveCanvas(
-                        gains = gains,
-                        enabled = eqOn,
-                        modifier = Modifier.fillMaxWidth().height(104.dp),
+                    Spacer(Modifier.height(8.dp))
+                    EqResponseGraph(
+                        eq = eq,
+                        selected = sel,
+                        onSelect = { selected = it },
+                        onMove = { i, f, db -> setBand(i) { b -> b.copy(freq = EqGraph.roundFreq(f), gainDb = if (b.type.hasGain) EqGraph.roundDb(db) else b.gainDb) } },
+                        modifier = Modifier.fillMaxWidth().height(200.dp),
+                    )
+                    Text(
+                        "Punkt antippen zum Auswählen, ziehen für Frequenz und Pegel.",
+                        style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, modifier = Modifier.padding(top = 6.dp),
                     )
                 }
 
-                // — Bands —
-                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        EQ_BAND_SPECS.forEachIndexed { index, band ->
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(9.dp),
-                            ) {
-                                Text(formatDb(gains[index]), style = MaterialTheme.typography.labelMedium, color = Canopy.accent)
-                                EqFader(
-                                    value = gains[index],
-                                    enabled = eqOn,
-                                    onChange = { v -> onBandDrag(index, v) },
-                                    modifier = Modifier.width(30.dp).height(158.dp),
-                                )
-                                Text(band.hz, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
-                                Text(band.role, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral400)
-                            }
+                // — Bänder —
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        eq.bands.forEachIndexed { i, b ->
+                            CanopyChip(label = "${i + 1} · ${formatFreq(b.freq)}", active = i == sel, onClick = { selected = i })
                         }
+                        if (eq.bands.size < EqProfile.MAX_BANDS) {
+                            CanopyChip(label = "+ Band", active = false, onClick = {
+                                set(eq.copy(name = "Eigen", bands = eq.bands + EqBand(FilterType.PEAK, 1000.0, 0.0, 1.0)))
+                                selected = eq.bands.size
+                            })
+                        }
+                    }
+                    eq.bands.getOrNull(sel)?.let { b ->
+                        BandEditor(
+                            band = b,
+                            onChange = { nb -> setBand(sel) { nb } },
+                            onDelete = { set(eq.copy(name = "Eigen", bands = eq.bands.filterIndexed { j, _ -> j != sel })) },
+                        )
                     }
                 }
 
                 // — Vorverstärker —
-                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Vorverstärker", style = MaterialTheme.typography.labelLarge)
-                        Text(formatDb(preampDb), style = MaterialTheme.typography.labelMedium, color = Canopy.accent2)
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LabeledSlider("Vorverstärker", formatDb(eq.preampDb), eq.preampDb.toFloat(), -24f..12f, Canopy.accent2) {
+                        set(eq.copy(preampDb = EqGraph.roundDb(it.toDouble())))
                     }
-                    PreampSlider(
-                        value = preampDb,
-                        enabled = eqOn,
-                        onChange = { v ->
-                            preampDb = v.coerceIn(PREAMP_MIN_DB, PREAMP_MAX_DB)
-                            if (!isCustom) viewModel.onEqPresetChanged(EqPreset.CUSTOM)
-                        },
-                        modifier = Modifier.fillMaxWidth().height(24.dp),
+                    val headroom = eq.peakBoostDb() + eq.preampDb
+                    if (headroom > 0.05) {
+                        Text(
+                            String.format(Locale.GERMAN, "Bis zu %+.1f dB über 0 dBFS%s", headroom, if (eq.limiter) " – der Limiter fängt das ab." else " – Übersteuerung möglich."),
+                            style = MaterialTheme.typography.bodySmall, color = Canopy.accent2,
+                        )
+                    }
+                    CanopyButton(text = "Automatisch anpassen", onClick = { set(eq.withAutoPreamp()) })
+                    ToggleRow("Limiter", "Verhindert Clipping bei starken Anhebungen (Look-ahead, −0,5 dBFS)", eq.limiter) { set(eq.copy(limiter = it)) }
+                }
+
+                // — Bass —
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Bass", style = MaterialTheme.typography.labelLarge)
+                    ToggleRow("Subsonic-Filter", "Hochpass 20 Hz, 24 dB/Okt. – unhörbares Rumpeln kostet Headroom", eq.subsonic) { set(eq.copy(subsonic = it)) }
+                    ToggleRow("Loudness-Kompensation", "Gehörrichtig nach ISO 226: mehr Bass und Höhen bei leiser Wiedergabe", eq.loudness) { set(eq.copy(loudness = it)) }
+                    LabeledSlider(
+                        "Bass-Enhancer", if (eq.bassEnhance == 0.0) "Aus" else "${(eq.bassEnhance * 100).roundToInt()} %",
+                        eq.bassEnhance.toFloat(), 0f..1f, Canopy.accent2,
+                    ) { set(eq.copy(bassEnhance = (it * 100).roundToInt() / 100.0)) }
+                    if (eq.bassEnhance > 0) {
+                        LabeledSlider("Enhancer bis", "${eq.bassEnhanceFreq.roundToInt()} Hz", eq.bassEnhanceFreq.toFloat(), 40f..160f, Canopy.accent2) {
+                            set(eq.copy(bassEnhanceFreq = it.roundToInt().toDouble()))
+                        }
+                    }
+                    Text(
+                        "Der Enhancer ergänzt Obertöne des Tiefbasses – das Ohr hört den Grundton mit, auch über Handy-Lautsprecher.",
+                        style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500,
                     )
                 }
 
                 // — Voreinstellungen —
                 Column {
-                    CanopySectionHeader(title = "Voreinstellungen", action = "Zurücksetzen", onActionClick = ::onReset)
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            EQ_PRESET_ORDER.take(3).forEach { (preset, label) ->
-                                CanopyChip(label = label, active = !isCustom && uiState.eqPreset == preset, onClick = { selectPreset(preset) })
-                            }
+                    CanopySectionHeader(title = "Voreinstellungen", action = "Speichern", onActionClick = { showSave = true })
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EqProfile.PRESETS.forEach { p ->
+                            CanopyChip(label = p.name, active = eq.name == p.name, onClick = { set(p.copy(enabled = true)); selected = 0 })
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            EQ_PRESET_ORDER.drop(3).forEach { (preset, label) ->
-                                CanopyChip(label = label, active = !isCustom && uiState.eqPreset == preset, onClick = { selectPreset(preset) })
-                            }
-                            CanopyChip(label = "Eigen", active = isCustom, onClick = { viewModel.onEqPresetChanged(EqPreset.CUSTOM) })
+                        uiState.eqUserPresets.forEach { p ->
+                            CanopyChip(
+                                label = p.name,
+                                active = eq.name == p.name,
+                                onClick = { set(p.copy(enabled = true)); selected = 0 },
+                                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = {
+                                    viewModel.onDeleteEqPreset(p.name)
+                                    Toast.makeText(context, "„${p.name}“ gelöscht", Toast.LENGTH_SHORT).show()
+                                }),
+                            )
                         }
+                    }
+                    if (uiState.eqUserPresets.isNotEmpty()) {
+                        Text("Eigene Vorlagen lange drücken zum Löschen.", style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, modifier = Modifier.padding(top = 6.dp))
+                    }
+                }
+
+                // — Import / Export —
+                Column(modifier = Modifier.fillMaxWidth().canopyCard(padding = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Equalizer APO / AutoEQ", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "Kopfhörer-Korrekturen von autoeq.app („ParametricEQ.txt“) einfügen oder das aktuelle Profil kopieren.",
+                        style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CanopyChip(label = "Aus Zwischenablage", active = false, onClick = {
+                            val text = clipboard.getText()?.text.orEmpty()
+                            runCatching { EqProfile.parseApo(text) }
+                                .onSuccess { set(it); selected = 0; Toast.makeText(context, "${it.bands.size} Filter importiert", Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(context, "Kein Equalizer-APO-Text in der Zwischenablage", Toast.LENGTH_SHORT).show() }
+                        })
+                        CanopyChip(label = "Kopieren", active = false, onClick = {
+                            clipboard.setText(AnnotatedString(eq.toApoText()))
+                            Toast.makeText(context, "Profil kopiert", Toast.LENGTH_SHORT).show()
+                        })
                     }
                 }
 
@@ -280,218 +284,201 @@ fun EqualizerScreen(
                     Icon(phosphorIcon("circles-three"), contentDescription = null, tint = Canopy.accent, modifier = Modifier.size(20.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("3D-Sound", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            "Räumliche Wiedergabe über Kopfhörer",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Canopy.neutral500,
-                        )
+                        Text("Räumliche Wiedergabe über Kopfhörer", style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500)
                     }
                     CanopyToggle(
-                        checked = sound3dOn,
-                        onCheckedChange = { on ->
-                            viewModel.onSound3dPresetChanged(if (on) Sound3dPreset.KINO else Sound3dPreset.DISABLED)
-                        },
+                        checked = uiState.sound3dPreset != Sound3dPreset.DISABLED,
+                        onCheckedChange = { on -> viewModel.onSound3dPresetChanged(if (on) Sound3dPreset.KINO else Sound3dPreset.DISABLED) },
                     )
                 }
 
-                Text(
-                    "Wirkt auf die Wiedergabe über den Android-System-Equalizer, sofern dein Gerät ihn unterstützt.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Canopy.neutral500,
-                )
+                CanopySectionHeader(title = "", action = "Auf Flach zurücksetzen", onActionClick = { set(EqProfile.flat()); selected = 0 })
                 Spacer(modifier = Modifier.padding(bottom = 24.dp))
             }
         }
     }
+
+    if (showSave) {
+        var name by remember { mutableStateOf(if (eq.name in EqProfile.PRESETS.map { it.name }) "" else eq.name) }
+        AlertDialog(
+            onDismissRequest = { showSave = false },
+            containerColor = Canopy.surface,
+            title = { Text("Vorlage speichern") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it.take(40) }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.onSaveEqPreset(name.trim().ifEmpty { "Vorlage ${uiState.eqUserPresets.size + 1}" })
+                    showSave = false
+                }) { Text("Speichern", color = Canopy.accent) }
+            },
+            dismissButton = { TextButton(onClick = { showSave = false }) { Text("Abbrechen", color = Canopy.neutral500) } },
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BandEditor(band: EqBand, onChange: (EqBand) -> Unit, onDelete: () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterType.entries.forEach { t ->
+            CanopyChip(label = t.label, active = band.type == t, onClick = { onChange(band.copy(type = t)) })
+        }
+    }
+    val logMin = ln(EqGraph.MIN_F).toFloat()
+    val logMax = ln(EqGraph.MAX_F).toFloat()
+    LabeledSlider("Frequenz", formatFreq(band.freq), ln(band.freq).toFloat(), logMin..logMax, Canopy.accent) {
+        onChange(band.copy(freq = EqGraph.roundFreq(kotlin.math.exp(it.toDouble()))))
+    }
+    if (band.type.hasGain) {
+        LabeledSlider("Pegel", formatDb(band.gainDb), band.gainDb.toFloat(), -EqBand.MAX_GAIN.toFloat()..EqBand.MAX_GAIN.toFloat(), Canopy.accent) {
+            onChange(band.copy(gainDb = EqGraph.roundDb(it.toDouble())))
+        }
+    }
+    LabeledSlider("Güte (Q)", String.format(Locale.GERMAN, "%.2f", band.q), ln(band.q).toFloat(), ln(EqBand.MIN_Q).toFloat()..ln(EqBand.MAX_Q).toFloat(), Canopy.accent) {
+        onChange(band.copy(q = (kotlin.math.exp(it.toDouble()) * 100).roundToInt() / 100.0))
+    }
+    if (band.type.hasSlope) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Steilheit", style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500, modifier = Modifier.width(72.dp))
+            (1..4).forEach { s -> CanopyChip(label = "${s * 12}", active = band.slope == s, onClick = { onChange(band.copy(slope = s)) }) }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Aktiv", style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500, modifier = Modifier.padding(end = 10.dp))
+        CanopyToggle(checked = band.enabled, onCheckedChange = { onChange(band.copy(enabled = it)) })
+        Spacer(Modifier.weight(1f))
+        CanopyIconButton(icon = phosphorIcon("trash"), onClick = onDelete, iconSize = 18.dp)
+    }
 }
 
 @Composable
-private fun EqCurveCanvas(
-    gains: List<Float>,
-    enabled: Boolean,
-    modifier: Modifier = Modifier,
-    // Settings shows this at 44x34dp. At that size the full treatment collapses:
-    // a 10dp inset leaves ~14dp of vertical travel, and five 10dp control-point
-    // circles span the whole width, so it reads as a row of coral dots on a grey
-    // rule rather than a curve. Compact mode drops the dots and scales the inset
-    // and stroke down so the *line* is the legible part.
-    compact: Boolean = false,
+private fun LabeledSlider(
+    label: String,
+    value: String,
+    position: Float,
+    range: ClosedFloatingPointRange<Float>,
+    color: Color,
+    onChange: (Float) -> Unit,
 ) {
-    val lineColor = Canopy.accent
-    val ringColor = Canopy.accent2
-    val dotFill = Canopy.surface
-    val dashColor = Canopy.neutral400
-    val alphaMul = if (enabled) 1f else 0.4f
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = Canopy.neutral500)
+            Text(value, style = MaterialTheme.typography.labelMedium, color = color)
+        }
+        Slider(
+            value = position.coerceIn(range.start, range.endInclusive),
+            onValueChange = onChange,
+            valueRange = range,
+            colors = SliderDefaults.colors(thumbColor = color, activeTrackColor = color, inactiveTrackColor = Canopy.neutral300),
+            modifier = Modifier.height(32.dp),
+        )
+    }
+}
 
+@Composable
+private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.labelLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500)
+        }
+        CanopyToggle(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** Live response curve (without preamp: it only shifts the level) plus one node per band. */
+@Composable
+private fun EqResponseGraph(
+    eq: EqProfile,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    onMove: (Int, Double, Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val line = Canopy.accent
+    val node = Canopy.accent2
+    val grid = Canopy.neutral300
+    val fill = Canopy.surface
+    val alpha = if (eq.enabled) 1f else 0.4f
+    val current by rememberUpdatedState(eq)
+    var dragging by remember { mutableIntStateOf(-1) }
+
+    Canvas(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectTapGestures { o ->
+                    val i = EqGraph.hit(current.bands, o.x, o.y, size.width.toFloat(), size.height.toFloat(), 36.dp.toPx())
+                    if (i >= 0) onSelect(i)
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { o ->
+                        dragging = EqGraph.hit(current.bands, o.x, o.y, size.width.toFloat(), size.height.toFloat(), 36.dp.toPx())
+                        if (dragging >= 0) onSelect(dragging)
+                    },
+                    onDragEnd = { dragging = -1 },
+                    onDragCancel = { dragging = -1 },
+                    onDrag = { change, _ ->
+                        if (dragging < 0) return@detectDragGestures
+                        change.consume()
+                        val w = size.width.toFloat(); val h = size.height.toFloat()
+                        onMove(dragging, EqGraph.xToFreq(change.position.x, w), EqGraph.yToDb(change.position.y, h))
+                    },
+                )
+            },
+    ) {
+        val w = size.width
+        val h = size.height
+        // grid: decades and ±6/12 dB
+        listOf(100.0, 1000.0, 10000.0).forEach { f ->
+            val x = EqGraph.freqToX(f, w)
+            drawLine(grid.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+        }
+        listOf(-12.0, -6.0, 6.0, 12.0).forEach { db ->
+            val y = EqGraph.dbToY(db, h)
+            drawLine(grid.copy(alpha = 0.35f), Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+        }
+        drawLine(grid, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+
+        val steps = (w / 3).toInt().coerceAtLeast(32)
+        val path = Path()
+        for (s in 0..steps) {
+            val x = w * s / steps
+            val db = if (eq.enabled) eq.responseDb(EqGraph.xToFreq(x, w)) - eq.preampDb else 0.0
+            val y = EqGraph.dbToY(db.coerceIn(-30.0, 30.0), h).coerceIn(-h, 2 * h)
+            if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        val area = Path().apply { addPath(path); lineTo(w, h / 2); lineTo(0f, h / 2); close() }
+        drawPath(area, line.copy(alpha = 0.14f * alpha))
+        drawPath(path, line.copy(alpha = alpha), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+
+        eq.bands.forEachIndexed { i, b ->
+            val c = Offset(EqGraph.freqToX(b.freq, w), EqGraph.dbToY(EqGraph.nodeDb(b), h))
+            val r = (if (i == selected) 9.dp else 7.dp).toPx()
+            val a = alpha * if (b.enabled) 1f else 0.4f
+            drawCircle(if (i == selected) node.copy(alpha = a) else fill.copy(alpha = a), radius = r, center = c)
+            drawCircle(node.copy(alpha = a), radius = r, center = c, style = Stroke(width = 2.dp.toPx()))
+        }
+    }
+}
+
+/** Small static preview of the active curve for the Settings screen's EQ row. */
+@Composable
+internal fun EqCurvePreview(profile: EqProfile, modifier: Modifier = Modifier) {
+    val line = Canopy.accent
+    val grid = Canopy.neutral400
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val n = gains.size
-        if (n == 0 || w <= 0f || h <= 0f) return@Canvas
-        val inset = if (compact) 3.dp.toPx() else 10.dp.toPx()
-        val xs = FloatArray(n) { i -> if (n == 1) w / 2f else w * i / (n - 1) }
-        fun gainToY(g: Float) = h / 2f - (g / EQ_MAX_DB) * (h / 2f - inset)
-        val ys = FloatArray(n) { gainToY(gains[it]) }
-
-        drawLine(
-            color = dashColor.copy(alpha = dashColor.alpha * alphaMul),
-            start = Offset(0f, h / 2f),
-            end = Offset(w, h / 2f),
-            strokeWidth = 1.dp.toPx(),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
-        )
-
-        val path = Path().apply {
-            moveTo(xs[0], ys[0])
-            for (i in 0 until n - 1) {
-                val midX = (xs[i] + xs[i + 1]) / 2f
-                cubicTo(midX, ys[i], midX, ys[i + 1], xs[i + 1], ys[i + 1])
-            }
+        drawLine(grid, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)))
+        val path = Path()
+        for (s in 0..24) {
+            val x = w * s / 24
+            val db = if (profile.enabled) profile.responseDb(EqGraph.xToFreq(x, w)) - profile.preampDb else 0.0
+            val y = (h / 2 - db / EqGraph.RANGE_DB * (h / 2 - 3.dp.toPx())).toFloat().coerceIn(0f, h)
+            if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
-        val fillPath = Path().apply {
-            addPath(path)
-            lineTo(xs[n - 1], h)
-            lineTo(xs[0], h)
-            close()
-        }
-        drawPath(fillPath, color = lineColor.copy(alpha = 0.16f * alphaMul))
-        drawPath(
-            path,
-            color = lineColor.copy(alpha = alphaMul),
-            style = Stroke(width = (if (compact) 1.5.dp else 2.dp).toPx(), cap = StrokeCap.Round),
-        )
-
-        if (compact) return@Canvas
-        for (i in 0 until n) {
-            drawCircle(dotFill.copy(alpha = alphaMul), radius = 5.dp.toPx(), center = Offset(xs[i], ys[i]))
-            drawCircle(
-                ringColor.copy(alpha = alphaMul),
-                radius = 5.dp.toPx(),
-                center = Offset(xs[i], ys[i]),
-                style = Stroke(width = 2.dp.toPx()),
-            )
-        }
+        drawPath(path, line.copy(alpha = if (profile.enabled) 1f else 0.4f), style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round))
     }
-}
-
-@Composable
-private fun EqFader(value: Float, enabled: Boolean, onChange: (Float) -> Unit, modifier: Modifier = Modifier) {
-    val density = LocalDensity.current
-    val knobRadiusPx = with(density) { 12.dp.toPx() }
-    var heightPx by remember { mutableFloatStateOf(0f) }
-    val trackColor = Canopy.neutral300
-    val knobColor = Canopy.accent
-    val ringColor = Canopy.surface
-    val alphaMul = if (enabled) 1f else 0.35f
-
-    fun dbToY(db: Float): Float {
-        val usable = (heightPx - knobRadiusPx * 2).coerceAtLeast(1f)
-        return knobRadiusPx + usable * (1f - (db - EQ_MIN_DB) / (EQ_MAX_DB - EQ_MIN_DB))
-    }
-    fun yToDb(y: Float): Float {
-        val usable = (heightPx - knobRadiusPx * 2).coerceAtLeast(1f)
-        val t = ((y - knobRadiusPx) / usable).coerceIn(0f, 1f)
-        return (EQ_MAX_DB - t * (EQ_MAX_DB - EQ_MIN_DB)).coerceIn(EQ_MIN_DB, EQ_MAX_DB)
-    }
-
-    Box(
-        modifier = modifier
-            .onSizeChanged { heightPx = it.height.toFloat() }
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                detectDragGestures(
-                    onDragStart = { offset -> onChange(round(yToDb(offset.y))) },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        onChange(round(yToDb(change.position.y)))
-                    },
-                )
-            },
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val centerY = dbToY(0f)
-            val knobY = dbToY(value)
-            drawLine(
-                color = trackColor.copy(alpha = trackColor.alpha * alphaMul),
-                start = Offset(cx, 0f),
-                end = Offset(cx, size.height),
-                strokeWidth = 6.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = knobColor.copy(alpha = alphaMul),
-                start = Offset(cx, centerY),
-                end = Offset(cx, knobY),
-                strokeWidth = 6.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawCircle(color = ringColor.copy(alpha = alphaMul), radius = knobRadiusPx + 3.dp.toPx() / 2f, center = Offset(cx, knobY))
-            drawCircle(color = knobColor.copy(alpha = alphaMul), radius = knobRadiusPx, center = Offset(cx, knobY))
-        }
-    }
-}
-
-@Composable
-private fun PreampSlider(value: Float, enabled: Boolean, onChange: (Float) -> Unit, modifier: Modifier = Modifier) {
-    val density = LocalDensity.current
-    val knobRadiusPx = with(density) { 12.dp.toPx() }
-    var widthPx by remember { mutableFloatStateOf(0f) }
-    val trackColor = Canopy.neutral300
-    val fillColor = Canopy.accent2
-    val ringColor = Canopy.surface
-    val alphaMul = if (enabled) 1f else 0.35f
-
-    fun dbToX(db: Float): Float {
-        val usable = (widthPx - knobRadiusPx * 2).coerceAtLeast(1f)
-        return knobRadiusPx + usable * ((db - PREAMP_MIN_DB) / (PREAMP_MAX_DB - PREAMP_MIN_DB))
-    }
-    fun xToDb(x: Float): Float {
-        val usable = (widthPx - knobRadiusPx * 2).coerceAtLeast(1f)
-        val t = ((x - knobRadiusPx) / usable).coerceIn(0f, 1f)
-        return (PREAMP_MIN_DB + t * (PREAMP_MAX_DB - PREAMP_MIN_DB)).coerceIn(PREAMP_MIN_DB, PREAMP_MAX_DB)
-    }
-
-    Box(
-        modifier = modifier
-            .onSizeChanged { widthPx = it.width.toFloat() }
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                detectDragGestures(
-                    onDragStart = { offset -> onChange(round(xToDb(offset.x))) },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        onChange(round(xToDb(change.position.x)))
-                    },
-                )
-            },
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val cy = size.height / 2f
-            val knobX = dbToX(value)
-            drawLine(
-                color = trackColor.copy(alpha = trackColor.alpha * alphaMul),
-                start = Offset(0f, cy),
-                end = Offset(size.width, cy),
-                strokeWidth = 6.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = fillColor.copy(alpha = alphaMul),
-                start = Offset(0f, cy),
-                end = Offset(knobX, cy),
-                strokeWidth = 6.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawCircle(color = ringColor.copy(alpha = alphaMul), radius = knobRadiusPx + 3.dp.toPx() / 2f, center = Offset(knobX, cy))
-            drawCircle(color = fillColor.copy(alpha = alphaMul), radius = knobRadiusPx, center = Offset(knobX, cy))
-        }
-    }
-}
-
-/** Small static preview of a preset's curve, used by the Settings screen's
- * "Bänder einstellen" row so it doesn't duplicate the drawing logic above. */
-@Composable
-internal fun EqCurvePreview(gains: List<Float>, modifier: Modifier = Modifier) {
-    EqCurveCanvas(gains = gains, enabled = true, modifier = modifier, compact = true)
 }

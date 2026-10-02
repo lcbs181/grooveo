@@ -165,10 +165,27 @@ class SearchRepository @Inject constructor(
     private fun stripTopicSuffix(name: String): String =
         Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE).replace(name, "")
 
-    suspend fun getArtist(source: String, sourceId: String): ArtistDetailDto = when (source) {
-        "soundcloud" -> soundCloud.getArtist(sourceId)
-        "ytmusic" -> youTube.getArtist(sourceId)
-        else -> error("unknown source: $source")
+    /** Artist pages already fetched this session, newest last (LRU). Opening the
+     * player and coming back, or revisiting an artist, shows the page instantly instead
+     * of re-running four to six extraction requests. Entries expire after [ARTIST_TTL_MS]. */
+    private val artistCache = object : LinkedHashMap<String, Pair<Long, ArtistDetailDto>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, ArtistDetailDto>>) = size > ARTIST_CACHE_SIZE
+    }
+
+    /** The cached page for this artist, if it is still fresh. */
+    fun cachedArtist(source: String, sourceId: String): ArtistDetailDto? = synchronized(artistCache) {
+        artistCache["$source:$sourceId"]?.takeIf { System.currentTimeMillis() - it.first < ARTIST_TTL_MS }?.second
+    }
+
+    suspend fun getArtist(source: String, sourceId: String, refresh: Boolean = false): ArtistDetailDto {
+        if (!refresh) cachedArtist(source, sourceId)?.let { return it }
+        val artist = when (source) {
+            "soundcloud" -> soundCloud.getArtist(sourceId)
+            "ytmusic" -> youTube.getArtist(sourceId)
+            else -> error("unknown source: $source")
+        }
+        synchronized(artistCache) { artistCache["$source:$sourceId"] = System.currentTimeMillis() to artist }
+        return artist
     }
 
     // Follower lists only exist for SoundCloud (YouTube exposes no public subscriber
@@ -186,5 +203,10 @@ class SearchRepository @Inject constructor(
             b.getOrNull(i)?.let(out::add)
         }
         return out
+    }
+
+    private companion object {
+        const val ARTIST_CACHE_SIZE = 20
+        const val ARTIST_TTL_MS = 30 * 60 * 1000L
     }
 }

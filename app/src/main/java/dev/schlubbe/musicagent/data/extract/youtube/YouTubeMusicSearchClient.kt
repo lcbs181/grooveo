@@ -28,6 +28,12 @@ import javax.inject.Singleton
 
 private const val TAG = "YouTubeMusicSearchClient"
 
+/** Tracks per artist shelf ("Alle anzeigen" shows all of them). */
+private const val MAX_ARTIST_TRACKS = 50
+
+/** Continuation pages followed per list, to bound the requests per artist page. */
+private const val MAX_PAGES = 4
+
 /** On-device replacement for the (now-removed) backend's ytmusic_service.py
  * (ytmusicapi). NewPipeExtractor's YouTube search supports dedicated YouTube-Music
  * content filters (MUSIC_SONGS/MUSIC_ARTISTS, confirmed present in the actual
@@ -246,8 +252,13 @@ class YouTubeMusicSearchClient @Inject constructor() {
         // that only expose one of the two tabs - checked by emptiness (isNullOrEmpty),
         // not just nullness, for the same reason as the fallback trigger above: an
         // empty-but-non-null list must still fall through to the other candidate.
-        var topTracks = (tracksTabItems.takeIf { !it.isNullOrEmpty() } ?: videosTabItems ?: emptyList()).take(20)
-        val latestTracks = (videosTabItems.takeIf { !it.isNullOrEmpty() } ?: tracksTabItems ?: emptyList()).take(20)
+        var topTracks = (tracksTabItems.takeIf { !it.isNullOrEmpty() } ?: videosTabItems ?: emptyList()).take(MAX_ARTIST_TRACKS)
+        // Artist ("- Topic") channels mostly expose no VIDEOS tab; their uploads
+        // playlist (UC... -> UU...) lists every release newest first, which is what
+        // "Neueste Titel" needs (search results carry no release date).
+        var latestTracks = videosTabItems.takeIf { !it.isNullOrEmpty() }?.take(MAX_ARTIST_TRACKS)
+            ?: channelUploads(channelUrl)
+            ?: tracksTabItems.orEmpty().take(MAX_ARTIST_TRACKS)
 
         // A "- Topic" channel typically has no usable TRACKS/VIDEOS tab at all (see
         // above) but does have an ALBUMS tab - its actual catalog just lives one level
@@ -258,7 +269,7 @@ class YouTubeMusicSearchClient @Inject constructor() {
         if (topTracks.isEmpty() && latestTracks.isEmpty() && albumItems.isNotEmpty()) {
             topTracks = runCatching { getPlaylistDetail(albumItems.first().url).tracks }
                 .getOrDefault(emptyList())
-                .take(20)
+                .take(MAX_ARTIST_TRACKS)
         }
 
         // Many "- Topic" channels expose no tabs at all through NewPipeExtractor, so
@@ -266,11 +277,17 @@ class YouTubeMusicSearchClient @Inject constructor() {
         // keeping only songs/albums credited to this artist.
         val artistName = stripTopicSuffix(info.name)
         var albums = albumItems.map { it.toAlbumResultDto() }.take(20)
-        if (topTracks.isEmpty() && latestTracks.isEmpty()) {
-            topTracks = runCatching { search(artistName, 30) }.getOrDefault(emptyList())
+        // No curated TRACKS tab: YouTube Music's song search, ranked by popularity,
+        // several pages deep so "Alle anzeigen" lists more than the first page (~17).
+        if (tracksTabItems.isNullOrEmpty()) {
+            val searched = runCatching { searchSongsPaged(artistName, MAX_ARTIST_TRACKS * 2) }.getOrDefault(emptyList())
                 .filter { it.artist?.let { a -> creditsArtist(a, artistName) } == true }
-                .take(20)
+                .distinctBy { it.title.lowercase().trim() }
+                .take(MAX_ARTIST_TRACKS)
+            if (searched.isNotEmpty()) topTracks = searched
         }
+        if (topTracks.isEmpty()) topTracks = latestTracks
+        if (latestTracks.isEmpty()) latestTracks = topTracks
         if (albums.isEmpty()) {
             albums = runCatching { searchAlbums(artistName, 20) }.getOrDefault(emptyList())
                 .filter { it.artist?.let { a -> creditsArtist(a, artistName) } == true }
@@ -299,13 +316,51 @@ class YouTubeMusicSearchClient @Inject constructor() {
         stripTopicSuffix(credit).split(",", "&", " x ", " feat. ", " ft. ")
             .any { it.trim().equals(artist, ignoreCase = true) }
 
-    private fun fetchTabTracks(tab: ListLinkHandler): List<TrackResultDto>? = runCatching {
-        ChannelTabInfo.getInfo(ServiceList.YouTube, tab)
-            .relatedItems.filterIsInstance<StreamInfoItem>()
-            .mapNotNull { it.toTrackResultDto() }
+    /** Up to [max] tracks of a channel tab, following continuation pages. */
+    private fun fetchTabTracks(tab: ListLinkHandler, max: Int = MAX_ARTIST_TRACKS): List<TrackResultDto>? = runCatching {
+        val info = ChannelTabInfo.getInfo(ServiceList.YouTube, tab)
+        val items = info.relatedItems.filterIsInstance<StreamInfoItem>().toMutableList()
+        var page = if (info.hasNextPage()) info.nextPage else null
+        var pages = 1
+        while (items.size < max && page != null && pages++ < MAX_PAGES) {
+            val more = ChannelTabInfo.getMoreItems(ServiceList.YouTube, tab, page)
+            items += more.items.filterIsInstance<StreamInfoItem>()
+            page = if (more.hasNextPage()) more.nextPage else null
+        }
+        items.mapNotNull { it.toTrackResultDto() }.take(max)
     }.onFailure { e ->
         Log.w(TAG, "failed to fetch channel tab ${tab.url}", e)
     }.getOrNull()
+
+    /** A channel's uploads playlist (newest first), one entry per title, or null. */
+    private fun channelUploads(channelUrl: String, max: Int = MAX_ARTIST_TRACKS): List<TrackResultDto>? {
+        val id = Regex("/channel/UC([\\w-]+)").find(channelUrl)?.groupValues?.get(1) ?: return null
+        val url = "https://www.youtube.com/playlist?list=UU$id"
+        return runCatching {
+            PlaylistInfo.getInfo(ServiceList.YouTube, url).relatedItems.filterIsInstance<StreamInfoItem>()
+                .mapNotNull { it.toTrackResultDto() }
+                // the same song is often uploaded several times (single, album, deluxe)
+                .distinctBy { it.title.lowercase().trim() }
+                .take(max)
+        }.onFailure { e -> Log.w(TAG, "failed to fetch uploads of $channelUrl", e) }
+            .getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** Like [search] for songs, but follows result pages until [max] items. */
+    private fun searchSongsPaged(query: String, max: Int): List<TrackResultDto> {
+        val handler = ServiceList.YouTube.searchQHFactory
+            .fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS), "")
+        val info = SearchInfo.getInfo(ServiceList.YouTube, handler)
+        val items = info.relatedItems.filterIsInstance<StreamInfoItem>().toMutableList()
+        var page = if (info.hasNextPage()) info.nextPage else null
+        var pages = 1
+        while (items.size < max && page != null && pages++ < MAX_PAGES) {
+            val more = SearchInfo.getMoreItems(ServiceList.YouTube, handler, page)
+            items += more.items.filterIsInstance<StreamInfoItem>()
+            page = if (more.hasNextPage()) more.nextPage else null
+        }
+        return items.mapNotNull { it.toTrackResultDto() }.take(max)
+    }
 
     // Backs the ALBUMS/PLAYLISTS tabs (see getArtist) - both surface PlaylistInfoItems,
     // unlike TRACKS/VIDEOS' StreamInfoItems, so this is fetchTabTracks' sibling rather

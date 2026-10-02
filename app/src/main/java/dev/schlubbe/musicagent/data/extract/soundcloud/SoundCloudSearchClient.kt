@@ -130,7 +130,7 @@ class SoundCloudSearchClient @Inject constructor(
         // own runCatching - a 404/network failure on either must not fail the whole
         // artist page, same reasoning as the ytmusic tab-by-tab handling.
         val tracksDeferred = async {
-            api.get("users/$userId/tracks", mapOf("limit" to "50", "linked_partitioning" to "1"))
+            api.get("users/$userId/tracks", mapOf("limit" to "100", "linked_partitioning" to "1"))
         }
         val albumsDeferred = async {
             runCatching { api.get("users/$userId/albums", mapOf("limit" to "20")) }.getOrNull()
@@ -139,7 +139,7 @@ class SoundCloudSearchClient @Inject constructor(
             runCatching { api.get("users/$userId/playlists_without_albums", mapOf("limit" to "20")) }.getOrNull()
         }
 
-        // A single 50-track batch covers both "top" and "latest" - sorting it two
+        // A single 100-track batch covers both "top" and "latest" - sorting it two
         // different ways client-side instead of issuing a second API call keeps this
         // page to one request, same rate-limit-conscious approach as the follower list.
         val tracksData = tracksDeferred.await()

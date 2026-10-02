@@ -1,9 +1,9 @@
 package dev.schlubbe.musicagent.desktop.ui
 
 import androidx.compose.ui.geometry.Offset
-import dev.schlubbe.musicagent.desktop.audio.EqBand
-import dev.schlubbe.musicagent.desktop.audio.EqProfile
-import dev.schlubbe.musicagent.desktop.audio.FilterType
+import dev.schlubbe.musicagent.playback.eq.EqBand
+import dev.schlubbe.musicagent.playback.eq.EqProfile
+import dev.schlubbe.musicagent.playback.eq.FilterType
 import dev.schlubbe.musicagent.desktop.ui.screens.EqGeometry
 import kotlin.test.Test
 import kotlin.test.assertEquals

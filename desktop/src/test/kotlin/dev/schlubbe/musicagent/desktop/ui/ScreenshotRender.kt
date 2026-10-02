@@ -5,7 +5,7 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import dev.schlubbe.musicagent.desktop.APP_VERSION
 import dev.schlubbe.musicagent.desktop.AppGraph
-import dev.schlubbe.musicagent.desktop.audio.EqProfile
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
 import java.nio.file.Files
@@ -27,7 +27,7 @@ class ScreenshotRender {
                 "settings" -> ui.navigateRoot(Route.Settings)
                 "search" -> ui.navigateRoot(Route.Search("daft punk"))
             }
-            val scene = ImageComposeScene(1440, (System.getenv("GROOVEO_SHOT_H") ?: "900").toInt(), Density(1f)) {
+            val scene = ImageComposeScene((System.getenv("GROOVEO_SHOT_W") ?: "1440").toInt(), (System.getenv("GROOVEO_SHOT_H") ?: "900").toInt(), Density(1f)) {
                 CompositionLocalProvider(LocalUi provides ui) { GrooveoTheme("dark") { AppShell() } }
             }
             var t = 0L

@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.data.backup
 
+import dev.schlubbe.musicagent.playback.eq.EqProfile
+
 /** JSON shape written by [BackupManager]. Kept as its own file so the schema is
  * easy to read/diff independently of the read/write logic. [BackupPayload.version]
  * exists purely for future-compatibility -- [BackupManager] doesn't yet branch on
@@ -71,7 +73,11 @@ data class BackupSavedPlaylistDto(
 data class BackupSettingsDto(
     val hiResAudio: Boolean,
     val dataSaverMode: Boolean,
+    /** Legacy preset name (FLAT/BASS_BOOST/TREBLE_BOOST/VOCAL/CUSTOM), still written for older app versions. */
     val eqPreset: String,
+    /** Full parametric EQ; null in backups made before the parametric EQ existed. */
+    val eqProfile: EqProfile? = null,
+    val eqUserPresets: List<EqProfile>? = null,
     val playerStyle: String,
     val autoplayRadio: Boolean,
     val contentSafetyFilter: Boolean = true,
@@ -85,3 +91,12 @@ data class BackupSettingsDto(
     val profileName: String,
     val profileColorStyle: String,
 )
+
+/** Closest legacy preset name for [BackupSettingsDto.eqPreset]. */
+fun EqProfile.legacyPresetName(): String = when {
+    !enabled || name == "Flach" -> "FLAT"
+    name == "Bass-Boost" -> "BASS_BOOST"
+    name == "Höhen-Boost" -> "TREBLE_BOOST"
+    name == "Vocal" -> "VOCAL"
+    else -> "CUSTOM"
+}

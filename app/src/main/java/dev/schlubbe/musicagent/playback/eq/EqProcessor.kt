@@ -1,4 +1,4 @@
-package dev.schlubbe.musicagent.desktop.audio
+package dev.schlubbe.musicagent.playback.eq
 
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
@@ -17,7 +17,7 @@ import kotlin.math.pow
  * changes cross-fade from the old chain to the new one. [setProfile]/[setVolume]
  * may be called from any thread; [process] runs on the audio thread.
  */
-class EqProcessor(private val fs: Double = SAMPLE_RATE) {
+class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
     private val pendingProfile = AtomicReference<EqProfile?>(null)
     @Volatile private var volume = 0.8f
     private var profile: EqProfile = EqProfile.flat()

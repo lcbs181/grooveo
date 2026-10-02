@@ -7,7 +7,7 @@ level deeper into the package layout.
 The Android app lives in the Gradle module `:app`
 (`dev.schlubbe.musicagent`). No backend is required for the core experience.
 A Linux desktop app lives in `:desktop` and compiles the platform-independent
-parts of `:app` (extraction, feed, lyrics, backup models, reverb) directly from
+parts of `:app` (extraction, feed, lyrics, backup models, reverb, equalizer) directly from
 its sources; see [DESKTOP.md](DESKTOP.md) — see [Optional backend link](../README.md#optional-backend-link)
 for the one part that does talk to a server.
 
@@ -24,7 +24,10 @@ app/src/main/java/dev/schlubbe/musicagent/
 ├── di/                    Hilt modules
 ├── download/              download queue/worker (WorkManager)
 ├── playback/              MediaLibraryService, PlayerController, queue state,
-│                          Android Auto browse tree (BrowseTree.kt)
+│   │                      Android Auto browse tree (BrowseTree.kt)
+│   ├── eq/                parametric equalizer DSP (shared with :desktop) and
+│   │                      its Media3 AudioProcessor
+│   └── reverb/            convolution reverb for 3D-Sound
 ├── update/                background update-check worker (see UpdateRepository)
 ├── widget/                home-screen widget (Jetpack Glance)
 └── ui/
@@ -70,6 +73,34 @@ playback through a single shared `MediaController` wrapper,
 `playback/PlayerController.kt`, rather than holding its own player instance.
 This is what keeps playback state (now-playing, queue, position) consistent
 across the whole app and the widget without manual synchronization.
+
+### Audio processing
+
+All effects run in-process inside the `DefaultAudioSink`'s processor chain, so
+they behave the same on every device:
+
+```
+decoder ─ ParametricEqAudioProcessor ─ TeeAudioProcessor (visualizer) ─ ConvolutionReverbAudioProcessor ─ AudioTrack
+```
+
+The **parametric equalizer** (`playback/eq/`) is the same code the desktop app
+runs: Vicanek matched biquads in double precision, up to 16 bands (bell,
+shelves, high/low-pass up to 48 dB/oct, notch), a subsonic filter, a
+psychoacoustic bass enhancer, loudness compensation and a look-ahead limiter
+(details in [DESKTOP.md](DESKTOP.md#audio-engine)).
+`ParametricEqAudioProcessor` handles 16-bit and float PCM (the hi-res path),
+mono or stereo, at the device's sample rate. It replaces the old
+`android.media.audiofx.Equalizer`, whose band count and frequencies varied by
+device (usually five fixed bands) and which had to be re-attached on every
+audio-session change. Loudness compensation reads the music stream's real
+attenuation from `AudioManager.getStreamVolumeDb`. The crossfade tail player
+gets its own EQ instance, so the outgoing track keeps its EQ during a fade.
+
+The profile is stored as JSON in DataStore (`eq_profile`, see
+`playback/eq/EqCodec.kt`). Settings from older versions (a preset name plus
+five custom gains) are migrated on first read. Backups carry the full profile
+and the saved user profiles, and keep the old `eqPreset` name for older app
+versions.
 
 ### Android Auto
 

@@ -1,6 +1,7 @@
 # Grooveo Desktop
 
-`:desktop` is a Compose Multiplatform (JVM) build of Grooveo for Linux. It has
+`:desktop` is a Compose Multiplatform (JVM) build of Grooveo for Linux and
+Windows. It has
 the same features as the Android app, plus a few that only make sense on a
 desktop.
 
@@ -21,14 +22,16 @@ desktop.
   - right-click menus everywhere;
   - keyboard shortcuts;
   - a tray icon, with an option to minimise to the tray;
-  - MPRIS media controls;
+  - MPRIS media controls (Linux);
   - notifications for new uploads from artists you follow;
   - backup files you can move between Android and desktop, plus a weekly
     automatic backup.
 
 ## Requirements
 
-You need JDK 21 to build. The packaged app bundles its own runtime.
+You need JDK 21 to build. The packaged app bundles its own runtime. The
+Android SDK is optional: without one, Gradle leaves out `:app` and builds only
+the desktop app (it compiles the shared sources straight from `app/src`).
 
 ## Running
 
@@ -39,10 +42,14 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew :desktop:run
 To build a self-contained package (it includes its own Java runtime):
 
 ```
-./gradlew :desktop:packageAppImage      # or packageDeb / packageRpm
+./gradlew :desktop:createDistributable  # portable folder, bin/Grooveo
+./gradlew :desktop:packageDeb           # or packageRpm / packageAppImage (Linux), packageMsi (Windows)
 ```
 
-The package lands in `desktop/build/compose/binaries/main/`. Nothing needs to
+The package lands in `desktop/build/compose/binaries/main/`. jpackage cannot
+cross-package, so build Windows packages on Windows (the release workflow
+does this on a GitHub Windows runner). The FFmpeg natives are picked for the
+building OS (`nativePlatform` in `desktop/build.gradle.kts`). Nothing needs to
 be installed on the system. Decoding and resampling use the bundled FFmpeg
 libraries (JavaCV). The equalizer, limiter and reverb are pure Kotlin.
 
@@ -65,9 +72,9 @@ desktop/src/main/kotlin/
 
 ### Sharing code with the Android app
 
-The extraction clients (SoundCloud, YouTube Music via NewPipeExtractor), the
-search, feed, lyrics, backup models and the convolution reverb are **not
-copied**. `desktop/build.gradle.kts` (`sharedFiles`) compiles those files
+The extraction clients (SoundCloud, YouTube Music via NewPipeExtractor) and
+their HTTP client, the search, feed, lyrics, backup models, the convolution
+reverb and the parametric equalizer are **not copied**. `desktop/build.gradle.kts` (`sharedFiles`) compiles those files
 straight from `app/src/main/java`. The few Android types they reference
 (`android.util.Log`, Room DAOs, the DataStore-backed `SettingsRepository`)
 have desktop implementations with the same fully-qualified names. A fix in
@@ -88,7 +95,8 @@ FfmpegDeck B ─┘  (gapless hand-over,
   HTTP(S), HLS, Opus, AAC, MP3 and FLAC. The output is resampled to
   48 kHz s16 stereo. Each deck has a bounded ring buffer, so it only decodes
   as fast as the mixer reads.
-* **Parametric equalizer** (`ParametricEq.kt`, `MatchedBiquad.kt`, `EqProcessor.kt`):
+* **Parametric equalizer** (`app/.../playback/eq/`: `ParametricEq.kt`,
+  `MatchedBiquad.kt`, `EqProcessor.kt`, shared with the Android app):
   the design follows the open-source state of the art, adapted for
   in-process use.
   * **Filter design**: Martin Vicanek's analog-matched biquads ("Matched
@@ -116,6 +124,12 @@ FfmpegDeck B ─┘  (gapless hand-over,
     gets an automatic preamp for headroom.
   * **Profiles**: you can import and export the Equalizer APO / AutoEQ
     `ParametricEQ.txt` format.
+* **Streaming**: stream URLs come from the same resolver as on Android
+  (`StreamResolverRegistry.resolveWithFallback`: downloaded copy first, then
+  the source, then the same recording on YouTube Music); downloads use it too.
+  If a stream breaks during playback (a network drop, or an expired signed
+  URL in a preloaded next track), the player resolves a fresh URL and resumes
+  at the same position, up to two times, like the Android player's retries.
 * **Crossfade**: when "Übergänge analysieren" has analysed a track, the fade
   starts at that track's mix-out point and the next track starts at its
   mix-in point. Without an analysis, the fade covers the last *n* seconds.
@@ -128,7 +142,8 @@ runs in-process with one block (21 ms) of latency.
 
 ## Data
 
-Everything lives in `$XDG_DATA_HOME/grooveo` (`~/.local/share/grooveo`):
+Everything lives in `$XDG_DATA_HOME/grooveo` (`~/.local/share/grooveo`), on
+Windows in `%APPDATA%\Grooveo`:
 
 | File | Contents |
 |---|---|

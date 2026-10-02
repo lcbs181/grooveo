@@ -79,10 +79,10 @@ import com.adamglin.phosphoricons.regular.MagicWand
 import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.Trash
 import com.adamglin.phosphoricons.regular.UploadSimple
-import dev.schlubbe.musicagent.desktop.audio.EqBand
-import dev.schlubbe.musicagent.desktop.audio.EqProcessor
-import dev.schlubbe.musicagent.desktop.audio.EqProfile
-import dev.schlubbe.musicagent.desktop.audio.FilterType
+import dev.schlubbe.musicagent.playback.eq.EqBand
+import dev.schlubbe.musicagent.playback.eq.EqProcessor
+import dev.schlubbe.musicagent.playback.eq.EqProfile
+import dev.schlubbe.musicagent.playback.eq.FilterType
 import dev.schlubbe.musicagent.desktop.audio.Sound3dPreset
 import dev.schlubbe.musicagent.desktop.audio.SpectrumAnalyzer
 import dev.schlubbe.musicagent.desktop.ui.C

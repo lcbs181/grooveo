@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.audio
 
+import dev.schlubbe.musicagent.playback.eq.*
+
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -116,6 +118,14 @@ class AudioEngineTest {
         engine.play(AudioSource("5", "x"))
         waitFor { sink.samples.size > 4000 }
         assertEquals(0.25f, sink.samples[3000], 1e-3f)
+    }
+
+    @Test fun `buffering clears once audio flows`() {
+        engine.play(AudioSource("5", "x"))
+        waitFor { sink.samples.size > 4000 }
+        waitFor { !engine.state.value.buffering }
+        engine.seek(0.5)
+        waitFor(2000) { !engine.state.value.buffering && engine.state.value.playing }
     }
 
     @Test fun `volume uses cubic curve`() {

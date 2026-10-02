@@ -10,7 +10,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.schlubbe.musicagent.data.backup.BackupManager
 import dev.schlubbe.musicagent.data.remote.BackendApi
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
-import dev.schlubbe.musicagent.playback.EqPreset
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import dev.schlubbe.musicagent.playback.Sound3dPreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,8 +43,8 @@ data class SettingsUiState(
     val connectionTestState: ConnectionTestState = ConnectionTestState.Idle,
     // Wiedergabe
     val hiResAudio: Boolean = false,
-    val eqPreset: EqPreset = EqPreset.FLAT,
-    val customEqGains: List<Float> = List(5) { 0f },
+    val eqProfile: EqProfile = EqProfile.flat(),
+    val eqUserPresets: List<EqProfile> = emptyList(),
     val playerStyle: String = "waveform",
     val autoplayRadio: Boolean = false,
     val contentSafetyFilter: Boolean = true,
@@ -101,13 +101,13 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            settingsRepository.eqPreset.collect { preset ->
-                _uiState.value = _uiState.value.copy(eqPreset = preset)
+            settingsRepository.eqProfile.collect { profile ->
+                _uiState.value = _uiState.value.copy(eqProfile = profile)
             }
         }
         viewModelScope.launch {
-            settingsRepository.customEqGains.collect { gains ->
-                _uiState.value = _uiState.value.copy(customEqGains = gains)
+            settingsRepository.eqUserPresets.collect { presets ->
+                _uiState.value = _uiState.value.copy(eqUserPresets = presets)
             }
         }
         viewModelScope.launch {
@@ -194,20 +194,28 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setDataSaverMode(enabled) }
     }
 
-    fun onEqPresetChanged(preset: EqPreset) {
-        _uiState.value = _uiState.value.copy(eqPreset = preset)
-        viewModelScope.launch { settingsRepository.setEqPreset(preset) }
+    /** Updates the UI immediately; the write reaches the audio processor through
+     * SettingsRepository.eqProfile (PlaybackService collects it). */
+    fun onEqProfileChanged(profile: EqProfile) {
+        _uiState.value = _uiState.value.copy(eqProfile = profile)
+        viewModelScope.launch { settingsRepository.setEqProfile(profile) }
     }
 
-    /** Dragging a band slider both persists the new gain and switches the active
-     * preset to CUSTOM (matching every fixed-preset chip's own real-persistence
-     * path) - previously this only updated local, never-persisted Compose state. */
-    fun onCustomEqGainsChanged(gains: List<Float>) {
-        _uiState.value = _uiState.value.copy(eqPreset = EqPreset.CUSTOM, customEqGains = gains)
+    /** Saves the current profile under [name], replacing a saved profile of the same name. */
+    fun onSaveEqPreset(name: String) {
+        val p = _uiState.value.eqProfile.copy(name = name)
+        val list = _uiState.value.eqUserPresets.filterNot { it.name == name } + p
+        _uiState.value = _uiState.value.copy(eqProfile = p, eqUserPresets = list)
         viewModelScope.launch {
-            settingsRepository.setCustomEqGains(gains)
-            settingsRepository.setEqPreset(EqPreset.CUSTOM)
+            settingsRepository.setEqProfile(p)
+            settingsRepository.setEqUserPresets(list)
         }
+    }
+
+    fun onDeleteEqPreset(name: String) {
+        val list = _uiState.value.eqUserPresets.filterNot { it.name == name }
+        _uiState.value = _uiState.value.copy(eqUserPresets = list)
+        viewModelScope.launch { settingsRepository.setEqUserPresets(list) }
     }
 
     fun onPlayerStyleChanged(style: String) {

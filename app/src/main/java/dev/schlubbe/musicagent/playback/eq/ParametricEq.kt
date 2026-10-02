@@ -1,4 +1,4 @@
-package dev.schlubbe.musicagent.desktop.audio
+package dev.schlubbe.musicagent.playback.eq
 
 import java.util.Locale
 import kotlin.math.PI
@@ -35,7 +35,7 @@ data class EqBand(
     )
 
     /** Biquad sections realising this band (several for steep high/low-pass). */
-    fun sections(fs: Double = SAMPLE_RATE): List<Biquad> {
+    fun sections(fs: Double = DEFAULT_SAMPLE_RATE): List<Biquad> {
         if (!enabled) return emptyList()
         return if (type.hasSlope && slope > 1) {
             // Butterworth cascade; the user's Q scales the resonance of the last section
@@ -45,7 +45,7 @@ data class EqBand(
         } else listOf(MatchedDesign.design(type, freq, gainDb, q, fs))
     }
 
-    fun responseDb(f: Double, fs: Double = SAMPLE_RATE): Double = sections(fs).sumOf { it.responseDb(2 * PI * f / fs) }
+    fun responseDb(f: Double, fs: Double = DEFAULT_SAMPLE_RATE): Double = sections(fs).sumOf { it.responseDb(2 * PI * f / fs) }
 
     companion object {
         const val MIN_FREQ = 20.0
@@ -56,7 +56,8 @@ data class EqBand(
     }
 }
 
-const val SAMPLE_RATE = 48000.0
+/** Rate used when a caller has no device rate (graphs, presets, desktop engine). */
+const val DEFAULT_SAMPLE_RATE = 48000.0
 
 data class EqProfile(
     val name: String = "Flach",

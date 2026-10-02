@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.ui
 
+import com.adamglin.phosphoricons.regular.X
+import com.adamglin.phosphoricons.fill.CheckCircle
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -40,7 +42,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,9 +87,23 @@ fun formatBytes(b: Long): String = when {
 
 fun sourceLabel(source: String) = if (source == "soundcloud") "SoundCloud" else "YouTube Music"
 
-/** Album art with a Canopy gradient placeholder. */
+/**
+ * Larger rendition of a SoundCloud/YouTube artwork URL for big views. Search results
+ * carry list-sized images (SoundCloud t500x500, YouTube Music =w120-h120/=w544-h544,
+ * i.ytimg hqdefault); the CDNs serve the same image at other sizes on request.
+ * Returns [url] unchanged for anything unknown.
+ */
+fun hiResArtwork(url: String, px: Int = 1080): String = when {
+    "sndcdn.com" in url -> url.replace(Regex("-(t\\d+x\\d+|large|crop|small|badge|tiny|mini)\\.(jpg|png)$")) { "-t${px}x$px.${it.groupValues[2]}" }
+    "googleusercontent.com" in url || "ggpht.com" in url ->
+        url.replace(Regex("=w\\d+-h\\d+")) { "=w$px-h$px" }.replace(Regex("=s\\d+(?=-|$)")) { "=s$px" }
+    "ytimg.com" in url -> url.replace(Regex("/(default|mqdefault|hqdefault|sddefault)\\.jpg(\\?.*)?$"), "/maxresdefault.jpg")
+    else -> url
+}
+
+/** Album art with a Canopy gradient placeholder. [hiRes] loads a larger rendition (falls back to [url] if missing). */
 @Composable
-fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.dp, circle: Boolean = false) {
+fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.dp, circle: Boolean = false, hiRes: Boolean = false) {
     val c = C.c
     val shape = if (circle) CircleShape else RoundedCornerShape(radius)
     Box(
@@ -93,7 +111,17 @@ fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.
         contentAlignment = Alignment.Center,
     ) {
         Icon(PhosphorIcons.Regular.MusicNote, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(size / 3))
-        if (!url.isNullOrBlank()) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        if (!url.isNullOrBlank()) {
+            var hiResFailed by remember(url) { mutableStateOf(false) }
+            val big = hiRes && !hiResFailed && hiResArtwork(url) != url
+            AsyncImage(
+                model = if (big) hiResArtwork(url) else url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onError = { if (big) hiResFailed = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -297,6 +325,7 @@ fun TrackRow(
             }
             if (t.isDrmProtected) Text("Nicht verfügbar", style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.padding(horizontal = 8.dp))
             if (liked || hovered) IconBtn(PhosphorIcons.Fill.Heart, if (liked) "Gefällt mir nicht mehr" else "Gefällt mir", tint = if (liked) c.accent2 else c.textFaint, size = 30.dp, iconSize = 16.dp) { ui.toggleLike(t) }
+            if (hovered) DownloadButton(t, size = 30.dp, iconSize = 16.dp, tint = c.textFaint)
             trailing?.invoke()
             Text(formatDuration(t.durationSec), style = MaterialTheme.typography.bodySmall, color = c.textFaint, modifier = Modifier.width(52.dp).padding(start = 8.dp))
         }
@@ -328,4 +357,37 @@ fun ErrorBox(message: String, modifier: Modifier = Modifier, onRetry: () -> Unit
 @Composable
 fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Surface(modifier, shape = RoundedCornerShape(16.dp), color = C.c.surface, tonalElevation = 0.dp) { Box(Modifier.padding(20.dp)) { content() } }
+}
+
+/**
+ * Download toggle for one track, reflecting the download state: download, progress
+ * ring (click cancels), downloaded (click removes the local copy), failed (retry).
+ * Disabled for DRM-protected tracks, which cannot be downloaded.
+ */
+@Composable
+fun DownloadButton(t: TrackResultDto, size: Dp = 36.dp, iconSize: Dp = 20.dp, tint: Color = C.c.textMuted) {
+    val ui = LocalUi.current
+    val g = ui.graph
+    val c = C.c
+    val data by g.store.data.collectAsState()
+    val dl = data.downloads.firstOrNull { it.track.key == t.key }
+    when {
+        t.isDrmProtected -> IconBtn(PhosphorIcons.Regular.DownloadSimple, "Nicht herunterladbar (DRM-geschützt)", size = size, iconSize = iconSize, tint = tint, enabled = false) {}
+        dl?.state == DownloadState.COMPLETED ->
+            IconBtn(PhosphorIcons.Fill.CheckCircle, "Heruntergeladen – Download entfernen", size = size, iconSize = iconSize, tint = c.accent) {
+                g.downloads.remove(t.key); ui.toast("Download entfernt")
+            }
+        dl?.state == DownloadState.DOWNLOADING || dl?.state == DownloadState.QUEUED || dl?.state == DownloadState.PAUSED ->
+            Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+                val pct = dl.progressPct.coerceIn(0, 100)
+                if (dl.state == DownloadState.QUEUED || pct == 0) CircularProgressIndicator(Modifier.size(iconSize), color = c.accent2, strokeWidth = 2.dp)
+                else CircularProgressIndicator({ pct / 100f }, Modifier.size(iconSize), color = c.accent2, strokeWidth = 2.dp, trackColor = c.textFaint.copy(alpha = 0.3f))
+                IconBtn(PhosphorIcons.Regular.X, if (dl.state == DownloadState.QUEUED) "Download wartet – abbrechen" else "Wird heruntergeladen ($pct %) – abbrechen", size = size, iconSize = iconSize * 0.5f, tint = tint) {
+                    g.downloads.remove(t.key); ui.toast("Download abgebrochen")
+                }
+            }
+        dl?.state == DownloadState.FAILED ->
+            IconBtn(PhosphorIcons.Regular.WarningCircle, "Download fehlgeschlagen – erneut versuchen", size = size, iconSize = iconSize, tint = c.accent2) { ui.download(listOf(t)) }
+        else -> IconBtn(PhosphorIcons.Regular.DownloadSimple, "Herunterladen", size = size, iconSize = iconSize, tint = tint) { ui.download(listOf(t)) }
+    }
 }

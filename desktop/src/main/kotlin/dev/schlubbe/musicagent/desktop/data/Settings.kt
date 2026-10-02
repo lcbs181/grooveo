@@ -1,6 +1,6 @@
 package dev.schlubbe.musicagent.desktop.data
 
-import dev.schlubbe.musicagent.desktop.audio.EqProfile
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 
 /**
  * All desktop settings. Field defaults mirror the Android app's SettingsRepository.

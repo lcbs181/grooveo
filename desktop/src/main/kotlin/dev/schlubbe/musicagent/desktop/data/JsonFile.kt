@@ -9,12 +9,21 @@ import java.nio.file.StandardCopyOption
 
 val gson: Gson = GsonBuilder().disableHtmlEscaping().create()
 
-/** Default data directory, shared with earlier Grooveo desktop builds. */
+private val isWindows = System.getProperty("os.name").lowercase().startsWith("win")
+private fun env(name: String) = System.getenv(name)?.takeIf { it.isNotBlank() }
+private val home get() = System.getProperty("user.home")
+
+/** Default data directory: %APPDATA%\Grooveo on Windows, XDG data home (~/.local/share/grooveo) elsewhere. */
 fun defaultDataDir(): File {
-    val xdg = System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
-    val base = if (xdg != null) File(xdg) else File(System.getProperty("user.home"), ".local/share")
-    return File(base, "grooveo").apply { mkdirs() }
+    val dir = if (isWindows) File(env("APPDATA") ?: "$home\\AppData\\Roaming", "Grooveo")
+    else File(env("XDG_DATA_HOME") ?: "$home/.local/share", "grooveo")
+    return dir.apply { mkdirs() }
 }
+
+/** Image cache: %LOCALAPPDATA%\Grooveo\cache\images on Windows, ~/.cache/grooveo/images elsewhere. */
+fun imageCacheDir(): File =
+    if (isWindows) File(env("LOCALAPPDATA") ?: "$home\\AppData\\Local", "Grooveo\\cache\\images")
+    else File(env("XDG_CACHE_HOME") ?: "$home/.cache", "grooveo/images")
 
 /** Reads [file] as JSON; null when missing or corrupt (corrupt files are kept aside as `.bad`). */
 fun <T> readJson(file: File, type: Type): T? {

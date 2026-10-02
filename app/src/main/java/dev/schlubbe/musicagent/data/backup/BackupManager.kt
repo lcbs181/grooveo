@@ -13,7 +13,7 @@ import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SavedPlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
-import dev.schlubbe.musicagent.playback.EqPreset
+import dev.schlubbe.musicagent.playback.eq.EqCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -74,7 +74,9 @@ class BackupManager @Inject constructor(
                 settings = BackupSettingsDto(
                     hiResAudio = settingsRepository.hiResAudio.first(),
                     dataSaverMode = settingsRepository.dataSaverMode.first(),
-                    eqPreset = settingsRepository.eqPreset.first().name,
+                    eqPreset = settingsRepository.eqProfile.first().legacyPresetName(),
+                    eqProfile = settingsRepository.eqProfile.first(),
+                    eqUserPresets = settingsRepository.eqUserPresets.first(),
                     playerStyle = settingsRepository.playerStyle.first(),
                     autoplayRadio = settingsRepository.autoplayRadio.first(),
                     contentSafetyFilter = settingsRepository.contentSafetyFilter.first(),
@@ -144,9 +146,9 @@ class BackupManager @Inject constructor(
         val s = payload.settings
         settingsRepository.setHiResAudio(s.hiResAudio)
         settingsRepository.setDataSaverMode(s.dataSaverMode)
-        runCatching { EqPreset.valueOf(s.eqPreset) }.getOrNull()?.let {
-            settingsRepository.setEqPreset(it)
-        }
+        @Suppress("USELESS_ELVIS")
+        settingsRepository.setEqProfile(s.eqProfile?.normalized() ?: EqCodec.fromLegacy(s.eqPreset ?: "FLAT", null))
+        s.eqUserPresets?.let { list -> settingsRepository.setEqUserPresets(list.filterNotNull().map { it.normalized() }) }
         settingsRepository.setPlayerStyle(s.playerStyle)
         settingsRepository.setAutoplayRadio(s.autoplayRadio)
         settingsRepository.setContentSafetyFilter(s.contentSafetyFilter)
