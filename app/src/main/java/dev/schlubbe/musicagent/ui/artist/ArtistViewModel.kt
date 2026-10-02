@@ -17,6 +17,7 @@ import dev.schlubbe.musicagent.playback.PlayerController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -96,7 +97,12 @@ class ArtistViewModel @Inject constructor(
                         isFollowing = "$source:$sourceId" in followRepository.followedIds.value,
                     )
                 }
-                .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = e.message) }
+                .onFailure { e ->
+                    // leaving the screen mid-load cancels this coroutine; that is not an
+                    // error to show (it surfaced as "StandaloneCoroutine was cancelled")
+                    if (e is CancellationException) { loadedKey = null; throw e }
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                }
         }
     }
 

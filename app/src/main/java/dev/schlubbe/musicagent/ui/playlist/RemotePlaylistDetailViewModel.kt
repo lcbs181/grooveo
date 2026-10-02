@@ -16,6 +16,7 @@ import dev.schlubbe.musicagent.playback.PlayerController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -80,7 +81,12 @@ class RemotePlaylistDetailViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { searchRepository.getPlaylistDetail(source, sourceId) }
                 .onSuccess { detail -> _uiState.value = _uiState.value.copy(detail = detail, isLoading = false) }
-                .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = e.message) }
+                .onFailure { e ->
+                    // leaving the screen mid-load cancels this coroutine; that is not an
+                    // error to show (it surfaced as "StandaloneCoroutine was cancelled")
+                    if (e is CancellationException) { throw e }
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                }
         }
     }
 
