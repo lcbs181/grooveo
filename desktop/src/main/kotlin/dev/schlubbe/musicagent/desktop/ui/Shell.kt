@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.ui
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,7 +84,12 @@ fun AppShell() {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 Sidebar(Modifier.width(232.dp).fillMaxHeight())
                 Box(Modifier.weight(1f).fillMaxHeight().padding(top = 8.dp, end = 8.dp).clip(RoundedCornerShape(16.dp)).background(c.surface.copy(alpha = if (c.isDark) 0.45f else 0.7f))) {
-                    if (ui.playerOpen) PlayerScreen() else Page()
+                    // The page stays composed under the player, so going back keeps its
+                    // loaded content, scroll position and expanded shelves.
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (ui.playerOpen) 0f else 1f }) { Page() }
+                    if (ui.playerOpen) {
+                        Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) { PlayerScreen() }
+                    }
                 }
                 ui.panel?.let { p ->
                     Box(Modifier.width(340.dp).fillMaxHeight().padding(top = 8.dp, end = 8.dp).clip(RoundedCornerShape(16.dp)).background(c.surface)) {

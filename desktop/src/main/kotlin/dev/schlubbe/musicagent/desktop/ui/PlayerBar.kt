@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.ui
 
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,7 +48,7 @@ import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
 import com.adamglin.phosphoricons.regular.ArrowsOutSimple
 import com.adamglin.phosphoricons.regular.Heart
-import com.adamglin.phosphoricons.regular.Microphone
+import com.adamglin.phosphoricons.regular.Subtitles
 import com.adamglin.phosphoricons.regular.Queue
 import com.adamglin.phosphoricons.regular.Repeat
 import com.adamglin.phosphoricons.regular.RepeatOnce
@@ -115,7 +116,7 @@ fun SeekBar(
 }
 
 @Composable
-fun VolumeControl(modifier: Modifier = Modifier) {
+fun VolumeControl(modifier: Modifier = Modifier, sliderWidth: Dp = 110.dp) {
     val g = LocalUi.current.graph
     val s by g.settings.state.collectAsState()
     var beforeMute by remember { mutableStateOf(0.8f) }
@@ -127,7 +128,7 @@ fun VolumeControl(modifier: Modifier = Modifier) {
         ) { if (v > 0f) { beforeMute = v; g.player.setVolume(0f) } else g.player.setVolume(beforeMute.coerceAtLeast(0.1f)) }
         val c = C.c
         Canvas(
-            Modifier.width(110.dp).height(20.dp)
+            Modifier.width(sliderWidth).height(20.dp)
                 .pointerInput(Unit) { detectTapGestures { g.player.setVolume(it.x / size.width) } }
                 .pointerInput(Unit) { detectDragGestures { ch, _ -> g.player.setVolume(ch.position.x / size.width) } },
         ) {
@@ -179,11 +180,15 @@ fun NowPlayingBar(modifier: Modifier = Modifier) {
     val settings by g.settings.state.collectAsState()
     val data by g.store.data.collectAsState()
     val t = q.current
+    // The right-hand controls take their natural width and the track info gives way
+    // first (ellipsis), so no button is ever pushed out of a narrow window.
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+    val compact = maxWidth < 1100.dp
     Row(
-        modifier.fillMaxWidth().height(88.dp).background(c.surface).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(88.dp).background(c.surface).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.weight(0.3f).clickable(enabled = t != null) { ui.playerOpen = !ui.playerOpen }, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f).clickable(enabled = t != null) { ui.playerOpen = !ui.playerOpen }, verticalAlignment = Alignment.CenterVertically) {
             Cover(t?.thumbnailUrl, 56.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f, fill = false)) {
@@ -194,9 +199,10 @@ fun NowPlayingBar(modifier: Modifier = Modifier) {
             if (t != null) {
                 val liked = data.likes.any { it.track.key == t.key }
                 IconBtn(if (liked) PhosphorIcons.Fill.Heart else PhosphorIcons.Regular.Heart, if (liked) "Gefällt mir nicht mehr" else "Gefällt mir", tint = if (liked) c.accent2 else c.textMuted) { ui.toggleLike(t) }
+                DownloadButton(t)
             }
         }
-        Column(Modifier.weight(0.4f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.weight(1.4f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             TransportControls()
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(formatDuration(e.positionSec), style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.width(44.dp))
@@ -204,13 +210,14 @@ fun NowPlayingBar(modifier: Modifier = Modifier) {
                 Text(formatDuration(e.durationSec ?: t?.durationSec?.toDouble()), style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.width(44.dp).padding(start = 8.dp))
             }
         }
-        Row(Modifier.weight(0.3f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             if (q.sleepTimerEndAt != null) Icon(PhosphorIcons.Regular.Timer, "Sleep-Timer aktiv", tint = c.accent2, modifier = Modifier.size(18.dp).padding(end = 4.dp))
-            IconBtn(PhosphorIcons.Regular.Microphone, "Songtext", tint = if (ui.panel == SidePanel.LYRICS) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.LYRICS) }
+            IconBtn(PhosphorIcons.Regular.Subtitles, "Songtext", tint = if (ui.panel == SidePanel.LYRICS) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.LYRICS) }
             IconBtn(PhosphorIcons.Regular.Queue, "Warteschlange", tint = if (ui.panel == SidePanel.QUEUE) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.QUEUE) }
             IconBtn(PhosphorIcons.Regular.SlidersHorizontal, "Equalizer", tint = if (settings.eq.enabled && settings.eq.name != "Flach") c.accent else c.textMuted) { ui.navigate(Route.Equalizer) }
-            VolumeControl()
+            VolumeControl(sliderWidth = if (compact) 64.dp else 110.dp)
             IconBtn(PhosphorIcons.Regular.ArrowsOutSimple, "Player öffnen", enabled = t != null) { ui.playerOpen = !ui.playerOpen }
         }
+    }
     }
 }

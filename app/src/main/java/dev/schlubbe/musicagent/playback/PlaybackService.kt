@@ -3,6 +3,8 @@ package dev.schlubbe.musicagent.playback
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -41,6 +43,7 @@ import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import dev.schlubbe.musicagent.playback.eq.ParametricEqAudioProcessor
 import dev.schlubbe.musicagent.playback.reverb.ConvolutionReverbAudioProcessor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +56,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.pow
 import javax.inject.Inject
 
 @UnstableApi
@@ -97,7 +101,10 @@ class PlaybackService : MediaLibraryService() {
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaLibrarySession? = null
-    private val equalizerController = EqualizerController()
+    // Parametric EQ in the sink's processor chain (one instance per player: the
+    // crossfade tail player gets its own so the outgoing track keeps its EQ).
+    private val eqAudioProcessor = ParametricEqAudioProcessor()
+    private val tailEqAudioProcessor = ParametricEqAudioProcessor()
     private val reverbAudioProcessor = ConvolutionReverbAudioProcessor(this)
     private val sound3dController = Sound3dController(reverbAudioProcessor)
     private val audioVisualizerController = AudioVisualizerController()
@@ -292,7 +299,7 @@ class PlaybackService : MediaLibraryService() {
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(arrayOf(TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
+                .setAudioProcessors(arrayOf(eqAudioProcessor, TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
                 .build()
         }.apply {
             if (settingsRepository.hiResAudioCached) {
@@ -332,17 +339,9 @@ class PlaybackService : MediaLibraryService() {
             .build()
         player = exoPlayer
 
-        // Equalizer is a genuine AudioEffect bound to the audio session (and unlike
-        // the Visualizer effect it needs no RECORD_AUDIO). Neither the visualizer nor
-        // 3D-sound is in this list: the visualizer reads the PCM stream via the
-        // TeeAudioProcessor installed in the audio sink above, and reverbAudioProcessor
-        // (also installed there) is its own in-process audio processor, not a
-        // platform effect - neither has a session to attach to.
+        // EQ, visualizer tap and 3D-sound are all in-process audio processors in the
+        // sink above - no platform effect bound to an audio session.
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
-            override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
-                equalizerController.attach(audioSessionId)
-            }
-
             // While paused no PCM buffers flow, so the spectrum would otherwise freeze
             // on whatever the final frame happened to be - leaving the overlay stuck
             // mid-pose. Zeroing it lets the UI settle into its rest shape, and makes
@@ -351,13 +350,15 @@ class PlaybackService : MediaLibraryService() {
                 if (!isPlaying) audioVisualizerController.reset()
             }
         })
-        // The session id may already be assigned by the time we attach the listener above.
-        equalizerController.attach(exoPlayer.audioSessionId)
 
         crossfadeController = CrossfadeController(
             context = this,
             mainPlayer = exoPlayer,
             mediaSourceFactory = mediaSourceFactory,
+            renderersFactory = object : DefaultRenderersFactory(this) {
+                override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
+                    DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(tailEqAudioProcessor)).build()
+            },
             scope = serviceScope,
             trackAnalysisDao = trackAnalysisDao,
         )
@@ -428,10 +429,25 @@ class PlaybackService : MediaLibraryService() {
         }
 
         serviceScope.launch {
-            settingsRepository.eqPreset.collect { preset -> equalizerController.applyPreset(preset) }
+            settingsRepository.eqProfile.collect { profile ->
+                eqAudioProcessor.setProfile(profile)
+                tailEqAudioProcessor.setProfile(profile)
+            }
         }
+        // Loudness compensation needs the listening level. The EQ's volume scale is
+        // cubic (gain = v^3), so the stream's real attenuation in dB maps to v = 10^(dB/60).
         serviceScope.launch {
-            settingsRepository.customEqGains.collect { gains -> equalizerController.applyCustomGains(gains) }
+            val audioManager = getSystemService(AudioManager::class.java)
+            while (isActive) {
+                val v = runCatching {
+                    val index = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    val db = audioManager.getStreamVolumeDb(AudioManager.STREAM_MUSIC, index, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+                    if (index == 0) 0f else 10f.pow(db.coerceAtMost(0f) / 60f)
+                }.getOrDefault(1f)
+                eqAudioProcessor.setVolume(v)
+                tailEqAudioProcessor.setVolume(v)
+                delay(VOLUME_POLL_MS)
+            }
         }
         serviceScope.launch {
             settingsRepository.sound3dPreset.collect { presetName ->
@@ -480,7 +496,6 @@ class PlaybackService : MediaLibraryService() {
         audioVisualizerController.reset()
         audioVisualizerController.release()
         serviceScope.cancel()
-        equalizerController.release()
         mediaSession?.run {
             player.release()
             release()
@@ -492,6 +507,7 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         private const val STALE_CHECK_INTERVAL_MS = 250L
+        private const val VOLUME_POLL_MS = 1_000L
 
         /** How often queued spectra are released to the UI - one display frame at 60Hz. */
 

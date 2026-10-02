@@ -8,6 +8,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.source.MediaSource
 import dev.schlubbe.musicagent.data.local.dao.TrackAnalysisDao
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +63,9 @@ class CrossfadeController(
     // default factory handles neither the app's OkHttp setup nor content:// reliably,
     // and a tail that fails to open just aborts the fade (see the error listener).
     private val mediaSourceFactory: MediaSource.Factory,
+    // Audio sink for the tail player: carries its own EQ instance so the outgoing
+    // track doesn't lose the EQ for the length of the fade.
+    private val renderersFactory: RenderersFactory? = null,
     private val scope: CoroutineScope,
     private val trackAnalysisDao: TrackAnalysisDao,
 ) {
@@ -177,10 +181,9 @@ class CrossfadeController(
         val uri = mainPlayer.currentMediaItem?.localConfiguration?.uri ?: return
         val position = mainPlayer.currentPosition
 
-        // No renderers factory (unlike the main player) - the secondary only ever
-        // plays a few seconds of a track already audible on the main player, so it
-        // has no visualizer tap or EQ/3D session of its own to wire up.
-        val secondary = ExoPlayer.Builder(context)
+        // Only the EQ is wired up here (see renderersFactory); the visualizer tap and
+        // 3D-sound stay on the main player.
+        val secondary = (renderersFactory?.let { ExoPlayer.Builder(context, it) } ?: ExoPlayer.Builder(context))
             .setMediaSourceFactory(mediaSourceFactory)
             // handleAudioFocus = false: the main player already holds focus for the
             // whole app, and a second focus request here would fight it.

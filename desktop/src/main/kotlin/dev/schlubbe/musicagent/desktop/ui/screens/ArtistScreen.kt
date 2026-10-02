@@ -86,10 +86,13 @@ private sealed interface ArtistLoad {
 fun ArtistScreen(route: Route) {
     val ui = LocalUi.current
     val g = ui.graph
-    var load by remember(route) { mutableStateOf<ArtistLoad>(ArtistLoad.Loading) }
+    // a page fetched this session (SearchRepository caches it) shows instantly
+    val cached = (route as? Route.Artist)?.let { g.search.cachedArtist(it.source, it.sourceId) }
+    var load by remember(route) { mutableStateOf<ArtistLoad>(cached?.let(ArtistLoad::Done) ?: ArtistLoad.Loading) }
     var retry by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(route, retry) {
+        if (retry == 0 && load is ArtistLoad.Done) return@LaunchedEffect
         load = ArtistLoad.Loading
         load = try {
             withContext(Dispatchers.IO) {
@@ -99,7 +102,7 @@ fun ArtistScreen(route: Route) {
                         ?: return@withContext ArtistLoad.NotFound
                     else -> return@withContext ArtistLoad.NotFound
                 }
-                ArtistLoad.Done(g.search.getArtist(source, id))
+                ArtistLoad.Done(g.search.getArtist(source, id, refresh = retry > 0))
             }
         } catch (e: CancellationException) {
             throw e
@@ -128,6 +131,7 @@ private fun ArtistContent(a: ArtistDetailDto) {
     val following = data.followed.any { it.source == a.source && it.sourceId == a.sourceId }
     val playable = (a.topTracks + a.latestTracks).distinctBy { it.source + it.sourceId }.filterNot { it.isDrmProtected }
     var showAllTop by remember { mutableStateOf(false) }
+    var showAllLatest by remember { mutableStateOf(false) }
 
     // SoundCloud follower list, paged.
     var followers by remember(a.sourceId) { mutableStateOf(emptyList<ArtistResultDto>()) }
@@ -189,8 +193,9 @@ private fun ArtistContent(a: ArtistDetailDto) {
             itemsIndexed(shown, key = { i, t -> "top:${t.sourceId}:$i" }) { i, t -> ArtistTrack(t, i, a.topTracks) }
         }
         if (a.latestTracks.isNotEmpty()) {
-            item { SectionHeader("Neueste Titel", Modifier.padding(horizontal = PagePad)) }
-            itemsIndexed(a.latestTracks.take(10), key = { i, t -> "new:${t.sourceId}:$i" }) { i, t -> ArtistTrack(t, i, a.latestTracks) }
+            item { SectionHeader("Neueste Titel", Modifier.padding(horizontal = PagePad), action = if (a.latestTracks.size > 5) (if (showAllLatest) "Weniger anzeigen" else "Alle anzeigen") else null) { showAllLatest = !showAllLatest } }
+            val newest = if (showAllLatest) a.latestTracks else a.latestTracks.take(5)
+            itemsIndexed(newest, key = { i, t -> "new:${t.sourceId}:$i" }) { i, t -> ArtistTrack(t, i, a.latestTracks) }
         }
         if (a.topTracks.isEmpty() && a.latestTracks.isEmpty()) item {
             EmptyState(PhosphorIcons.Regular.MicrophoneStage, "Noch keine Titel", "Von ${a.name} sind hier keine Titel verfügbar.")

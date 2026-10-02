@@ -35,8 +35,8 @@ android {
         applicationId = "dev.schlubbe.musicagent.standalone"
         minSdk = 30
         targetSdk = 37
-        versionCode = 21
-        versionName = "0.5.6"
+        versionCode = providers.gradleProperty("grooveo.versionCode").get().toInt()
+        versionName = providers.gradleProperty("grooveo.versionName").get()
 
         buildConfigField(
             "String",
@@ -129,4 +129,6 @@ dependencies {
     implementation(libs.androidx.glance.material3)
 
     implementation(libs.phosphor.icon)
+
+    testImplementation(kotlin("test-junit"))
 }

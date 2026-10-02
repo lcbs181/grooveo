@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.ui.screens
 
+import com.adamglin.phosphoricons.regular.DownloadSimple
+import com.adamglin.phosphoricons.fill.CheckCircle
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -61,7 +63,7 @@ import com.adamglin.phosphoricons.regular.CaretDown
 import com.adamglin.phosphoricons.regular.CheckCircle
 import com.adamglin.phosphoricons.regular.Cloud
 import com.adamglin.phosphoricons.regular.Heart
-import com.adamglin.phosphoricons.regular.Microphone
+import com.adamglin.phosphoricons.regular.Subtitles
 import com.adamglin.phosphoricons.regular.MusicNote
 import com.adamglin.phosphoricons.regular.PlusCircle
 import com.adamglin.phosphoricons.regular.Prohibit
@@ -71,7 +73,7 @@ import com.adamglin.phosphoricons.regular.UserCheck
 import com.adamglin.phosphoricons.regular.UserPlus
 import com.adamglin.phosphoricons.regular.Waveform
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
-import dev.schlubbe.musicagent.desktop.audio.EqProfile
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import dev.schlubbe.musicagent.desktop.audio.Sound3dPreset
 import dev.schlubbe.musicagent.desktop.data.FollowedArtist
 import dev.schlubbe.musicagent.desktop.data.key
@@ -136,13 +138,21 @@ private fun PlayerContent() {
                     val side = minOf(maxWidth, maxHeight)
                     if (q.error != null) {
                         UnavailableState(q.error!!, t.thumbnailUrl) { g.player.next() }
-                    } else if (settings.vizVariant == "none") {
-                        Cover(t.thumbnailUrl, side * 0.88f, radius = 20.dp)
                     } else {
-                        Visualizer(
-                            settings.vizVariant, e.playing, { g.player.spectrum.latest }, c.accent2,
-                            Modifier.size(side),
-                        )
+                        // artwork behind the visualizer, darkened towards the bottom so it stays readable
+                        Box(Modifier.size(side), contentAlignment = Alignment.Center) {
+                            Cover(t.thumbnailUrl, side * 0.88f, radius = 20.dp, hiRes = true)
+                            if (settings.vizVariant != "none") {
+                                Box(
+                                    Modifier.size(side * 0.88f).clip(RoundedCornerShape(20.dp))
+                                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.6f)))),
+                                )
+                                Visualizer(
+                                    settings.vizVariant, e.playing, { g.player.spectrum.latest }, c.accent2,
+                                    Modifier.size(side),
+                                )
+                            }
+                        }
                     }
                 }
                 Column(
@@ -192,7 +202,7 @@ private fun PlayerTopBar(source: String?) {
             }
         }
         Spacer(Modifier.width(16.dp))
-        IconBtn(PhosphorIcons.Regular.Microphone, "Songtext", tint = if (ui.panel == SidePanel.LYRICS) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.LYRICS) }
+        IconBtn(PhosphorIcons.Regular.Subtitles, "Songtext", tint = if (ui.panel == SidePanel.LYRICS) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.LYRICS) }
         IconBtn(PhosphorIcons.Regular.Queue, "Warteschlange", tint = if (ui.panel == SidePanel.QUEUE) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.QUEUE) }
     }
 }
@@ -251,6 +261,13 @@ private fun TrackInfo() {
                     if (a == null) ui.toast("Künstler nicht gefunden")
                     else { g.store.toggleFollow(FollowedArtist(a.source, a.sourceId, a.name, a.thumbnailUrl)); ui.toast("Du folgst jetzt ${a.name}") }
                 }
+            }
+            val dl = g.store.data.collectAsState().value.downloads.firstOrNull { it.track.key == t.key }
+            when {
+                t.isDrmProtected -> {}
+                dl?.state == DownloadState.COMPLETED -> ActionChip(PhosphorIcons.Fill.CheckCircle, "Heruntergeladen", true) { g.downloads.remove(t.key); ui.toast("Download entfernt") }
+                dl != null && dl.state != DownloadState.FAILED -> ActionChip(PhosphorIcons.Regular.DownloadSimple, "Lädt … ${dl.progressPct} %", true) { g.downloads.remove(t.key); ui.toast("Download abgebrochen") }
+                else -> ActionChip(PhosphorIcons.Regular.DownloadSimple, if (dl?.state == DownloadState.FAILED) "Erneut herunterladen" else "Herunterladen", false) { ui.download(listOf(t)) }
             }
             ActionChip(PhosphorIcons.Regular.ShareNetwork, "Teilen", false) { ui.copyLink(t.webpageUrl) }
             ActionChip(PhosphorIcons.Regular.PlusCircle, "Zu Playlist", false) { ui.addToPlaylist = listOf(t) }

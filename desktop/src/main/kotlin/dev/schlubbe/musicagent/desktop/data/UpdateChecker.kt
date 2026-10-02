@@ -16,9 +16,11 @@ class UpdateChecker(private val http: OkHttpClient, private val currentVersion: 
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return@withContext null
             val o = JsonParser.parseString(resp.body.string()).asJsonObject
-            val tag = o.get("tag_name")?.asString ?: return@withContext null
-            if (!isNewer(tag, currentVersion)) return@withContext null
-            UpdateInfo(tag.removePrefix("v"), o.get("body")?.takeIf { !it.isJsonNull }?.asString.orEmpty(), o.get("html_url")?.asString.orEmpty())
+            // tags are the Android versionCode ("v22"); the release title is the
+            // shared versionName ("0.6.0") that both apps report
+            val version = o.get("name")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } ?: return@withContext null
+            if (!isNewer(version, currentVersion)) return@withContext null
+            UpdateInfo(version.removePrefix("v"), o.get("body")?.takeIf { !it.isJsonNull }?.asString.orEmpty(), o.get("html_url")?.asString.orEmpty())
         }
     }
 

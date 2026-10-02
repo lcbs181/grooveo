@@ -23,7 +23,7 @@ class PlayerControllerTest {
     private val dir = Files.createTempDirectory("grooveo-pc").toFile()
     private val store = LibraryStore(dir)
     private val settings = SettingsRepository(File(dir, "settings.json")).apply {
-        update { it.copy(autoplayRadio = false, eq = dev.schlubbe.musicagent.desktop.audio.EqProfile(enabled = false)) }
+        update { it.copy(autoplayRadio = false, eq = dev.schlubbe.musicagent.playback.eq.EqProfile(enabled = false)) }
     }
     private val resolved = mutableListOf<String>()
     private var radio: List<dev.schlubbe.musicagent.data.remote.dto.TrackResultDto> = emptyList()
@@ -33,7 +33,15 @@ class PlayerControllerTest {
     private val engine by lazy { AudioEngine({ FakeDeck(deckSeconds) }, CaptureSink()).apply { volume = 1f } }
     private val pc by lazy { PlayerController(
         engine,
-        resolveRemote = { t -> resolved += t.sourceId; if (t.sourceId == "9") error("kaputt") else ResolvedStream("mem://${t.sourceId}", false) },
+        resolveRemote = { t ->
+            resolved += t.sourceId
+            when {
+                t.sourceId == "9" -> error("kaputt")
+                // "8": the first URL breaks during playback (like an expired signed URL)
+                t.sourceId == "8" && resolved.count { it == "8" } == 1 -> ResolvedStream("bad", false)
+                else -> ResolvedStream("mem://${t.sourceId}", false)
+            }
+        },
         recommend = { _, _, _ -> radio },
         store = store,
         settings = settings,
@@ -94,6 +102,13 @@ class PlayerControllerTest {
         pc.playQueue(listOf(track("9"), track("2")))
         waitFor { pc.state.value.current?.sourceId == "2" && pc.engineState.value.currentId == "soundcloud:2" }
         assertEquals(listOf("9", "2"), resolved.take(2))
+    }
+
+    @Test fun `broken stream is re-resolved and retried instead of skipped`() {
+        pc.playQueue(listOf(track("8"), track("2")))
+        waitFor { resolved.count { it == "8" } == 2 && pc.engineState.value.playing }
+        assertEquals("8", pc.state.value.current?.sourceId)
+        assertNull(pc.state.value.error)
     }
 
     @Test fun `downloaded copy is preferred and data saver blocks streaming`() {

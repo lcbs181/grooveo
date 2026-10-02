@@ -71,7 +71,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
-import dev.schlubbe.musicagent.playback.EqPreset
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
@@ -101,13 +101,7 @@ private fun formatMs(ms: Long): String {
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
-private fun eqPresetLabel(preset: EqPreset): String = when (preset) {
-    EqPreset.FLAT -> "Flach"
-    EqPreset.BASS_BOOST -> "Bass-Boost"
-    EqPreset.TREBLE_BOOST -> "Höhen-Boost"
-    EqPreset.VOCAL -> "Vocal"
-    EqPreset.CUSTOM -> "Eigen"
-}
+private fun eqLabel(profile: EqProfile): String = if (profile.enabled) profile.name else "Aus"
 
 /** The Player's artwork is a fixed 232dp square per the handoff (GrooveoApp.dc.html
  * line 293), not a fraction-of-screen-width like the previous Nocturne layout --
@@ -147,7 +141,8 @@ fun PlayerScreen(
     val isLiked by viewModel.isLiked.collectAsState()
     val artistNavState by viewModel.artistNavState.collectAsState()
     val sleepTimerEndAtMs by viewModel.sleepTimerEndAtMs.collectAsState()
-    val eqPreset by viewModel.eqPreset.collectAsState()
+    val eqProfile by viewModel.eqProfile.collectAsState()
+    val eqUserPresets by viewModel.eqUserPresets.collectAsState()
     val playerStyle by viewModel.playerStyle.collectAsState()
     val addToPlaylistState by viewModel.addToPlaylistState.collectAsState()
     val lyricsState by viewModel.lyricsState.collectAsState()
@@ -816,20 +811,23 @@ fun PlayerScreen(
                 )
                 Box {
                     CanopyChip(
-                        label = "Equalizer: ${eqPresetLabel(eqPreset)}",
+                        label = "Equalizer: ${eqLabel(eqProfile)}",
                         active = true,
                         onClick = { showEqMenu = true },
                     )
                     DropdownMenu(expanded = showEqMenu, onDismissRequest = { showEqMenu = false }) {
-                        EqPresetMenuItem("Flach", EqPreset.FLAT, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        EqPresetMenuItem("Bass-Boost", EqPreset.BASS_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        EqPresetMenuItem("Höhen-Boost", EqPreset.TREBLE_BOOST, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        EqPresetMenuItem("Vocal", EqPreset.VOCAL, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
-                        // Re-selects whatever custom band gains were last saved in
-                        // Einstellungen > Equalizer (EqualizerController.applyCustomGains) -
-                        // there's nothing new to set from here, this just switches back
-                        // to it if the user had picked a fixed preset since.
-                        EqPresetMenuItem("Eigen", EqPreset.CUSTOM, eqPreset) { showEqMenu = false; viewModel.setEqPreset(it) }
+                        // Built-in profiles plus the user's saved ones; the full
+                        // parametric editor lives in Einstellungen > Equalizer.
+                        (EqProfile.PRESETS + eqUserPresets).forEach { p ->
+                            EqPresetMenuItem(p.name, eqProfile.enabled && eqProfile.name == p.name) {
+                                showEqMenu = false
+                                viewModel.setEqProfile(p.copy(enabled = true))
+                            }
+                        }
+                        EqPresetMenuItem("Aus", !eqProfile.enabled) {
+                            showEqMenu = false
+                            viewModel.setEqProfile(eqProfile.copy(enabled = false))
+                        }
                     }
                 }
                 // The design's "Zur Warteschlange" chip just flashes a toast in the mockup;
@@ -899,19 +897,18 @@ fun PlayerScreen(
 @Composable
 private fun EqPresetMenuItem(
     label: String,
-    preset: EqPreset,
-    selected: EqPreset,
-    onSelect: (EqPreset) -> Unit,
+    selected: Boolean,
+    onSelect: () -> Unit,
 ) {
     DropdownMenuItem(
         text = { Text(label) },
         leadingIcon = { Icon(phosphorIcon("sliders-horizontal"), contentDescription = null, tint = Canopy.accent) },
         trailingIcon = {
-            if (preset == selected) {
+            if (selected) {
                 Icon(phosphorIcon("check-circle", filled = true), contentDescription = null, tint = Canopy.accent)
             }
         },
-        onClick = { onSelect(preset) },
+        onClick = onSelect,
     )
 }
 

@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.audio
 
+import dev.schlubbe.musicagent.playback.eq.*
+
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
 import kotlin.math.abs

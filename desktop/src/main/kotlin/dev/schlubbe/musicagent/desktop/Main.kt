@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop
 
+import dev.schlubbe.musicagent.desktop.data.imageCacheDir
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -58,7 +59,7 @@ fun main() {
             ImageLoader.Builder(ctx)
                 .components { add(OkHttpNetworkFetcherFactory(callFactory = { graph.http })) }
                 .memoryCache { MemoryCache.Builder().maxSizePercent(ctx, 0.2).build() }
-                .diskCache { DiskCache.Builder().directory(File(System.getProperty("user.home"), ".cache/grooveo/images").toOkioPath()).maxSizeBytes(256L shl 20).build() }
+                .diskCache { DiskCache.Builder().directory(imageCacheDir().toOkioPath()).maxSizeBytes(256L shl 20).build() }
                 .crossfade(true)
                 .build()
         }

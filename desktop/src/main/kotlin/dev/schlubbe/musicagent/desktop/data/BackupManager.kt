@@ -6,6 +6,7 @@ import dev.schlubbe.musicagent.data.backup.BackupPlaylistDto
 import dev.schlubbe.musicagent.data.backup.BackupSavedPlaylistDto
 import dev.schlubbe.musicagent.data.backup.BackupSettingsDto
 import dev.schlubbe.musicagent.data.backup.BackupTrackDto
+import dev.schlubbe.musicagent.data.backup.legacyPresetName
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import java.io.File
@@ -33,7 +34,7 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
             followedArtists = d.followed.map { BackupFollowedArtistDto(it.source, it.sourceId, it.name, it.thumbnailUrl, Instant.ofEpochMilli(it.followedAt).toString()) },
             savedPlaylists = d.savedPlaylists.map { BackupSavedPlaylistDto(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, Instant.ofEpochMilli(it.savedAt).toString()) },
             settings = BackupSettingsDto(
-                hiResAudio = s.hiResAudio, dataSaverMode = s.dataSaverMode, eqPreset = s.eq.name, playerStyle = s.playerStyle,
+                hiResAudio = s.hiResAudio, dataSaverMode = s.dataSaverMode, eqPreset = s.eq.legacyPresetName(), eqProfile = s.eq, eqUserPresets = s.eqUserPresets, playerStyle = s.playerStyle,
                 autoplayRadio = s.autoplayRadio, contentSafetyFilter = s.contentSafetyFilter, sound3dPreset = s.sound3dPreset,
                 downloadsWifiOnly = false, notifyNewUploads = s.notifyNewUploads, showMixControls = s.showMixControls,
                 showFeatured = s.showFeatured, showNewUploads = s.showNewUploads, autoBackup = s.autoBackup,
@@ -69,6 +70,8 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
                     sound3dPreset = b.sound3dPreset ?: it.sound3dPreset, playerStyle = b.playerStyle ?: it.playerStyle,
                     showMixControls = b.showMixControls, showFeatured = b.showFeatured, showNewUploads = b.showNewUploads,
                     profileName = b.profileName ?: it.profileName, profileColorStyle = b.profileColorStyle ?: it.profileColorStyle,
+                    eq = b.eqProfile?.normalized() ?: it.eq,
+                    eqUserPresets = b.eqUserPresets?.filterNotNull()?.map { p -> p.normalized() } ?: it.eqUserPresets,
                 )
             }
         }

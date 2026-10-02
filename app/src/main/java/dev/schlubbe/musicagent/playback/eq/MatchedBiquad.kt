@@ -1,4 +1,4 @@
-package dev.schlubbe.musicagent.desktop.audio
+package dev.schlubbe.musicagent.playback.eq
 
 import kotlin.math.PI
 import kotlin.math.cos

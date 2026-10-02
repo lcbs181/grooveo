@@ -29,7 +29,6 @@ import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import java.io.File
 
-const val APP_VERSION = "1.0.0"
 
 /** Manual dependency graph (the Android app uses Hilt for the same wiring). */
 class AppGraph(val dataDir: File = defaultDataDir()) {
@@ -49,7 +48,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     val resolver = StreamResolverRegistry(SoundCloudStreamResolver(scApi), YouTubeStreamResolver(), YouTubeFallback(ytSearch), store)
     val feed = FeedRepository(store, LikesRepository(store), search, settings)
     val lyrics = LyricsRepository(http)
-    val downloads = DownloadManager(store, { t -> resolver.resolve(t.source, t.sourceId, preferProgressive = true) }, http, { downloadDir() })
+    val downloads = DownloadManager(store, { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec, preferProgressive = true) }, http, { downloadDir() })
     val backup = BackupManager(store, settings, File(dataDir, "backups"))
     val updates = UpdateChecker(http, APP_VERSION)
     val player = PlayerController(

@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.audio
 
+import dev.schlubbe.musicagent.playback.eq.*
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +33,9 @@ interface EngineListener {
  * crossfade (optionally starting at an analysed mix-out point). Post-mix stages:
  * 3D-Sound convolution, volume, soft clip, spectrum analysis, output.
  */
+/** Engine output rate: everything is decoded and processed at 48 kHz stereo. */
+const val SAMPLE_RATE = DEFAULT_SAMPLE_RATE
+
 class AudioEngine(
     deckFactory: (String) -> Deck,
     private val sink: PcmSink,
@@ -162,7 +167,9 @@ class AudioEngine(
             waitedMs += 2
             if (waitedMs == 150) publish(buffering = true)
         }
-        if (waitedMs >= 150) publish(buffering = false)
+        // clear the flag set by play()/seek() too, not only after a stall: audio that
+        // arrives within 150 ms otherwise left the play button spinning while playing
+        if (got > 0 && (waitedMs >= 150 || _state.value.buffering)) publish(buffering = false)
         return got
     }
 

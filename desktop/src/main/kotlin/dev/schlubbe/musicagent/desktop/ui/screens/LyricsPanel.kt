@@ -32,7 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
-import com.adamglin.phosphoricons.regular.Microphone
+import com.adamglin.phosphoricons.regular.Subtitles
 import com.adamglin.phosphoricons.regular.X
 import dev.schlubbe.musicagent.data.repository.LyricLine
 import dev.schlubbe.musicagent.data.repository.Lyrics
@@ -86,9 +86,9 @@ fun LyricsPanel(modifier: Modifier = Modifier) {
         }
         Column(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                t == null -> EmptyState(PhosphorIcons.Regular.Microphone, "Nichts läuft", "Spiele einen Titel ab.")
+                t == null -> EmptyState(PhosphorIcons.Regular.Subtitles, "Nichts läuft", "Spiele einen Titel ab.")
                 !loaded -> LoadingBox()
-                lyrics == null -> EmptyState(PhosphorIcons.Regular.Microphone, "Keine Songtexte gefunden", "Für diesen Titel gibt es bei LRCLIB keinen Text.")
+                lyrics == null -> EmptyState(PhosphorIcons.Regular.Subtitles, "Keine Songtexte gefunden", "Für diesen Titel gibt es bei LRCLIB keinen Text.")
                 lyrics.synced != null -> SyncedLyrics(lyrics.synced!!)
                 else -> Text(
                     lyrics.plain.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = c.text,

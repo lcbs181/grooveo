@@ -69,7 +69,23 @@ class ArtistViewModel @Inject constructor(
         }
     }
 
+    /** Route of the page currently shown; see [load]. */
+    private var loadedKey: String? = null
+
+    /** Called whenever the screen (re-)enters composition, e.g. on coming back from
+     * the player. An already loaded page is kept as is (scroll position survives with
+     * it); a page fetched earlier this session comes from SearchRepository's cache. */
     fun load(source: String, sourceId: String) {
+        val key = "$source:$sourceId"
+        if (key == loadedKey && _uiState.value.artist != null) return
+        loadedKey = key
+        searchRepository.cachedArtist(source, sourceId)?.let { artist ->
+            _uiState.value = _uiState.value.copy(
+                artist = artist, isLoading = false, error = null,
+                isFollowing = key in followRepository.followedIds.value,
+            )
+            return
+        }
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
             runCatching { searchRepository.getArtist(source, sourceId) }

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.playback.Sound3dPreset
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyChip
@@ -182,11 +183,11 @@ fun SettingsScreen(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        EQ_PRESET_ORDER.forEach { (preset, label) ->
+                        (EqProfile.PRESETS + uiState.eqUserPresets).forEach { p ->
                             CanopyChip(
-                                label = label,
-                                active = uiState.eqPreset == preset,
-                                onClick = { viewModel.onEqPresetChanged(preset) },
+                                label = p.name,
+                                active = uiState.eqProfile.enabled && uiState.eqProfile.name == p.name,
+                                onClick = { viewModel.onEqProfileChanged(p.copy(enabled = true)) },
                             )
                         }
                     }
@@ -203,13 +204,13 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         EqCurvePreview(
-                            gains = EQ_PRESET_GAINS[uiState.eqPreset] ?: List(5) { 0f },
+                            profile = uiState.eqProfile,
                             modifier = Modifier.size(width = 44.dp, height = 34.dp),
                         )
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Bänder einstellen", style = MaterialTheme.typography.labelLarge)
+                            Text("Parametrischer EQ", style = MaterialTheme.typography.labelLarge)
                             Text(
-                                eqPresetLabel(uiState.eqPreset),
+                                if (uiState.eqProfile.enabled) "${uiState.eqProfile.name} · ${uiState.eqProfile.bands.size} Bänder" else "Aus",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Canopy.neutral500,
                                 modifier = Modifier.padding(top = 2.dp),

@@ -69,12 +69,14 @@ class PlayerController(
     private var sleepJob: Job? = null
     private var radioJob: Job? = null
     private var consecutiveFailures = 0
+    /** Stream retries for the current track (reset when a track starts), see [onPlaybackError]. */
+    private var streamRetries = 0
 
     init {
         engine.listener = object : EngineListener {
             override fun onStarted(source: AudioSource, automatic: Boolean) = onEngineStarted(source, automatic)
             override fun onEnded(source: AudioSource) { scope.launch { onEngineEnded() } }
-            override fun onError(source: AudioSource, message: String) { scope.launch { onEngineError(message) } }
+            override fun onError(source: AudioSource, message: String) { scope.launch { onPlaybackError(source, message) } }
         }
         scope.launch {
             settings.state.distinctUntilChangedBy { Triple(it.eq, it.sound3dPreset, it.crossfadeSeconds) }.collect { s ->
@@ -264,7 +266,7 @@ class PlayerController(
                 val src = resolveStream(t)
                 if (_state.value.current?.key != t.key) return@launch
                 engine.play(src)
-                _state.update { it.copy(resolving = false, playingLocalCopy = src.url.startsWith("/")) }
+                _state.update { it.copy(resolving = false, playingLocalCopy = "://" !in src.url) }
                 consecutiveFailures = 0
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -293,11 +295,12 @@ class PlayerController(
     }
 
     private fun onEngineStarted(source: AudioSource, automatic: Boolean) {
+        streamRetries = 0
         if (automatic) {
             val s = _state.value
             val idx = nextIndex(s, userAction = false)?.takeIf { s.queue.getOrNull(it)?.key == source.id }
                 ?: s.queue.indexOfFirst { it.key == source.id }
-            if (idx >= 0) _state.update { it.copy(index = idx, playingLocalCopy = source.url.startsWith("/")) }
+            if (idx >= 0) _state.update { it.copy(index = idx, playingLocalCopy = "://" !in source.url) }
         }
         val t = _state.value.current ?: return
         store.recordPlay(t)
@@ -343,6 +346,22 @@ class PlayerController(
         }
     }
 
+    /**
+     * A stream that breaks mid-track (network drop, expired signed URL - the preloaded
+     * next URL can be hours old) is retried like the Android app does (two retries
+     * with backoff), but with a freshly resolved URL, resuming at the same position.
+     */
+    private suspend fun onPlaybackError(source: AudioSource, message: String) {
+        val t = _state.value.current
+        if (t == null || t.key != source.id || streamRetries >= MAX_STREAM_RETRIES) return onEngineError(message)
+        streamRetries++
+        val pos = engine.state.value.positionSec
+        delay(500L * streamRetries)
+        if (_state.value.current?.key != t.key) return
+        val src = runCatching { resolveStream(t) }.getOrElse { return onEngineError(message) }
+        engine.play(src.copy(startSec = pos))
+    }
+
     private suspend fun onEngineError(message: String) {
         _state.update { it.copy(resolving = false, error = message) }
         // skip unplayable tracks, but don't spin through a whole broken queue
@@ -353,4 +372,8 @@ class PlayerController(
     }
 
     fun close() = engine.close()
+
+    private companion object {
+        const val MAX_STREAM_RETRIES = 2
+    }
 }

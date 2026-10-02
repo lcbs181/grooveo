@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.ui.screens
 
+import dev.schlubbe.musicagent.desktop.data.imageCacheDir
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,7 +96,6 @@ fun toggleSourceSetting(s: Settings, soundCloud: Boolean, enabled: Boolean): Set
 
 fun settingsDirSize(f: File): Long = f.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
-private fun imageCacheDir() = File(System.getProperty("user.home"), ".cache/grooveo/images")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

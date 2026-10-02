@@ -43,7 +43,7 @@ Search, stream, download, like, and organize — all resolved and stored directl
 | **Likes & playlists** | Stored locally in Room, with reordering, rename, and bulk-download-a-playlist. |
 | **Home** | A *Charts* shelf (global SoundCloud/YouTube trending) and a *Für dich* feed computed entirely on-device from local play history and likes — no server-side aggregation. |
 | **Artist pages** | Collapsible bio, top/latest track shelves, and a paginated follower list (SoundCloud). |
-| **Player** | Waveform-style seek bar, shuffle/repeat, a sleep timer (15–90 min presets), a 4-band equalizer (Flach/Bass-Boost/Höhen-Boost/Vocal), and a stream/download switch per track. |
+| **Player** | Waveform-style seek bar, shuffle/repeat, a sleep timer (15–90 min presets), a parametric equalizer (up to 16 bands, presets, bass enhancer, limiter, AutoEQ import), and a stream/download switch per track. |
 | **Audio visualizers** | Five real-time, audio-reactive visualizer styles on the Player screen (bars, orb, particle sphere, circular spectrum, and a confetti-spraying pulse mode) — driven by an on-device FFT tapped directly from the decoded audio, not a fake animation. No `RECORD_AUDIO` permission needed; see [Architecture](docs/ARCHITECTURE.md#visualizer). |
 | **Home-screen widget** | Jetpack Glance, five size tiers from a 1×2 mini card up to a 3×7 tablet layout — play/pause/skip, now-playing artwork, and an up-next queue at the larger sizes. |
 | **Optional update channel** | Point it at the companion backend (see [below](#optional-backend-link)) and the app can check for and install new builds directly, with no Play Store listing. |
@@ -102,7 +102,7 @@ flowchart LR
 
 ## Desktop app
 
-A Linux desktop build with the same features (Compose Multiplatform, FFmpeg audio engine, parametric equalizer, MPRIS) lives in [`desktop/`](desktop). See [docs/DESKTOP.md](docs/DESKTOP.md).
+A desktop build for Linux and Windows with the same features (Compose Multiplatform, FFmpeg audio engine, parametric equalizer, MPRIS on Linux) lives in [`desktop/`](desktop). Releases ship the Android APK, a Windows installer, Linux packages and the source tarball. See [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ## Building
 
