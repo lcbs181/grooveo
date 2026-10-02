@@ -6,4 +6,6 @@ data class UpdateInfoDto(
     @SerializedName("version_code") val versionCode: Long,
     @SerializedName("version_name") val versionName: String,
     @SerializedName("download_url") val downloadUrl: String,
+    /** Size of the .apk asset in bytes (0 if unknown), to verify a finished download. */
+    @SerializedName("size") val sizeBytes: Long = 0,
 )
