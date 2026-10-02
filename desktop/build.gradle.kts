@@ -95,6 +95,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "Grooveo"
+            // from `./gradlew :desktop:suggestRuntimeModules`; jdk.security.auth is needed by dbus-java (MPRIS)
+            modules("java.instrument", "java.management", "java.net.http", "java.sql", "jdk.dynalink", "jdk.security.auth", "jdk.unsupported")
             packageVersion = "1.0.0"
             description = "Grooveo desktop music player"
             linux { iconFile.set(project.file("src/main/resources/grooveo.png")) }
