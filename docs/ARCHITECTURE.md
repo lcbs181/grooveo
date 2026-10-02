@@ -4,9 +4,11 @@ High-level overview of how the app is put together. See the
 [README](../README.md#architecture) for a shorter summary; this goes one
 level deeper into the package layout.
 
-The whole app lives in a single Gradle module, `:app`
-(`dev.schlubbe.musicagent`), with no backend required for the core
-experience — see [Optional backend link](../README.md#optional-backend-link)
+The Android app lives in the Gradle module `:app`
+(`dev.schlubbe.musicagent`). No backend is required for the core experience.
+A Linux desktop app lives in `:desktop` and compiles the platform-independent
+parts of `:app` (extraction, feed, lyrics, backup models, reverb) directly from
+its sources; see [DESKTOP.md](DESKTOP.md) — see [Optional backend link](../README.md#optional-backend-link)
 for the one part that does talk to a server.
 
 ## Package map

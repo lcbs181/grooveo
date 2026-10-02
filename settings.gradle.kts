@@ -19,3 +19,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Grooveo"
 include(":app")
+include(":desktop")
