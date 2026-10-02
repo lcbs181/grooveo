@@ -52,8 +52,11 @@ fun UpdateDialog(viewModel: UpdateViewModel) {
         is UpdateUiState.Error -> AlertDialog(
             onDismissRequest = viewModel::dismiss,
             confirmButton = {
-                TextButton(onClick = viewModel::dismiss) { Text("OK") }
+                val retry = state.retry
+                if (retry != null) TextButton(onClick = { viewModel.install(retry) }) { Text("Erneut versuchen") }
+                else TextButton(onClick = viewModel::dismiss) { Text("OK") }
             },
+            dismissButton = if (state.retry != null) ({ TextButton(onClick = viewModel::dismiss) { Text("Schließen") } }) else null,
             title = { Text("Fehler") },
             text = { Text(state.message) },
         )
@@ -67,7 +70,10 @@ fun UpdateDialog(viewModel: UpdateViewModel) {
         is UpdateUiState.Downloading -> AlertDialog(
             onDismissRequest = viewModel::dismiss,
             confirmButton = {
-                TextButton(onClick = viewModel::dismiss) { Text("Abbrechen") }
+                TextButton(onClick = viewModel::dismiss) { Text("Im Hintergrund") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelDownload(state.info) }) { Text("Abbrechen") }
             },
             title = { Text("Update wird heruntergeladen…") },
             text = {
@@ -76,7 +82,15 @@ fun UpdateDialog(viewModel: UpdateViewModel) {
                         progress = { state.progressPct / 100f },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Text("${state.progressPct}%", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (state.waitingForNetwork) "${state.progressPct}% · wartet auf Verbindung …" else "${state.progressPct}%",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Du kannst Grooveo weiter benutzen oder schließen – der Download läuft im Hintergrund weiter. " +
+                            "Ist er fertig, kannst du über die Benachrichtigung installieren.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             },
         )
@@ -84,10 +98,19 @@ fun UpdateDialog(viewModel: UpdateViewModel) {
         is UpdateUiState.ReadyToInstall -> AlertDialog(
             onDismissRequest = viewModel::dismiss,
             confirmButton = {
-                TextButton(onClick = viewModel::dismiss) { Text("OK") }
+                TextButton(onClick = { viewModel.install(state.info) }) { Text("Installieren") }
             },
-            title = { Text("Installation gestartet") },
-            text = { Text("Bitte bestätige die Installation im Systemdialog.") },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismiss) { Text("Später") }
+            },
+            title = { Text("Update ${state.info.versionName} bereit") },
+            text = {
+                Text(
+                    "Bestätige die Installation im Systemdialog. Hat es nicht geklappt (z. B. weil die " +
+                        "Berechtigung „Unbekannte Apps installieren“ gefehlt hat), tippe einfach nochmal auf " +
+                        "„Installieren“ – die Datei ist schon heruntergeladen.",
+                )
+            },
         )
     }
 }
