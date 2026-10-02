@@ -1,0 +1,72 @@
+name: Release desktop builds
+
+# Builds the desktop app for Windows and Linux and attaches it to an existing
+# GitHub release. The release itself (tag, notes, Android APK, source tarball) is
+# created locally first, see docs/RELEASING.md. jpackage cannot cross-package, so
+# the Windows installer has to be built on a Windows runner.
+#
+#   gh workflow run release.yml -f tag=v22
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, e.g. v22"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-latest
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Read version
+        run: echo "VERSION=$(grep '^grooveo.versionName=' gradle.properties | cut -d= -f2 | tr -d '\r')" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: ./gradlew :desktop:test --no-daemon
+
+      - name: Build Windows app (portable zip + MSI installer)
+        if: runner.os == 'Windows'
+        run: |
+          ./gradlew :desktop:createDistributable :desktop:packageMsi --no-daemon
+          mkdir -p dist
+          (cd desktop/build/compose/binaries/main/app && 7z a -tzip "$GITHUB_WORKSPACE/dist/Grooveo-$VERSION-${{ matrix.platform }}.zip" Grooveo)
+          cp desktop/build/compose/binaries/main/msi/*.msi "dist/Grooveo-$VERSION-${{ matrix.platform }}.msi"
+
+      - name: Build Linux app (portable tar.gz + .deb)
+        if: runner.os == 'Linux'
+        run: |
+          ./gradlew :desktop:createDistributable :desktop:packageDeb --no-daemon
+          mkdir -p dist
+          tar -C desktop/build/compose/binaries/main/app -czf "dist/Grooveo-$VERSION-${{ matrix.platform }}.tar.gz" Grooveo
+          cp desktop/build/compose/binaries/main/deb/*.deb "dist/Grooveo-$VERSION-${{ matrix.platform }}.deb"
+
+      - name: Upload to release
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
