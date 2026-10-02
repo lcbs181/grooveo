@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- JDK 17
+- JDK 17 (Android app); JDK 21 for the desktop app (`./gradlew :desktop:run`, see [DESKTOP.md](DESKTOP.md))
 - Android SDK: `compileSdk` / `targetSdk` 37, `minSdk` 30 (installed
   automatically by Android Studio, or via `sdkmanager` if you're building
   from the command line only)

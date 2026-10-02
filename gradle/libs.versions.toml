@@ -23,6 +23,9 @@ newpipeExtractor = "v0.26.5"
 jsoup = "1.18.3"
 glance = "1.1.1"
 phosphorIcon = "1.0.0"
+composeMultiplatform = "1.10.0"
+kotlinxSerialization = "1.9.0"
+coroutines = "1.11.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -81,7 +84,15 @@ androidx-glance-material3 = { group = "androidx.glance", name = "glance-material
 # didn't exist at all, that pack was never part of that library.
 phosphor-icon = { group = "com.adamglin", name = "phosphor-icon", version.ref = "phosphorIcon" }
 
+# Desktop (:desktop, Compose Multiplatform for JVM)
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
 [plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

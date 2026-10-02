@@ -100,6 +100,10 @@ flowchart LR
 - **Local storage** — Room (`data/local/`) for the track cache, likes, playlists, and downloads; DataStore for settings.
 - **Networking** — a plain OkHttp client for SoundCloud/YouTube extraction, kept deliberately separate from the optional backend-link client (see `data/extract/di/ExtractorModule.kt`) so no credentials ever leak to a third-party host.
 
+## Desktop app
+
+A Linux desktop build with the same features (Compose Multiplatform, FFmpeg audio engine, parametric equalizer, MPRIS) lives in [`desktop/`](desktop). See [docs/DESKTOP.md](docs/DESKTOP.md).
+
 ## Building
 
 Requires JDK 17 and the Android SDK (`compileSdk`/`targetSdk` 37, `minSdk` 30).
