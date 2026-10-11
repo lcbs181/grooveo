@@ -114,10 +114,17 @@ class AudioEngineTest {
     }
 
     @Test fun `eq is applied to the output`() {
+        engine.setEq(EqProfile(limiter = false, subsonic = false, preampDb = 3.5218, bands = emptyList()))
+        engine.play(AudioSource("5", "x"))
+        waitFor { sink.samples.size > 4000 }
+        assertEquals(0.75f, sink.samples[3000], 1e-3f)
+    }
+
+    @Test fun `a preamp cut is made up right away, also without normalisation`() {
         engine.setEq(EqProfile(limiter = false, subsonic = false, preampDb = -6.0206, bands = emptyList()))
         engine.play(AudioSource("5", "x"))
         waitFor { sink.samples.size > 4000 }
-        assertEquals(0.25f, sink.samples[3000], 1e-3f)
+        assertEquals(0.5f, sink.samples[3000], 0.02f)
     }
 
     @Test fun `buffering clears once audio flows`() {
