@@ -52,6 +52,27 @@ class LlmException(message: String) : Exception(message)
 internal val llmHttp: OkHttpClient by lazy {
     OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(180, TimeUnit.SECONDS).build()
 }
+
+/**
+ * For servers on this PC only (127.0.0.1, localhost, ::1): also accepts a self-signed
+ * certificate, as local proxies like llama-swap use with TLS. The traffic never leaves
+ * the machine, so there is no one in between whom a certificate would keep out.
+ */
+internal val localLlmHttp: OkHttpClient by lazy {
+    val trustAll = object : javax.net.ssl.X509TrustManager {
+        override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+        override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+    }
+    val ssl = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, arrayOf(trustAll), java.security.SecureRandom()) }
+    llmHttp.newBuilder().sslSocketFactory(ssl.socketFactory, trustAll).hostnameVerifier { host, _ -> isLoopback(host) }.build()
+}
+
+internal fun isLoopback(host: String) = host == "localhost" || host == "::1" || host == "[::1]" || host.startsWith("127.")
+
+/** The client for [baseUrl]: the lenient local one only for this PC. */
+internal fun httpFor(baseUrl: String): OkHttpClient =
+    if (runCatching { isLoopback(java.net.URI(baseUrl).host ?: "") }.getOrDefault(false)) localLlmHttp else llmHttp
 private val json = Json { ignoreUnknownKeys = true }
 private val JSON_TYPE = "application/json".toMediaType()
 
@@ -175,13 +196,16 @@ class OpenAiProvider(
     private val baseUrl: String,
     private val model: String,
     private val apiKey: String? = null,
-    private val http: OkHttpClient = llmHttp,
+    private val http: OkHttpClient = httpFor(baseUrl),
 ) : LlmProvider {
     override val label = "Lokal · ${model.ifBlank { "Standardmodell" }}"
+    /** With no model set: the server's first model that can call tools (llama-swap and Ollama need a name). */
+    private var resolved: String? = model.ifBlank { null }
 
     override suspend fun complete(system: String, messages: List<Msg>, tools: List<ToolSpec>, onText: (String) -> Unit): Msg {
+        val m = resolved ?: (runCatching { listModels(baseUrl, http).firstOrNull() }.getOrNull() ?: "default").also { resolved = it }
         val body = buildJsonObject {
-            put("model", model.ifBlank { "default" })
+            put("model", m)
             put("stream", true)
             putJsonArray("tools") {
                 tools.forEach { t ->
@@ -223,11 +247,17 @@ class OpenAiProvider(
     }
 
     companion object {
-        /** Model ids the server offers (GET /models). */
-        suspend fun listModels(baseUrl: String, http: OkHttpClient = llmHttp): List<String> = withContext(Dispatchers.IO) {
+        /** Model ids the server offers (GET /models), those that report tool calling first. */
+        suspend fun listModels(baseUrl: String, http: OkHttpClient = httpFor(baseUrl)): List<String> = withContext(Dispatchers.IO) {
             http.newCall(Request.Builder().url(baseUrl.trimEnd('/') + "/models").build()).execute().use { r ->
                 if (!r.isSuccessful) throw LlmException("HTTP ${r.code}")
-                json.parseToJsonElement(r.body!!.string()).jsonObject["data"]?.jsonArray?.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.contentOrNull } ?: emptyList()
+                val data = json.parseToJsonElement(r.body!!.string()).jsonObject["data"]?.jsonArray ?: return@use emptyList()
+                data.mapNotNull { e ->
+                    val o = e.jsonObject
+                    val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val tools = (o["capabilities"] as? JsonObject)?.get("function_calling")?.jsonPrimitive?.contentOrNull == "true"
+                    id to tools
+                }.sortedByDescending { it.second }.map { it.first }
             }
         }
     }

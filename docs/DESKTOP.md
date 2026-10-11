@@ -214,7 +214,10 @@ runs in-process with one block (21 ms) of latency.
 can do the same things. The model comes from one of two providers:
 
 - **Lokal:** any OpenAI-compatible server (llama.cpp `llama-server --jinja`,
-  Ollama, LM Studio). Nothing leaves the PC.
+  Ollama, LM Studio, llama-swap). Nothing leaves the PC. For servers on this
+  PC (127.0.0.1, localhost) a self-signed TLS certificate is accepted, as
+  llama-swap uses one. With no model set, the server's first model that reports
+  tool calling is used.
 - **Anthropic API:** Claude. The key is stored in `ai-anthropic.key` in the
   data folder, readable only by the user; `ANTHROPIC_API_KEY` works too.
 

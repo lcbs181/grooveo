@@ -180,6 +180,7 @@ fun SettingsScreen() {
                 var model by remember { mutableStateOf(s.aiModel) }
                 var key by remember { mutableStateOf("") }
                 var test by remember { mutableStateOf<String?>(null) }
+                var models by remember { mutableStateOf<List<String>>(emptyList()) }
                 SettingsRow("Anbieter", "Lokal bleibt alles auf dem PC und kostet nichts. Claude ist bei langen Aufgaben deutlich zuverlässiger. Öffnen mit Strg+K.") {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Pill("Lokal", s.aiProvider != "anthropic") { set { it.copy(aiProvider = "local", aiModel = "") }; model = "" }
@@ -194,7 +195,7 @@ fun SettingsScreen() {
                                 test = "Verbinde …"
                                 scope.launch {
                                     test = runCatching { dev.schlubbe.musicagent.desktop.ai.OpenAiProvider.listModels(baseUrl) }
-                                        .fold({ m -> if (m.isEmpty()) "Verbunden, kein Modell gemeldet" else "Verbunden · ${m.joinToString()}" }, { "Keine Verbindung: ${it.message}" })
+                                        .fold({ m -> models = m; if (m.isEmpty()) "Verbunden, kein Modell gemeldet" else "Verbunden · Modell unten wählen" }, { models = emptyList(); "Keine Verbindung: ${it.message}" })
                                 }
                             }
                         }
@@ -214,6 +215,9 @@ fun SettingsScreen() {
                         if (s.aiProvider == "anthropic") dev.schlubbe.musicagent.desktop.ai.AnthropicProvider.MODELS.forEach { m ->
                             Pill(m.removePrefix("claude-"), s.aiModel == m) { model = m; set { it.copy(aiModel = m) } }
                         }
+                    }
+                    if (s.aiProvider != "anthropic" && models.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        models.forEach { m -> Pill(m.substringAfterLast('/'), s.aiModel == m) { model = m; set { it.copy(aiModel = m) } } }
                     }
                 }
                 SettingsSwitchRow("Geschmack mitgeben", "Likes, Playlists und Verlauf als kurze Zusammenfassung", s.aiShareTaste) { v -> set { it.copy(aiShareTaste = v) } }
