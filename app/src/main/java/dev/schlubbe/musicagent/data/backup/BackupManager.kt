@@ -49,6 +49,16 @@ class BackupManager @Inject constructor(
     /** Writes a fresh backup_<timestamp>.json and returns it. */
     suspend fun createBackup(): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
+            val payload = buildPayload()
+            val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
+            val file = File(backupDir, "backup_$timestamp.json")
+            file.writeText(gson.toJson(payload))
+            file
+        }
+    }
+
+    /** The current library and settings in the backup format (also what the PC sync sends). */
+    suspend fun buildPayload(): BackupPayload {
             val playlists = playlistRepository.list().map { summary ->
                 val detail = playlistRepository.get(summary.id)
                 BackupPlaylistDto(
@@ -61,7 +71,7 @@ class BackupManager @Inject constructor(
                     tracks = detail.tracks.map { it.track.toBackupTrackDto() },
                 )
             }
-            val payload = BackupPayload(
+            return BackupPayload(
                 createdAt = Instant.now().toString(),
                 likes = likesRepository.refresh().map { it.track.toBackupTrackDto() },
                 playlists = playlists,
@@ -91,10 +101,28 @@ class BackupManager @Inject constructor(
                     profileColorStyle = settingsRepository.profileColorStyle.first(),
                 ),
             )
-            val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
-            val file = File(backupDir, "backup_$timestamp.json")
-            file.writeText(gson.toJson(payload))
-            file
+    }
+
+    /**
+     * Applies a synced library ([dev.schlubbe.musicagent.data.backup.SyncMerge] result, a superset
+     * of what is here): adds what is missing, never clears anything and leaves settings alone.
+     */
+    suspend fun applySynced(p: BackupPayload) = withContext(Dispatchers.IO) {
+        val follows = followRepository.refresh().map { it.source to it.sourceId }.toSet()
+        p.followedArtists.filter { (it.source to it.sourceId) !in follows }
+            .forEach { followRepository.follow(it.source, it.sourceId, it.name, it.thumbnailUrl) }
+        val saved = savedPlaylistRepository.refresh().map { it.source to it.sourceId }.toSet()
+        p.savedPlaylists.filter { (it.source to it.sourceId) !in saved }
+            .forEach { savedPlaylistRepository.save(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl) }
+        val liked = likesRepository.refresh().map { it.track.source to it.track.sourceId }.toSet()
+        p.likes.filter { (it.source to it.sourceId) !in liked }.reversed().forEach { likesRepository.like(it.toTrackResultDto()) }
+        val mine = playlistRepository.list().map { it.name.trim().lowercase() to it.id }.toMap()
+        p.playlists.forEach { pl ->
+            val id = mine[pl.name.trim().lowercase()] ?: playlistRepository.create(pl.name).also {
+                playlistRepository.updateDetails(it.id, pl.name, pl.description, pl.accentColorKey, pl.moodTags)
+            }.id
+            val have = playlistRepository.get(id).tracks.map { it.track.source to it.track.sourceId }.toSet()
+            pl.tracks.filter { (it.source to it.sourceId) !in have }.forEach { playlistRepository.addTrack(id, it.toTrackResultDto()) }
         }
     }
 

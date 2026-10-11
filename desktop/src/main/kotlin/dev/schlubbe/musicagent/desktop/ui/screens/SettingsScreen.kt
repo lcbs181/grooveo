@@ -222,6 +222,35 @@ fun SettingsScreen() {
                 SettingsSwitchRow("Automatische Sicherung", "Sichert deine Bibliothek regelmäßig im Datenordner", s.autoBackup) { v -> set { it.copy(autoBackup = v) } }
             }
 
+            SettingsSection("Mit Smartphone synchronisieren") {
+                var syncOn by remember { mutableStateOf(g.sync.running) }
+                var pairing by remember { mutableStateOf(g.sync.pairingUri to g.sync.key) }
+                SettingsSwitchRow(
+                    "Synchronisierung bereitstellen",
+                    "Likes, Playlists und gefolgte Künstler zwischen Handy und PC abgleichen – nur im selben WLAN, startet mit der App",
+                    syncOn,
+                ) { v ->
+                    runCatching { if (v) g.sync.start() else g.sync.stop() }.onFailure { ui.toast("Sync konnte nicht gestartet werden: ${it.message}") }
+                    syncOn = g.sync.running
+                    pairing = g.sync.pairingUri to g.sync.key
+                }
+                if (syncOn) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        QrCode(pairing.first, size = 168.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Handy koppeln", color = c.text, fontWeight = FontWeight.SemiBold)
+                            Text("In der Handy-App: Einstellungen → Mit PC synchronisieren → QR-Code scannen. Der Code bleibt gleich, die Kopplung muss nur einmal erfolgen.", color = c.textMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("Oder Code eintippen: ${pairing.second}", color = c.text, fontWeight = FontWeight.SemiBold)
+                            PrimaryButton("Neuen Code erzeugen", accent = false) {
+                                g.sync.regenerateKey()
+                                pairing = g.sync.pairingUri to g.sync.key
+                                ui.toast("Neuer Code – bereits gekoppelte Handys müssen neu scannen")
+                            }
+                        }
+                    }
+                }
+            }
+
             SettingsSection("Speicher") {
                 SettingsRow("Bild-Cache", cacheBytes?.let { "${formatBytes(it)} zwischengespeicherte Cover" } ?: "Wird berechnet …") {
                     PrimaryButton("Leeren", accent = false) {

@@ -62,6 +62,8 @@ val sharedFiles = listOf(
     "data/repository/DiscoverySafetyFilter.kt",
     "data/repository/LyricsRepository.kt",
     "data/backup/BackupModels.kt",
+    "data/backup/SyncMerge.kt",
+    "data/backup/SyncProtocol.kt",
     "playback/reverb/Fft.kt",
     "playback/reverb/PartitionedConvolver.kt",
     "playback/eq/ParametricEq.kt",
@@ -93,6 +95,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.1.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
     implementation(libs.okhttp.core)
+    implementation(libs.zxing.core)
     implementation(libs.newpipe.extractor)
     implementation(libs.jsoup)
     implementation("com.google.code.gson:gson:2.11.0")
@@ -128,7 +131,7 @@ compose.desktop {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi)
             packageName = "Grooveo"
             // from `./gradlew :desktop:suggestRuntimeModules`; jdk.security.auth is needed by dbus-java (MPRIS)
-            modules("java.instrument", "java.management", "java.net.http", "java.sql", "jdk.dynalink", "jdk.security.auth", "jdk.unsupported")
+            modules("java.instrument", "java.management", "java.net.http", "java.sql", "jdk.dynalink", "jdk.httpserver", "jdk.security.auth", "jdk.unsupported")
             packageVersion = versionName
             description = "Grooveo desktop music player"
             vendor = "lcbs181"

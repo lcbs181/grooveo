@@ -110,6 +110,7 @@ dependencies {
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp.core)
+    implementation(libs.zxing.android.embedded)
     implementation(libs.okhttp.logging.interceptor)
 
     implementation(libs.androidx.work.runtime.ktx)

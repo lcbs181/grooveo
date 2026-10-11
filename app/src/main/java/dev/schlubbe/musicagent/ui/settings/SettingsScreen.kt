@@ -103,6 +103,7 @@ fun SettingsScreen(
     var showBackendUrlDialog by remember { mutableStateOf(false) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showBackupSheet by remember { mutableStateOf(false) }
+    var showSyncSheet by remember { mutableStateOf(false) }
 
     val sound3dOn = uiState.sound3dPreset != Sound3dPreset.DISABLED
 
@@ -252,6 +253,12 @@ fun SettingsScreen(
                             title = "Backup exportieren",
                             subtitle = uiState.lastBackupText ?: "Noch keine Sicherung",
                             onClick = { showBackupSheet = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("arrows-clockwise"),
+                            title = "Mit PC synchronisieren",
+                            subtitle = "Likes, Playlists und Künstler mit der PC-App abgleichen",
+                            onClick = { viewModel.clearSyncMessage(); showSyncSheet = true },
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("squares-four"),
@@ -416,6 +423,10 @@ fun SettingsScreen(
             onTest = viewModel::testConnection,
             onDismiss = { showApiKeyDialog = false },
         )
+    }
+
+    if (showSyncSheet) {
+        SyncSheet(uiState = uiState, onDismiss = { showSyncSheet = false }, onPair = viewModel::pairWithPc, onSync = viewModel::syncWithPc, onUnpair = viewModel::unpairPc)
     }
 
     if (showBackupSheet) {
@@ -602,6 +613,68 @@ private fun ApiKeyDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fertig") } },
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SyncSheet(uiState: SettingsUiState, onDismiss: () -> Unit, onPair: (String) -> Unit, onSync: () -> Unit, onUnpair: () -> Unit) {
+    var code by remember { mutableStateOf("") }
+    val scanner = androidx.activity.compose.rememberLauncherForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { r ->
+        r.contents?.let(onPair)
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Mit PC synchronisieren", style = MaterialTheme.typography.headlineSmall)
+            if (!uiState.syncPaired) {
+                Text(
+                    "Am PC in Grooveo: Einstellungen → Mit Smartphone synchronisieren → einschalten. " +
+                        "Dann hier den QR-Code scannen (beide im selben WLAN). Das ist nur einmal nötig.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Canopy.neutral500,
+                )
+                CanopyButton(
+                    text = "QR-Code scannen",
+                    onClick = {
+                        scanner.launch(
+                            com.journeyapps.barcodescanner.ScanOptions()
+                                .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                                .setPrompt("QR-Code des PCs scannen")
+                                .setBeepEnabled(false)
+                                .setOrientationLocked(false),
+                        )
+                    },
+                    block = true,
+                )
+                CanopyTextField(value = code, onValueChange = { code = it }, label = "oder Code eintippen: GRV-XXXX-XXXX-XXXX")
+                CanopyButton(
+                    text = "Mit Code koppeln",
+                    onClick = { onPair(code) },
+                    variant = CanopyButtonVariant.Secondary,
+                    enabled = !uiState.syncRunning && code.isNotBlank(),
+                    block = true,
+                )
+            } else {
+                Text(
+                    "Mit einem PC gekoppelt. Der PC wird im WLAN automatisch gefunden. Beim Abgleich haben Handy und PC danach dieselben Likes, Playlists und gefolgten Künstler; es wird nichts gelöscht.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Canopy.neutral500,
+                )
+                CanopyButton(
+                    text = if (uiState.syncRunning) "Synchronisiere …" else "Jetzt synchronisieren",
+                    onClick = onSync,
+                    enabled = !uiState.syncRunning,
+                    block = true,
+                )
+                CanopyButton(text = "Kopplung aufheben", onClick = onUnpair, variant = CanopyButtonVariant.Secondary, block = true)
+            }
+            uiState.syncMessage?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = if (uiState.syncFailed) MaterialTheme.colorScheme.error else Canopy.neutral500)
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

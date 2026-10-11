@@ -67,6 +67,11 @@ data class SettingsUiState(
     val lastBackupText: String? = null,
     val backupState: BackupState = BackupState.Idle,
     val showRestoreConfirm: Boolean = false,
+    // Sync mit PC
+    val syncPaired: Boolean = false,
+    val syncRunning: Boolean = false,
+    val syncMessage: String? = null,
+    val syncFailed: Boolean = false,
 )
 
 @HiltViewModel
@@ -74,6 +79,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val backendApi: BackendApi,
     private val backupManager: BackupManager,
+    private val syncClient: dev.schlubbe.musicagent.data.sync.SyncClient,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -338,6 +344,37 @@ class SettingsViewModel @Inject constructor(
                 backupState = BackupState.Error("Keine Sicherung zum Teilen vorhanden — zuerst sichern."),
             )
         }
+    }
+
+    /** Stores the pairing from the PC's QR code (or typed code) and syncs right away. */
+    fun pairWithPc(text: String) {
+        if (!syncClient.pair(text)) {
+            _uiState.value = _uiState.value.copy(syncFailed = true, syncMessage = "Das ist kein Grooveo-Kopplungscode.")
+            return
+        }
+        _uiState.value = _uiState.value.copy(syncPaired = true)
+        syncWithPc()
+    }
+
+    fun unpairPc() {
+        syncClient.unpair()
+        _uiState.value = _uiState.value.copy(syncPaired = false, syncMessage = null, syncFailed = false)
+    }
+
+    /** Syncs likes, playlists and follows with the paired PC. */
+    fun syncWithPc() {
+        if (_uiState.value.syncRunning) return
+        _uiState.value = _uiState.value.copy(syncRunning = true, syncMessage = null, syncFailed = false)
+        viewModelScope.launch {
+            syncClient.sync().fold(
+                onSuccess = { _uiState.value = _uiState.value.copy(syncRunning = false, syncMessage = "Synchronisiert – Handy und PC sind jetzt gleich.") },
+                onFailure = { _uiState.value = _uiState.value.copy(syncRunning = false, syncFailed = true, syncMessage = it.message ?: "Sync fehlgeschlagen") },
+            )
+        }
+    }
+
+    fun clearSyncMessage() {
+        _uiState.value = _uiState.value.copy(syncPaired = syncClient.isPaired, syncMessage = null, syncFailed = false)
     }
 
     fun onRestoreClicked() {

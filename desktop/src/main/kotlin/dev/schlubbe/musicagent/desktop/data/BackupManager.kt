@@ -22,9 +22,18 @@ import java.time.format.DateTimeFormatter
 class BackupManager(private val store: LibraryStore, private val settings: SettingsRepository, private val dir: File) {
 
     fun export(target: File? = null): File {
+        val payload = payload()
+        val file = target ?: File(dir, "backup_${STAMP.format(Instant.now())}.json")
+        writeJson(file, payload)
+        settings.update { it.copy(lastBackupAt = Instant.now().toString()) }
+        return file
+    }
+
+    /** The current library and settings in the shared backup format. */
+    fun payload(): BackupPayload {
         val d = store.current
         val s = settings.current
-        val payload = BackupPayload(
+        return BackupPayload(
             version = 1,
             createdAt = Instant.now().toString(),
             likes = d.likes.map { it.track.toDto() },
@@ -41,10 +50,40 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
                 profileName = s.profileName, profileColorStyle = s.profileColorStyle,
             ),
         )
-        val file = target ?: File(dir, "backup_${STAMP.format(Instant.now())}.json")
-        writeJson(file, payload)
-        settings.update { it.copy(lastBackupAt = Instant.now().toString()) }
-        return file
+    }
+
+    /**
+     * Applies a synced library ([SyncMerge] result, a superset of what is here): adds what is
+     * missing and keeps existing playlist ids, covers and settings.
+     */
+    fun applySynced(p: BackupPayload) {
+        fun ts(iso: String?) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
+        store.mutate { d ->
+            val known = d.likes.map { it.track.source to it.track.sourceId }.toSet()
+            val newLikes = p.likes.orEmpty().filter { (it.source to it.sourceId) !in known }
+                .mapIndexed { i, t -> LikedTrack(t.toTrack(), System.currentTimeMillis() - i) }
+            val byName = d.playlists.associateBy { it.name.trim().lowercase() }
+            val merged = d.playlists.map { mine ->
+                val theirs = p.playlists.orEmpty().firstOrNull { it.name.trim().lowercase() == mine.name.trim().lowercase() } ?: return@map mine
+                val have = mine.tracks.map { it.track.source to it.track.sourceId }.toSet()
+                mine.copy(tracks = mine.tracks + theirs.tracks.orEmpty().filter { (it.source to it.sourceId) !in have }
+                    .map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
+            }
+            val created = p.playlists.orEmpty().filter { it.name.trim().lowercase() !in byName }.map { b ->
+                Playlist(name = b.name, createdAt = ts(b.createdAt), description = b.description, accentColorKey = b.accentColorKey,
+                    moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
+            }
+            val fKnown = d.followed.map { it.source to it.sourceId }.toSet()
+            val sKnown = d.savedPlaylists.map { it.source to it.sourceId }.toSet()
+            d.copy(
+                likes = newLikes + d.likes,
+                playlists = merged + created,
+                followed = d.followed + p.followedArtists.orEmpty().filter { (it.source to it.sourceId) !in fKnown }
+                    .map { FollowedArtist(it.source, it.sourceId, it.name, it.thumbnailUrl, ts(it.followedAt)) },
+                savedPlaylists = d.savedPlaylists + p.savedPlaylists.orEmpty().filter { (it.source to it.sourceId) !in sKnown }
+                    .map { SavedPlaylist(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, savedAt = ts(it.savedAt)) },
+            )
+        }
     }
 
     fun import(file: File) {

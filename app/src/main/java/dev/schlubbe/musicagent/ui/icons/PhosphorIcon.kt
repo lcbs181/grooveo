@@ -49,6 +49,7 @@ import com.adamglin.phosphoricons.regular.VinylRecord
 import com.adamglin.phosphoricons.regular.Church
 import com.adamglin.phosphoricons.regular.HandSwipeLeft
 import com.adamglin.phosphoricons.regular.CloudArrowUp
+import com.adamglin.phosphoricons.regular.ArrowsClockwise
 import com.adamglin.phosphoricons.regular.Trash
 import com.adamglin.phosphoricons.regular.PlayCircle
 import com.adamglin.phosphoricons.regular.PauseCircle
@@ -224,6 +225,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "church" -> PhosphorIcons.Regular.Church
         "hand-swipe-left" -> PhosphorIcons.Regular.HandSwipeLeft
         "cloud-arrow-up" -> PhosphorIcons.Regular.CloudArrowUp
+        "arrows-clockwise" -> PhosphorIcons.Regular.ArrowsClockwise
         "trash" -> PhosphorIcons.Regular.Trash
         "play-circle" -> PhosphorIcons.Regular.PlayCircle
         "pause-circle" -> PhosphorIcons.Regular.PauseCircle
