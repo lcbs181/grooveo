@@ -43,6 +43,14 @@ class BackupManager @Inject constructor(
 ) {
     private val gson = Gson()
 
+    /**
+     * Sync id of a local playlist that came from (or was matched with) a playlist of another
+     * device, by local playlist id. Playlists without an entry use their own id as sync id.
+     */
+    private val syncIds = context.getSharedPreferences("sync_playlist_ids", Context.MODE_PRIVATE)
+
+    private fun syncIdOf(localId: String) = syncIds.getString(localId, null) ?: localId
+
     private val backupDir: File
         get() = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
 
@@ -69,11 +77,12 @@ class BackupManager @Inject constructor(
                     accentColorKey = detail.accentColorKey,
                     moodTags = detail.moodTags,
                     tracks = detail.tracks.map { it.track.toBackupTrackDto() },
+                    syncId = syncIdOf(detail.id),
                 )
             }
             return BackupPayload(
                 createdAt = Instant.now().toString(),
-                likes = likesRepository.refresh().map { it.track.toBackupTrackDto() },
+                likes = likesRepository.refresh().map { it.track.toBackupTrackDto().copy(likedAt = it.createdAt) },
                 playlists = playlists,
                 followedArtists = followRepository.refresh().map {
                     BackupFollowedArtistDto(it.source, it.sourceId, it.name, it.thumbnailUrl, it.followedAt)
@@ -115,12 +124,15 @@ class BackupManager @Inject constructor(
         p.savedPlaylists.filter { (it.source to it.sourceId) !in saved }
             .forEach { savedPlaylistRepository.save(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl) }
         val liked = likesRepository.refresh().map { it.track.source to it.track.sourceId }.toSet()
-        p.likes.filter { (it.source to it.sourceId) !in liked }.reversed().forEach { likesRepository.like(it.toTrackResultDto()) }
-        val mine = playlistRepository.list().map { it.name.trim().lowercase() to it.id }.toMap()
-        p.playlists.forEach { pl ->
-            val id = mine[pl.name.trim().lowercase()] ?: playlistRepository.create(pl.name).also {
+        p.likes.filter { (it.source to it.sourceId) !in liked }.reversed().forEach { likesRepository.like(it.toTrackResultDto(), it.validLikedAt()) }
+        val mine = playlistRepository.list()
+        val matches = SyncMerge.matchPlaylists(mine.map { SyncMerge.Local(syncIdOf(it.id), it.name) }, p.playlists)
+        p.playlists.forEachIndexed { i, pl ->
+            val key = SyncMerge.syncKey(pl)
+            val id = matches[i]?.let { mine[it].id } ?: playlistRepository.create(pl.name).also {
                 playlistRepository.updateDetails(it.id, pl.name, pl.description, pl.accentColorKey, pl.moodTags)
             }.id
+            if (syncIdOf(id) != key) syncIds.edit().putString(id, key).apply()
             val have = playlistRepository.get(id).tracks.map { it.track.source to it.track.sourceId }.toSet()
             pl.tracks.filter { (it.source to it.sourceId) !in have }.forEach { playlistRepository.addTrack(id, it.toTrackResultDto()) }
         }
@@ -164,9 +176,12 @@ class BackupManager @Inject constructor(
         payload.savedPlaylists.forEach {
             savedPlaylistRepository.save(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl)
         }
-        payload.likes.forEach { likesRepository.like(it.toTrackResultDto()) }
+        payload.likes.forEach { likesRepository.like(it.toTrackResultDto(), it.validLikedAt()) }
+        syncIds.edit().clear().apply()
         payload.playlists.forEach { p ->
             val created = playlistRepository.create(p.name)
+            // keeps the playlist the same one for the PC sync after a restore
+            syncIds.edit().putString(created.id, SyncMerge.syncKey(p)).apply()
             playlistRepository.updateDetails(created.id, p.name, p.description, p.accentColorKey, p.moodTags)
             p.tracks.forEach { t -> playlistRepository.addTrack(created.id, t.toTrackResultDto()) }
         }
@@ -211,6 +226,8 @@ class BackupManager @Inject constructor(
 
     private fun TrackOutDto.toBackupTrackDto() =
         BackupTrackDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl)
+
+    private fun BackupTrackDto.validLikedAt() = likedAt?.takeIf { runCatching { Instant.parse(it) }.isSuccess }
 
     private fun BackupTrackDto.toTrackResultDto() =
         TrackResultDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl, isDrmProtected = false)
