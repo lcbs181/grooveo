@@ -734,6 +734,8 @@ class GrooveoTools(
             "tempo_confidence" to grid?.let { round2(it.confidence.toDouble()) },
             "grid_stability" to grid?.let { round2(it.stability) },
             "beats_ms" to grid?.beatsMs?.takeIf { includeBeats },
+            // long unsteady tracks keep only their first beats (see BeatTracker.MAX_KEPT_BEATS)
+            "beats_truncated" to grid?.beatsMs?.takeIf { includeBeats }?.let { it.size >= BeatTracker.MAX_KEPT_BEATS },
             "key" to a.key?.name,
             "camelot" to a.key?.camelot,
             "key_confidence" to a.key?.confidence,
