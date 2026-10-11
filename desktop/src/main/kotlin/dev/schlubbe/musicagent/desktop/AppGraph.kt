@@ -32,6 +32,8 @@ import dev.schlubbe.musicagent.desktop.playback.PlayerController
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 
 
@@ -82,15 +84,24 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     val mcp = dev.schlubbe.musicagent.desktop.mcp.McpService(this, File(dataDir, "mcp.json"))
         .also { if (it.enabled) runCatching { it.start() } }
 
+    /** Full decodes running at once; more would only slow each other and the UI down. */
+    private val analysisSlots = Semaphore(2)
+
     /**
      * "Übergänge analysieren" for one track: decodes its download or stream, stores
      * mix points and beat grid in the library and returns them (null if not loadable).
+     * Cancelling the caller stops the decode.
      */
     suspend fun analyze(t: TrackResultDto): TrackAnalysis? {
-        val src = runCatching { player.resolveStream(t) }
-            .onFailure { java.util.logging.Logger.getLogger("AppGraph").warning("analysis: cannot load ${t.key}: $it") }
-            .getOrNull() ?: return null
-        val r = TrackAnalyzer.analyze(src.url, src.headers) ?: return null
+        val src = try {
+            player.resolveStream(t)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            java.util.logging.Logger.getLogger("AppGraph").warning("analysis: cannot load ${t.key}: $e")
+            return null
+        }
+        val r = analysisSlots.withPermit { TrackAnalyzer.analyzeCancellable(src.url, src.headers) } ?: return null
         if (r.mix == null && r.grid == null) return null
         return TrackAnalysis(r.mix?.mixInMs, r.mix?.mixOutMs, grid = r.grid, structure = r.structure, key = r.key, version = TrackAnalysis.CURRENT_VERSION)
             .also { store.putAnalysis(t.key, it) }

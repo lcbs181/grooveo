@@ -11,20 +11,26 @@ import dev.schlubbe.musicagent.desktop.audio.Sound3dPreset
 import dev.schlubbe.musicagent.desktop.data.LibraryStore
 import dev.schlubbe.musicagent.desktop.data.key
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
 
 enum class RepeatMode(val label: String) { OFF("Wiederholen: aus"), ALL("Wiederholen: alle"), ONE("Wiederholen: ein Titel") }
@@ -70,6 +76,8 @@ class PlayerController(
     private var unshuffled: List<TrackResultDto>? = null
     private var playJob: Job? = null
     private var preloadJob: Job? = null
+    /** Bumped for every preload or transition request: a slower, older one must not write its result. */
+    private val preloadGen = AtomicLong()
     private var sleepJob: Job? = null
     private var radioJob: Job? = null
     private var consecutiveFailures = 0
@@ -98,6 +106,10 @@ class PlayerController(
             }
         }
         engine.volume = settings.current.volume
+        // the volume also changes without setVolume (undo, update_settings)
+        scope.launch {
+            settings.state.map { it.volume }.distinctUntilChanged().collect { engine.volume = it.coerceIn(0f, 1f) }
+        }
         // listening statistics: count frames that really reached the speakers
         scope.launch {
             var last = engine.playedFrames
@@ -216,13 +228,24 @@ class PlayerController(
         val s = _state.value
         val n = nextIndex(s, userAction = false) ?: error("Nothing queued after the current track")
         val t = s.queue[n]
-        if (recipe == null) recipes.remove(t.key) else recipes[t.key] = recipe
+        val curKey = s.current?.key
         preloadJob?.cancel()
+        preloadGen.incrementAndGet() // an older preload still running must not overwrite this
+        if (recipe == null) recipes.remove(t.key)
         val src = resolveStream(t)
-        val planned = planInto(t, force = recipe != null)
+        // the recipe is kept only once it plans (or cannot be planned yet for lack of a grid)
+        val planned = if (recipe == null) planInto(t) else planInto(t, recipe, force = true).also { recipes[t.key] = recipe }
+        currentCoroutineContext().ensureActive()
+        if (!stillNext(t, curKey)) error("The queue changed while planning the transition")
         _planned.value = planned
         engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
         return planned
+    }
+
+    /** [t] is still the track after [curKey]: nothing was skipped or reordered meanwhile. */
+    private fun stillNext(t: TrackResultDto, curKey: String?): Boolean {
+        val s = _state.value
+        return s.current?.key == curKey && nextIndex(s, userAction = false)?.let { s.queue[it].key } == t.key
     }
 
     /** Stops an armed transition: the next track follows with the plain crossfade or gaplessly. */
@@ -244,10 +267,10 @@ class PlayerController(
      * Plans the transition from the current track into [t]: with a recipe set for [t],
      * or with the "DJ-Übergänge" setting. Missing analyses are made first.
      */
-    private suspend fun planInto(t: TrackResultDto, force: Boolean = false): PlannedTransition? {
+    private suspend fun planInto(t: TrackResultDto, wish: TransitionRecipe? = null, force: Boolean = false): PlannedTransition? {
         val cur = _state.value.current ?: return null
         val s = settings.current
-        val recipe = recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else return null
+        val recipe = wish ?: recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else return null
         suspend fun analysisOf(x: TrackResultDto) = store.current.analysis[x.key]?.takeIf { it.upToDate } ?: analyze(x)
         val a = analysisOf(cur) ?: return null
         val b = analysisOf(t) ?: return null
@@ -258,8 +281,9 @@ class PlayerController(
     }
 
     fun setVolume(v: Float) {
-        engine.volume = v.coerceIn(0f, 1f)
-        settings.update { it.copy(volume = engine.volume) }
+        val vol = v.coerceIn(0f, 1f)
+        engine.volume = vol
+        settings.update { it.copy(volume = vol) }
     }
 
     fun toggleShuffle() {
@@ -312,6 +336,7 @@ class PlayerController(
 
     fun stop() {
         playJob?.cancel(); preloadJob?.cancel()
+        preloadGen.incrementAndGet()
         engine.stop()
         _state.update { QueueState(repeat = it.repeat) }
     }
@@ -322,6 +347,7 @@ class PlayerController(
         val t = _state.value.current ?: return
         playJob?.cancel()
         preloadJob?.cancel()
+        preloadGen.incrementAndGet()
         _state.update { it.copy(resolving = true, error = null) }
         playJob = scope.launch {
             try {
@@ -375,14 +401,19 @@ class PlayerController(
 
     private fun schedulePreload() {
         preloadJob?.cancel()
+        val gen = preloadGen.incrementAndGet()
         val s = _state.value
         val n = nextIndex(s, userAction = false)
         if (n == null || s.current == null) { engine.preloadNext(null); return }
         val t = s.queue[n]
+        val curKey = s.current?.key
         preloadJob = scope.launch {
             delay(1500) // let the current track settle; quick skips don't resolve needlessly
-            val src = runCatching { resolveStream(t) }.getOrNull() ?: return@launch
-            val planned = runCatching { planInto(t) }.getOrNull()
+            val src = try { resolveStream(t) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@launch }
+            // the analysis may take long; a skip meanwhile cancels this job and makes it stale
+            val planned = try { planInto(t) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+            ensureActive()
+            if (gen != preloadGen.get() || !stillNext(t, curKey)) return@launch
             _planned.value = planned
             engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
         }

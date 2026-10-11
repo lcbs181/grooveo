@@ -1,6 +1,10 @@
 package dev.schlubbe.musicagent.desktop.audio
 
 import org.bytedeco.ffmpeg.global.avutil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
+import kotlinx.coroutines.withContext
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import java.nio.FloatBuffer
 import kotlin.math.PI
@@ -32,10 +36,20 @@ object TrackAnalyzer {
     data class Result(val mix: MixPoints?, val grid: BeatGrid?, val structure: TrackStructure? = null, val key: MusicalKey? = null)
 
     /**
+     * [analyze] on [Dispatchers.IO] that stops decoding when the calling coroutine is
+     * cancelled (and then throws its CancellationException instead of returning).
+     */
+    suspend fun analyzeCancellable(url: String, headers: Map<String, String> = emptyMap()): Result? = withContext(Dispatchers.IO) {
+        val job = coroutineContext.job
+        analyze(url, headers) { !job.isActive }.also { ensureActive() }
+    }
+
+    /**
      * Decodes the whole track once (mono, 22.05 kHz) and derives the mix points from
      * its loudness envelope and, when the aubio library is available, the beat grid.
+     * Decoding stops (returning null) once [cancelled] says so.
      */
-    fun analyze(url: String, headers: Map<String, String> = emptyMap()): Result? {
+    fun analyze(url: String, headers: Map<String, String> = emptyMap(), cancelled: () -> Boolean = { false }): Result? {
         val g = FFmpegFrameGrabber(url).apply {
             sampleRate = RATE; audioChannels = 1; sampleFormat = avutil.AV_SAMPLE_FMT_FLT
             if (headers.isNotEmpty()) setOption("headers", headers.entries.joinToString("") { "${it.key}: ${it.value}\r\n" })
@@ -44,6 +58,7 @@ object TrackAnalyzer {
             g.start()
             analyzeSamples { sink ->
                 while (true) {
+                    if (cancelled()) throw Cancelled()
                     val f = g.grabSamples() ?: break
                     val fb = f.samples?.firstOrNull() as? FloatBuffer ?: continue
                     val n = fb.remaining()
@@ -52,6 +67,8 @@ object TrackAnalyzer {
                     sink(chunk, n)
                 }
             }
+        } catch (e: Cancelled) {
+            null
         } catch (e: Exception) {
             java.util.logging.Logger.getLogger("TrackAnalyzer").warning("analysis failed: $e")
             null
@@ -62,21 +79,21 @@ object TrackAnalyzer {
 
     /** Runs the analysis on mono [RATE] Hz samples that [feed] pushes into its sink. */
     fun analyzeSamples(feed: ((FloatArray, Int) -> Unit) -> Unit): Result {
-        val env = ArrayList<Float>()
+        val env = FloatList()
         // frame ends in samples as Double: 50 ms and 5 ms are not whole samples at 22.05 kHz,
         // and rounding them would let the frames drift against real time
         val frameSamples = RATE * FRAME_MS / 1000.0
         var total = 0L
         var acc = 0.0
         var cnt = 0
-        val bass = ArrayList<Float>()
+        val bass = FloatList()
         val bassFrame = RATE * BASS_FRAME_MS / 1000.0
         val lpA = 1.0 - exp(-2.0 * PI * 120.0 / RATE)
         var lp1 = 0.0; var lp2 = 0.0
         var bAcc = 0.0
         var bCnt = 0
         // hi-hats and cymbals: what is left above a 3 kHz one-pole low-pass
-        val high = ArrayList<Float>()
+        val high = FloatList()
         val hpA = 1.0 - exp(-2.0 * PI * 3000.0 / RATE)
         var lpHigh = 0.0
         var hAcc = 0.0
@@ -104,12 +121,13 @@ object TrackAnalyzer {
                     if (total >= (bass.size + 1) * bassFrame) { bass += sqrt(bAcc / bCnt).toFloat(); bAcc = 0.0; bCnt = 0 }
                 }
             }
-            val mix = mixPointsFromEnvelope(env)
+            val loud = env.toFloatArray()
+            val mix = mixPointsFromEnvelope(loud.asList())
             val onset = FloatArray(bass.size) { k -> if (k == 0) 0f else (bass[k] - bass[k - 1]).coerceAtLeast(0f) }
             val grid = tracker?.let { tr -> BeatTracker.fitGrid(tr.beatsMs(), tr.confidence(), onset, BASS_FRAME_MS.toDouble()) }
             val structure = grid?.let {
                 val envs = StructureAnalyzer.Envelopes(
-                    env.toFloatArray(), high.toFloatArray(), FRAME_MS.toDouble(),
+                    loud, high.toFloatArray(), FRAME_MS.toDouble(),
                     bass.toFloatArray(), onset, BASS_FRAME_MS.toDouble(),
                 )
                 runCatching { StructureAnalyzer.analyze(it, total * 1000.0 / RATE, envs) }.getOrNull()
@@ -118,6 +136,21 @@ object TrackAnalyzer {
         } finally {
             tracker?.close()
         }
+    }
+
+    private class Cancelled : RuntimeException() { override fun fillInStackTrace() = this }
+
+    /** A growable FloatArray: an hour of 5 ms frames as boxed Floats would take ~15 MB. */
+    private class FloatList {
+        private var a = FloatArray(4096)
+        var size = 0
+            private set
+        operator fun get(i: Int) = a[i]
+        operator fun plusAssign(v: Float) {
+            if (size == a.size) a = a.copyOf(a.size * 2)
+            a[size++] = v
+        }
+        fun toFloatArray() = a.copyOf(size)
     }
 
     /** Same windows as the Android analyzer: first, middle and last 30 s (or all of a short track). */

@@ -16,7 +16,9 @@ import kotlin.math.sin
  * Beat n lies at `firstBeatMs + n * beatMs`; beats with `n % 4 == downbeatOffset`
  * start a bar (4/4 assumed). [stability] is the share of detected beats within
  * 40 ms of the grid: close to 1 for electronic music, lower for live drums or
- * tempo changes, where [beatsMs] keeps the raw beat times instead.
+ * tempo changes, where [beatsMs] keeps the raw beat times instead. Only the first
+ * [BeatTracker.MAX_KEPT_BEATS] beats are kept (about 15 minutes at 128 BPM), so long
+ * mixes do not bloat the library file; a list of that size is truncated.
  */
 data class BeatGrid(
     val bpm: Double,
@@ -68,6 +70,10 @@ class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseab
         const val ON_GRID_MS = 40.0
         /** Below this stability the raw beat list is kept as well. */
         const val KEEP_BEATS_BELOW = 0.9
+        /** At most this many raw beats are kept in [BeatGrid.beatsMs]. */
+        const val MAX_KEPT_BEATS = 2000
+        /** Beats per segment of the coarse tempo scan. */
+        private const val COARSE_SEGMENT = 64
 
         /** A kick peak this many times above the average bass onset counts as the beat. */
         const val KICK_PROMINENCE = 2.0
@@ -79,8 +85,11 @@ class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseab
          * whole hops, corrected every few beats, so a least-squares fit started from
          * the median interval drifts. aubio also slips between beat and offbeat
          * (hi-hats, snares) within a track. So the period is chosen by phase coherence
-         * on the half-beat lattice, on a fine scan around the median interval, then
-         * refined by least squares on the beats near that lattice.
+         * on the half-beat lattice, on a scan around the median interval, then refined
+         * by least squares on the beats near that lattice. The scan is coarse to fine:
+         * the coherence of a whole track peaks too sharply for coarse steps, so the
+         * coarse pass sums it over short segments (a broad peak at the same place) and
+         * only the neighbourhood of its best step is scanned finely over all beats.
          *
          * The phase comes from the kick: [bassOnset] (rise of the low-passed level per
          * [frameMs] frame) is folded over one beat period, and a clear peak sets where
@@ -99,13 +108,36 @@ class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseab
                 for (b in beats) { val a = 2 * PI * b / half; c += cos(a); sn += sin(a) }
                 return (c * c + sn * sn) to atan2(sn, c)
             }
+            fun segmentCoherence(half: Double): Double {
+                var total = 0.0; var c = 0.0; var sn = 0.0; var k = 0
+                for (b in beats) {
+                    val a = 2 * PI * b / half; c += cos(a); sn += sin(a)
+                    if (++k == COARSE_SEGMENT) { total += c * c + sn * sn; c = 0.0; sn = 0.0; k = 0 }
+                }
+                return total + c * c + sn * sn
+            }
+            val lo = median * 0.96 / 2
+            val hi = median * 1.04 / 2
+            // segment peak is about half / (2 * COARSE_SEGMENT) wide: eight steps across it
+            val coarseStep = median / 2 * 0.001
+            var coarseBest = lo
+            var bestSeg = -1.0
+            var c = lo
+            while (c <= hi) {
+                val r = segmentCoherence(c)
+                if (r > bestSeg) { bestSeg = r; coarseBest = c }
+                c += coarseStep
+            }
+            // fine pass on the same 0.01 ms lattice as a full scan from lo
+            val fineStep = 0.01
+            val k0 = floor((maxOf(lo, coarseBest - 2 * coarseStep) - lo) / fineStep).toInt()
+            val k1 = floor((minOf(hi, coarseBest + 2 * coarseStep) - lo) / fineStep).toInt()
             var half = median / 2
             var best = -1.0
-            var h = median * 0.96 / 2
-            while (h <= median * 1.04 / 2) {
+            for (k in k0..k1) {
+                val h = lo + k * fineStep
                 val r = coherence(h).first
                 if (r > best) { best = r; half = h }
-                h += 0.01
             }
             var phase = coherence(half).second / (2 * PI) * half
             repeat(2) {
@@ -146,7 +178,7 @@ class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseab
                 downbeatOffset = (0 until 4).maxBy { bars[it] },
                 confidence = confidence,
                 stability = stability,
-                beatsMs = if (stability < KEEP_BEATS_BELOW) beats.map { it.roundToLong() } else null,
+                beatsMs = if (stability < KEEP_BEATS_BELOW) beats.take(MAX_KEPT_BEATS).map { it.roundToLong() } else null,
             )
         }
 

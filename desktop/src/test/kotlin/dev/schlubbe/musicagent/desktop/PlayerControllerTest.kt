@@ -3,6 +3,10 @@ package dev.schlubbe.musicagent.desktop
 import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.desktop.audio.AudioEngine
+import dev.schlubbe.musicagent.desktop.audio.BeatGrid
+import dev.schlubbe.musicagent.desktop.audio.Cue
+import dev.schlubbe.musicagent.desktop.audio.TrackStructure
+import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
 import dev.schlubbe.musicagent.desktop.audio.CaptureSink
 import dev.schlubbe.musicagent.desktop.audio.FakeDeck
 import dev.schlubbe.musicagent.desktop.data.LibraryStore
@@ -45,7 +49,13 @@ class PlayerControllerTest {
         recommend = { _, _, _ -> radio },
         store = store,
         settings = settings,
+        analyze = { analyzeFn(it) },
     ) }
+    private var analyzeFn: suspend (dev.schlubbe.musicagent.data.remote.dto.TrackResultDto) -> TrackAnalysis? = { null }
+
+    /** A 120 BPM grid whose last beat is at 50 s, enough to plan a transition. */
+    private fun gridAnalysis() = TrackAnalysis(0, 50_000, grid = BeatGrid(120.0, 0.0, 0, 1f, 1.0),
+        structure = TrackStructure(emptyList(), listOf(Cue("last_beat", 50_000, 26)), 25), version = TrackAnalysis.CURRENT_VERSION)
     private val q = (1..5).map { track("$it") }
 
     @AfterTest fun tearDown() = pc.close()
@@ -137,5 +147,31 @@ class PlayerControllerTest {
         assertTrue(end - System.currentTimeMillis() in 14 * 60_000L..15 * 60_000L)
         pc.setSleepTimer(null)
         assertNull(pc.state.value.sleepTimerEndAt)
+    }
+
+    @Test fun `a preload that finishes after a skip does not plan from the stale queue`() {
+        settings.update { it.copy(djTransitions = true) }
+        store.putAnalysis(track("1").key, gridAnalysis())
+        var calls = 0
+        analyzeFn = { t ->
+            // the first analysis of track 2 is slow and ignores cancellation, like a full decode
+            if (t.sourceId == "2" && calls++ == 0) Thread.sleep(2500)
+            gridAnalysis().also { store.putAnalysis(t.key, it) }
+        }
+        pc.playQueue(q.take(3))
+        Thread.sleep(2000) // the preload of track 2 is analysing it now
+        pc.next()
+        waitFor(8000) { pc.planned.value?.plan?.nextId == track("3").key }
+        Thread.sleep(1500) // the stale job's analysis is done by now
+        assertEquals("2", pc.state.value.current?.sourceId)
+        assertEquals(track("3").key, pc.planned.value?.plan?.nextId)
+    }
+
+    @Test fun `volume follows the settings`() {
+        pc.setVolume(0.5f)
+        assertEquals(0.5f, settings.current.volume)
+        waitFor { engine.volume == 0.5f }
+        settings.update { it.copy(volume = 0.25f) } // e.g. an undo by the assistant
+        waitFor { engine.volume == 0.25f }
     }
 }

@@ -57,6 +57,36 @@ class BeatTrackerTest {
         assertEquals(200.0, grid.firstBeatMs, 1.0)
     }
 
+    @Test fun fitGridOnAnHourLongUnsteadyMixKeepsFewRawBeats() {
+        val rnd = Random(11)
+        val period = 60_000.0 / 126
+        // 7500 beats; every fifth one sits well off the grid, so the raw beats are kept
+        val beats = (0 until 7500).map { 120 + it * period + rnd.nextDouble(-5.0, 5.0) + if (it % 5 == 2) 70.0 else 0.0 }
+        val t0 = System.nanoTime()
+        val grid = assertNotNull(BeatTracker.fitGrid(beats, 0.5f, FloatArray(0), 5.0))
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        assertEquals(126.0, grid.bpm, 0.01)
+        assertTrue(grid.stability < BeatTracker.KEEP_BEATS_BELOW)
+        assertEquals(BeatTracker.MAX_KEPT_BEATS, grid.beatsMs?.size)
+        assertTrue(ms < 2000, "fitGrid took $ms ms")
+    }
+
+    @Test fun analysisStopsWhenCancelled() {
+        val rate = TrackAnalyzer.RATE
+        val file = java.io.File.createTempFile("grooveo-analysis", ".wav").apply { deleteOnExit() }
+        val pcm = ByteArray(rate * 30 * 2) // 30 s of 16-bit silence with clicks
+        for (i in 0 until pcm.size / 2 step rate / 2) pcm[2 * i + 1] = 0x40
+        val format = javax.sound.sampled.AudioFormat(rate.toFloat(), 16, 1, true, false)
+        javax.sound.sampled.AudioSystem.write(
+            javax.sound.sampled.AudioInputStream(java.io.ByteArrayInputStream(pcm), format, (pcm.size / 2).toLong()),
+            javax.sound.sampled.AudioFileFormat.Type.WAVE, file,
+        )
+        assertNotNull(TrackAnalyzer.analyze(file.path))
+        var checks = 0
+        assertNull(TrackAnalyzer.analyze(file.path) { ++checks > 3 })
+        assertEquals(4, checks)
+    }
+
     @Test fun fitGridGivesUpOnTooFewBeats() {
         assertNull(BeatTracker.fitGrid(listOf(0.0, 500.0, 1000.0), 0.5f, FloatArray(0), 5.0))
     }
