@@ -8,7 +8,10 @@ import dev.schlubbe.musicagent.desktop.AppGraph
 import dev.schlubbe.musicagent.desktop.audio.BeatGrid
 import dev.schlubbe.musicagent.desktop.audio.Curve
 import dev.schlubbe.musicagent.desktop.audio.DeckRole
+import dev.schlubbe.musicagent.desktop.audio.FxChain
 import dev.schlubbe.musicagent.desktop.audio.FxParam
+import dev.schlubbe.musicagent.desktop.audio.FxUnit
+import dev.schlubbe.musicagent.desktop.audio.FxUnitSpec
 import dev.schlubbe.musicagent.desktop.audio.Lane
 import dev.schlubbe.musicagent.desktop.audio.LanePoint
 import dev.schlubbe.musicagent.desktop.audio.MusicalKey
@@ -75,25 +78,48 @@ class GrooveoTools(
     private val known = ConcurrentHashMap<String, TrackResultDto>()
     private val knownPlaylists = ConcurrentHashMap<String, SavedPlaylist>()
 
+    private val _defs = ArrayList<ToolDef>()
+    /** Every tool, for the MCP server and for the in-app assistant (see ai/AiAssistant). */
+    val defs: List<ToolDef> get() = _defs
+
+    init {
+        registerPlayback()
+        registerQueue()
+        registerDiscovery()
+        registerLibrary()
+        registerSound()
+        registerFxChain()
+        registerSettings()
+        registerAnalysis()
+        registerDj()
+    }
+
     fun register(server: Server) {
-        registerPlayback(server)
-        registerQueue(server)
-        registerDiscovery(server)
-        registerLibrary(server)
-        registerSound(server)
-        registerSettings(server)
-        registerAnalysis(server)
-        registerDj(server)
+        for (d in _defs) {
+            if (readOnly && d.mutates) continue
+            server.addTool(
+                name = d.name,
+                description = d.description,
+                inputSchema = ToolSchema(properties = d.properties, required = d.required.ifEmpty { null }),
+                toolAnnotations = ToolAnnotations(readOnlyHint = !d.mutates, destructiveHint = if (d.mutates) d.destructive else null, openWorldHint = d.openWorld),
+            ) { req ->
+                val (ok, text) = d.call(req.arguments)
+                log(McpActivity(System.currentTimeMillis(), d.name, ok, text.take(120)))
+                CallToolResult(content = listOf(TextContent(text)), isError = if (!ok) true else null)
+            }
+        }
         registerResources(server)
         registerPrompts(server)
     }
 
+    fun def(name: String): ToolDef? = _defs.firstOrNull { it.name == name }
+
     // ---------------------------------------------------------------- playback
 
-    private fun registerPlayback(s: Server) {
-        tool(s, "get_now_playing", "Current track, position, duration, play state, volume, shuffle, repeat, sleep timer and queue length.") { nowPlaying() }
+    private fun registerPlayback() {
+        tool("get_now_playing", "Current track, position, duration, play state, volume, shuffle, repeat, sleep timer and queue length.") { nowPlaying() }
         tool(
-            s, "play_tracks", "Replace the queue with these tracks and start playing.",
+            "play_tracks", "Replace the queue with these tracks and start playing.",
             props = mapOf("track_ids" to ids("Tracks to play, in order"), "start_index" to int("Index to start at (default 0)"), "shuffle" to bool("Shuffle the queue")),
             required = listOf("track_ids"), mutates = true,
         ) { a ->
@@ -102,7 +128,7 @@ class GrooveoTools(
             "Playing ${tracks.size} tracks"
         }
         tool(
-            s, "playback", "Play, pause, toggle, stop, next or previous.",
+            "playback", "Play, pause, toggle, stop, next or previous.",
             props = mapOf("action" to enum(listOf("play", "pause", "toggle", "stop", "next", "previous"), "What to do")),
             required = listOf("action"), mutates = true,
         ) { a ->
@@ -120,24 +146,24 @@ class GrooveoTools(
             }
             nowPlaying()
         }
-        tool(s, "seek", "Jump to a position in the current track.", props = mapOf("seconds" to num("Position in seconds")), required = listOf("seconds"), mutates = true) { a ->
+        tool("seek", "Jump to a position in the current track.", props = mapOf("seconds" to num("Position in seconds")), required = listOf("seconds"), mutates = true) { a ->
             ui { g.player.seek(a.double("seconds")!!.coerceAtLeast(0.0)) }
             "Seeked"
         }
-        tool(s, "set_volume", "Set the volume, 0.0 to 1.0 (perceptual curve).", props = mapOf("volume" to num("0.0 .. 1.0")), required = listOf("volume"), mutates = true) { a ->
+        tool("set_volume", "Set the volume, 0.0 to 1.0 (perceptual curve).", props = mapOf("volume" to num("0.0 .. 1.0")), required = listOf("volume"), mutates = true) { a ->
             ui { g.player.setVolume(a.double("volume")!!.toFloat()) }
             "Volume ${g.settings.current.volume}"
         }
-        tool(s, "set_shuffle", "Turn shuffle on or off.", props = mapOf("enabled" to bool("")), required = listOf("enabled"), mutates = true) { a ->
+        tool("set_shuffle", "Turn shuffle on or off.", props = mapOf("enabled" to bool("")), required = listOf("enabled"), mutates = true) { a ->
             ui { if (g.player.state.value.shuffle != a.bool("enabled")) g.player.toggleShuffle() }
             "Shuffle ${g.player.state.value.shuffle}"
         }
-        tool(s, "set_repeat", "Repeat mode.", props = mapOf("mode" to enum(listOf("off", "all", "one"), "")), required = listOf("mode"), mutates = true) { a ->
+        tool("set_repeat", "Repeat mode.", props = mapOf("mode" to enum(listOf("off", "all", "one"), "")), required = listOf("mode"), mutates = true) { a ->
             val want = RepeatMode.valueOf(a.string("mode")!!.uppercase())
             ui { repeat(RepeatMode.entries.size) { if (g.player.state.value.repeat != want) g.player.cycleRepeat() } }
             "Repeat ${g.player.state.value.repeat.name.lowercase()}"
         }
-        tool(s, "set_sleep_timer", "Pause playback after some minutes; omit minutes to cancel the timer.", props = mapOf("minutes" to int("Minutes until pause")), mutates = true) { a ->
+        tool("set_sleep_timer", "Pause playback after some minutes; omit minutes to cancel the timer.", props = mapOf("minutes" to int("Minutes until pause")), mutates = true) { a ->
             ui { g.player.setSleepTimer(a.int("minutes")?.coerceIn(1, 24 * 60)) }
             if (a.int("minutes") == null) "Sleep timer off" else "Sleep timer ${a.int("minutes")} min"
         }
@@ -168,13 +194,13 @@ class GrooveoTools(
 
     // ---------------------------------------------------------------- queue
 
-    private fun registerQueue(s: Server) {
-        tool(s, "get_queue", "The whole queue; 'index' marks the current track.") {
+    private fun registerQueue() {
+        tool("get_queue", "The whole queue; 'index' marks the current track.") {
             val q = g.player.state.value
             mapOf("index" to q.index, "tracks" to q.queue.map(::view))
         }
         tool(
-            s, "add_to_queue", "Add tracks to the queue, at the end or right after the current track.",
+            "add_to_queue", "Add tracks to the queue, at the end or right after the current track.",
             props = mapOf("track_ids" to ids(""), "position" to enum(listOf("end", "next"), "Default end")),
             required = listOf("track_ids"), mutates = true,
         ) { a ->
@@ -185,22 +211,22 @@ class GrooveoTools(
             }
             "Added ${tracks.size}"
         }
-        tool(s, "remove_from_queue", "Remove the track at a queue index.", props = mapOf("index" to int("")), required = listOf("index"), mutates = true) { a ->
+        tool("remove_from_queue", "Remove the track at a queue index.", props = mapOf("index" to int("")), required = listOf("index"), mutates = true) { a ->
             ui { g.player.removeFromQueue(a.int("index")!!) }
             "Removed"
         }
-        tool(s, "move_in_queue", "Move a queue entry.", props = mapOf("from" to int(""), "to" to int("")), required = listOf("from", "to"), mutates = true) { a ->
+        tool("move_in_queue", "Move a queue entry.", props = mapOf("from" to int(""), "to" to int("")), required = listOf("from", "to"), mutates = true) { a ->
             val n = g.player.state.value.queue.size
             val from = a.int("from")!!; val to = a.int("to")!!
             require(from in 0 until n && to in 0 until n) { "Index out of range (queue has $n tracks)" }
             ui { g.player.moveInQueue(from, to) }
             "Moved"
         }
-        tool(s, "skip_to", "Play the queue entry at this index.", props = mapOf("index" to int("")), required = listOf("index"), mutates = true) { a ->
+        tool("skip_to", "Play the queue entry at this index.", props = mapOf("index" to int("")), required = listOf("index"), mutates = true) { a ->
             ui { g.player.skipTo(a.int("index")!!) }
             nowPlaying()
         }
-        tool(s, "clear_up_next", "Remove everything after the current track from the queue.", mutates = true, destructive = true) {
+        tool("clear_up_next", "Remove everything after the current track from the queue.", mutates = true, destructive = true) {
             ui { g.player.clearUpNext() }
             "Cleared"
         }
@@ -208,9 +234,9 @@ class GrooveoTools(
 
     // ---------------------------------------------------------------- discovery
 
-    private fun registerDiscovery(s: Server) {
+    private fun registerDiscovery() {
         tool(
-            s, "search", "Search SoundCloud and YouTube Music.",
+            "search", "Search SoundCloud and YouTube Music.",
             props = mapOf(
                 "query" to str(""),
                 "type" to enum(listOf("tracks", "artists", "playlists", "albums"), "Default tracks"),
@@ -230,31 +256,31 @@ class GrooveoTools(
             }
         }
         tool(
-            s, "get_remote_playlist", "Tracks of a SoundCloud/YouTube playlist or album found by search.",
+            "get_remote_playlist", "Tracks of a SoundCloud/YouTube playlist or album found by search.",
             props = mapOf("source" to str(""), "source_id" to str("")), required = listOf("source", "source_id"), openWorld = true,
         ) { a ->
             val d = g.search.getPlaylistDetail(a.string("source")!!, a.string("source_id")!!)
             mapOf("title" to d.title, "owner" to d.owner, "description" to d.description, "tags" to d.tags, "tracks" to d.tracks.map(::view))
         }
         tool(
-            s, "get_artist", "Artist details with top and latest tracks.",
+            "get_artist", "Artist details with top and latest tracks.",
             props = mapOf("source" to str(""), "source_id" to str("")), required = listOf("source", "source_id"), openWorld = true,
         ) { a ->
             val d = g.search.getArtist(a.string("source")!!, a.string("source_id")!!)
             mapOf("name" to d.name, "description" to d.description, "subscribers" to d.subscriberCount, "top_tracks" to d.topTracks.map(::view), "latest_tracks" to d.latestTracks.map(::view))
         }
         tool(
-            s, "get_trending", "Trending tracks, optionally for a genre.",
+            "get_trending", "Trending tracks, optionally for a genre.",
             props = mapOf("genre" to str("e.g. techno, hip hop"), "source" to enum(listOf("all", "soundcloud", "ytmusic"), ""), "limit" to int("")), openWorld = true,
         ) { a ->
             val limit = (a.int("limit") ?: 20).coerceIn(1, 50)
             (a.string("genre")?.let { g.search.getTrendingByGenre(it, limit) } ?: g.search.getTrending(limit, a.string("source") ?: "all")).map(::view)
         }
-        tool(s, "get_recommendations", "Tracks Grooveo would play next for the listener, from history and likes.", props = mapOf("limit" to int("")), openWorld = true) { a ->
+        tool("get_recommendations", "Tracks Grooveo would play next for the listener, from history and likes.", props = mapOf("limit" to int("")), openWorld = true) { a ->
             val recent = g.store.current.history.take(20).map { it.track }
             g.feed.predictNext(recent, recent.map { it.key }.toSet(), (a.int("limit") ?: 15).coerceIn(1, 50)).map(::view)
         }
-        tool(s, "get_lyrics", "Lyrics of a track (LRCLIB).", props = mapOf("track_id" to str("")), required = listOf("track_id"), openWorld = true) { a ->
+        tool("get_lyrics", "Lyrics of a track (LRCLIB).", props = mapOf("track_id" to str("")), required = listOf("track_id"), openWorld = true) { a ->
             val t = track(a.string("track_id")!!)
             val l = g.lyrics.lyricsFor(t.title, t.artist, t.durationSec) ?: return@tool "No lyrics found"
             l.plain ?: l.synced?.joinToString("\n") { "[${it.timeMs / 1000}s] ${it.text}" } ?: "No lyrics found"
@@ -263,9 +289,9 @@ class GrooveoTools(
 
     // ---------------------------------------------------------------- library
 
-    private fun registerLibrary(s: Server) {
+    private fun registerLibrary() {
         tool(
-            s, "get_library", "The listener's library.",
+            "get_library", "The listener's library.",
             props = mapOf("section" to enum(listOf("likes", "playlists", "saved_playlists", "followed_artists", "history", "downloads", "disliked_artists"), "")),
             required = listOf("section"),
         ) { a ->
@@ -281,12 +307,12 @@ class GrooveoTools(
                 else -> error("Unknown section")
             }
         }
-        tool(s, "get_playlist", "A local playlist with its tracks.", props = mapOf("playlist_id" to str("")), required = listOf("playlist_id")) { a ->
+        tool("get_playlist", "A local playlist with its tracks.", props = mapOf("playlist_id" to str("")), required = listOf("playlist_id")) { a ->
             val p = playlist(a.string("playlist_id")!!)
             mapOf("id" to p.id, "name" to p.name, "description" to p.description, "mood_tags" to p.moodTags, "tracks" to p.tracks.map { view(it.track) })
         }
         tool(
-            s, "create_playlist", "Create a local playlist, optionally with tracks.",
+            "create_playlist", "Create a local playlist, optionally with tracks.",
             props = mapOf("name" to str(""), "description" to str(""), "mood_tags" to strings("Short tags like 'chill', 'gym'"), "track_ids" to ids("")),
             required = listOf("name"), mutates = true,
         ) { a ->
@@ -296,7 +322,7 @@ class GrooveoTools(
             mapOf("playlist_id" to p.id, "track_count" to tracks.size)
         }
         tool(
-            s, "update_playlist", "Rename a playlist or change its description and mood tags.",
+            "update_playlist", "Rename a playlist or change its description and mood tags.",
             props = mapOf("playlist_id" to str(""), "name" to str(""), "description" to str(""), "mood_tags" to strings("")),
             required = listOf("playlist_id"), mutates = true,
         ) { a ->
@@ -312,45 +338,45 @@ class GrooveoTools(
             }
             "Updated"
         }
-        tool(s, "add_to_playlist", "Append tracks to a playlist.", props = mapOf("playlist_id" to str(""), "track_ids" to ids("")), required = listOf("playlist_id", "track_ids"), mutates = true) { a ->
+        tool("add_to_playlist", "Append tracks to a playlist.", props = mapOf("playlist_id" to str(""), "track_ids" to ids("")), required = listOf("playlist_id", "track_ids"), mutates = true) { a ->
             playlist(a.string("playlist_id")!!)
             val tracks = tracks(a.strings("track_ids"))
             ui { g.store.addToPlaylist(a.string("playlist_id")!!, tracks) }
             "Added ${tracks.size}"
         }
-        tool(s, "remove_from_playlist", "Remove the track at an index from a playlist.", props = mapOf("playlist_id" to str(""), "index" to int("")), required = listOf("playlist_id", "index"), mutates = true) { a ->
+        tool("remove_from_playlist", "Remove the track at an index from a playlist.", props = mapOf("playlist_id" to str(""), "index" to int("")), required = listOf("playlist_id", "index"), mutates = true) { a ->
             val p = playlist(a.string("playlist_id")!!)
             val i = a.int("index")!!
             require(i in p.tracks.indices) { "Index out of range (playlist has ${p.tracks.size} tracks)" }
             ui { g.store.removeFromPlaylist(p.id, i) }
             "Removed"
         }
-        tool(s, "move_playlist_track", "Move a track inside a playlist.", props = mapOf("playlist_id" to str(""), "from" to int(""), "to" to int("")), required = listOf("playlist_id", "from", "to"), mutates = true) { a ->
+        tool("move_playlist_track", "Move a track inside a playlist.", props = mapOf("playlist_id" to str(""), "from" to int(""), "to" to int("")), required = listOf("playlist_id", "from", "to"), mutates = true) { a ->
             val p = playlist(a.string("playlist_id")!!)
             val from = a.int("from")!!; val to = a.int("to")!!
             require(from in p.tracks.indices && to in p.tracks.indices) { "Index out of range" }
             ui { g.store.movePlaylistTrack(p.id, from, to) }
             "Moved"
         }
-        tool(s, "delete_playlist", "Delete a local playlist. Cannot be undone.", props = mapOf("playlist_id" to str("")), required = listOf("playlist_id"), mutates = true, destructive = true) { a ->
+        tool("delete_playlist", "Delete a local playlist. Cannot be undone.", props = mapOf("playlist_id" to str("")), required = listOf("playlist_id"), mutates = true, destructive = true) { a ->
             val p = playlist(a.string("playlist_id")!!)
             ui { g.store.deletePlaylist(p.id) }
             "Deleted '${p.name}'"
         }
-        tool(s, "play_playlist", "Play a local playlist.", props = mapOf("playlist_id" to str(""), "shuffle" to bool("")), required = listOf("playlist_id"), mutates = true) { a ->
+        tool("play_playlist", "Play a local playlist.", props = mapOf("playlist_id" to str(""), "shuffle" to bool("")), required = listOf("playlist_id"), mutates = true) { a ->
             val p = playlist(a.string("playlist_id")!!)
             require(p.tracks.isNotEmpty()) { "Playlist is empty" }
             ui { g.player.playQueue(p.tracks.map { it.track }, 0, a.bool("shuffle") ?: false) }
             "Playing '${p.name}'"
         }
-        tool(s, "set_liked", "Like or unlike tracks.", props = mapOf("track_ids" to ids(""), "liked" to bool("")), required = listOf("track_ids", "liked"), mutates = true) { a ->
+        tool("set_liked", "Like or unlike tracks.", props = mapOf("track_ids" to ids(""), "liked" to bool("")), required = listOf("track_ids", "liked"), mutates = true) { a ->
             val want = a.bool("liked")!!
             val tracks = tracks(a.strings("track_ids"))
             ui { tracks.forEach { if (g.store.isLiked(it) != want) g.store.toggleLike(it) } }
             "${if (want) "Liked" else "Unliked"} ${tracks.size}"
         }
         tool(
-            s, "set_following", "Follow or unfollow an artist (from search or get_artist).",
+            "set_following", "Follow or unfollow an artist (from search or get_artist).",
             props = mapOf("source" to str(""), "source_id" to str(""), "name" to str("Artist name"), "following" to bool("")),
             required = listOf("source", "source_id", "following"), mutates = true,
         ) { a ->
@@ -359,7 +385,7 @@ class GrooveoTools(
             if (want) "Following" else "Unfollowed"
         }
         tool(
-            s, "set_saved_playlist", "Save or unsave a SoundCloud/YouTube playlist or album found by search.",
+            "set_saved_playlist", "Save or unsave a SoundCloud/YouTube playlist or album found by search.",
             props = mapOf("source" to str(""), "source_id" to str(""), "saved" to bool("")), required = listOf("source", "source_id", "saved"), mutates = true,
         ) { a ->
             val src = a.string("source")!!; val id = a.string("source_id")!!; val want = a.bool("saved")!!
@@ -370,30 +396,97 @@ class GrooveoTools(
             }
             if (want) "Saved" else "Unsaved"
         }
-        tool(s, "dislike_artist", "Never recommend this artist again.", props = mapOf("artist" to str("")), required = listOf("artist"), mutates = true) { a ->
+        tool("dislike_artist", "Never recommend this artist again.", props = mapOf("artist" to str("")), required = listOf("artist"), mutates = true) { a ->
             ui { g.store.dislikeArtist(a.string("artist")!!) }
             "Disliked"
         }
-        tool(s, "download_tracks", "Download tracks for offline playback.", props = mapOf("track_ids" to ids("")), required = listOf("track_ids"), mutates = true, openWorld = true) { a ->
+        tool("download_tracks", "Download tracks for offline playback.", props = mapOf("track_ids" to ids("")), required = listOf("track_ids"), mutates = true, openWorld = true) { a ->
             val tracks = tracks(a.strings("track_ids"))
             ui { g.downloads.enqueueAll(tracks) }
             "Queued ${tracks.size} downloads"
         }
-        tool(s, "remove_download", "Delete a downloaded file.", props = mapOf("track_id" to str("")), required = listOf("track_id"), mutates = true, destructive = true) { a ->
+        tool("remove_download", "Delete a downloaded file.", props = mapOf("track_id" to str("")), required = listOf("track_id"), mutates = true, destructive = true) { a ->
             ui { g.downloads.remove(a.string("track_id")!!) }
             "Removed"
         }
-        tool(s, "clear_history", "Clear the listening history. Cannot be undone.", mutates = true, destructive = true) {
+        tool("clear_history", "Clear the listening history. Cannot be undone.", mutates = true, destructive = true) {
             ui { g.store.clearHistory() }
             "Cleared"
         }
     }
 
+    // ---------------------------------------------------------------- FX chain
+
+    private fun registerFxChain() {
+        tool("get_fx_chain", "The FX chain on the output (effects in order), the saved chains, and every effect type with its parameters.") {
+            val st = g.settings.current
+            mapOf(
+                "active" to st.fxChain,
+                "saved" to st.fxChainPresets,
+                "effect_types" to FxUnitSpec.ALL.map { sp ->
+                    mapOf("type" to sp.type, "description" to sp.description,
+                        "params" to sp.params.map { mapOf("key" to it.key, "min" to it.min, "max" to it.max, "default" to it.default, "meaning" to it.meaning) })
+                },
+            )
+        }
+        tool(
+            "set_fx_chain",
+            "Puts an FX chain on the whole output: effects run in the given order, before the equalizer. Replaces the current chain. " +
+                "Each effect is {type, ...its parameters} (see get_fx_chain), e.g. [{\"type\":\"highpass\",\"hz\":30},{\"type\":\"echo\",\"beats\":0.75,\"mix\":0.15}," +
+                "{\"type\":\"room\",\"preset\":\"RAVE\"}]. The user is asked before it is switched on.",
+            props = mapOf(
+                "effects" to buildJsonObject { put("type", "array"); putJsonObject("items") { put("type", "object") }; put("description", "Effects in order") },
+                "name" to str("Name for the chain"),
+                "save" to bool("Also save it under its name for later"),
+            ),
+            required = listOf("effects"), mutates = true,
+            check = { a -> FxUnitSpec.validate(FxChain("", parseEffects(a.raw("effects")))) },
+        ) { a ->
+            val chain = FxUnitSpec.validate(FxChain(a.string("name") ?: "KI-Kette", parseEffects(a.raw("effects"))))
+            ui {
+                g.settings.update { s ->
+                    s.copy(fxChain = chain, fxChainPresets = if (a.bool("save") == true) s.fxChainPresets.filter { it.name != chain.name } + chain else s.fxChainPresets)
+                }
+            }
+            mapOf("active" to chain)
+        }
+        tool(
+            "apply_fx_preset", "Switches on a saved FX chain by name.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true,
+            check = { a -> require(g.settings.current.fxChainPresets.any { it.name.equals(a.string("name"), ignoreCase = true) }) { "No saved chain '${a.string("name")}'" } },
+        ) { a ->
+            val n = a.string("name")!!
+            val chain = g.settings.current.fxChainPresets.firstOrNull { it.name.equals(n, ignoreCase = true) } ?: error("No saved chain '$n'")
+            ui { g.settings.update { it.copy(fxChain = chain) } }
+            mapOf("active" to chain)
+        }
+        tool("clear_fx_chain", "Switches the FX chain off (saved chains stay).", mutates = true) {
+            ui { g.settings.update { it.copy(fxChain = null) } }
+            "FX chain off"
+        }
+        tool("delete_fx_preset", "Deletes a saved FX chain.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true, destructive = true) { a ->
+            val n = a.string("name")!!
+            require(g.settings.current.fxChainPresets.any { it.name == n }) { "No saved chain '$n'" }
+            ui { g.settings.update { s -> s.copy(fxChainPresets = s.fxChainPresets.filter { it.name != n }) } }
+            "Deleted"
+        }
+    }
+
+    private fun parseEffects(raw: JsonElement?): List<FxUnit> =
+        (raw as? JsonArray ?: error("effects must be a list")).map { el ->
+            val o = el as? JsonObject ?: error("Each effect must be an object")
+            val type = (o["type"] as? JsonPrimitive)?.content ?: error("Effect without type")
+            FxUnit(
+                type,
+                o.filterKeys { it != "type" && it != "preset" }.mapValues { (k, v) -> (v as? JsonPrimitive)?.doubleOrNull ?: error("$type.$k must be a number") },
+                (o["preset"] as? JsonPrimitive)?.content,
+            )
+        }
+
     // ---------------------------------------------------------------- analysis
 
-    private fun registerAnalysis(s: Server) {
+    private fun registerAnalysis() {
         tool(
-            s, "analyze_tracks",
+            "analyze_tracks",
             "Analyse tracks: tempo (BPM), beat grid with bars (4/4), and mix-in/mix-out points (where the music starts and ends, " +
                 "skipping silent intros/outros). Decodes each whole track, so it takes a few seconds per track. " +
                 "Results are stored; already analysed tracks are returned from the store unless force=true.",
@@ -416,7 +509,7 @@ class GrooveoTools(
             }
         }
         tool(
-            s, "get_track_analysis", "Stored analysis of a track (BPM, beat grid, mix points), or 'Not analysed' - see analyze_tracks.",
+            "get_track_analysis", "Stored analysis of a track (BPM, beat grid, mix points), or 'Not analysed' - see analyze_tracks.",
             props = mapOf("track_id" to str(""), "include_beats" to bool("Also list every detected beat (ms), when the tempo is not steady; can be long")),
             required = listOf("track_id"),
         ) { a ->
@@ -424,7 +517,7 @@ class GrooveoTools(
             g.store.current.analysis[id]?.let { analysisView(id, it, includeBeats = a.bool("include_beats") == true) } ?: "Not analysed"
         }
         tool(
-            s, "find_tracks_by_bpm",
+            "find_tracks_by_bpm",
             "Analysed tracks whose tempo fits a range, sorted by closeness to its middle. With allow_half_double, a track at half or double " +
                 "the tempo also matches (e.g. 70 BPM for 140), since those mix on the beat as well. Only tracks analysed before are searched.",
             props = mapOf(
@@ -456,9 +549,9 @@ class GrooveoTools(
 
     // ---------------------------------------------------------------- DJ
 
-    private fun registerDj(s: Server) {
+    private fun registerDj() {
         val fxParams = FxParam.entries.map { it.key }
-        tool(s, "get_transition_styles", "How transitions work: styles, cue names, automatable deck parameters and curves, with their ranges.") {
+        tool("get_transition_styles", "How transitions work: styles, cue names, automatable deck parameters and curves, with their ranges.") {
             mapOf(
                 "styles" to TransitionPlanner.STYLES,
                 "out_cues" to listOf("mix_out", "outro_start", "breakdown", "drop", "build", "bar:N", "next_bar", "next_phrase"),
@@ -506,18 +599,18 @@ class GrooveoTools(
             },
         )
         tool(
-            s, "set_transition",
+            "set_transition",
             "Plans how the playing track mixes into the next queued track: style, length, cue points, tempo sync, key shift and " +
                 "optional custom automation of fader, 3-band EQ, filters and echo per deck. Both tracks are analysed first if needed. " +
                 "Returns what was planned (start time, bars, tempos). Applies to the next transition only; call again after it ran.",
             props = recipeProps, mutates = true,
         ) { a -> plannedView(g.player.setTransition(recipe(a))) }
         tool(
-            s, "transition_now",
+            "transition_now",
             "Starts a transition into the next queued track at the next bar (or next 8-bar phrase): a live DJ move. Same options as set_transition.",
             props = recipeProps + ("at" to enum(listOf("next_bar", "next_phrase"), "Default next_bar")), mutates = true,
         ) { a -> plannedView(g.player.setTransition(recipe(a).copy(outCue = a.string("at") ?: "next_bar"))) }
-        tool(s, "get_transition", "The planned or running transition: phase (none/armed/running/releasing), beat, rates, beat-sync error and the plan.") {
+        tool("get_transition", "The planned or running transition: phase (none/armed/running/releasing), beat, rates, beat-sync error and the plan.") {
             val st = g.player.transition.value
             mapOf(
                 "phase" to st.phase.name.lowercase(),
@@ -530,20 +623,21 @@ class GrooveoTools(
                 "planned" to g.player.planned.value?.summary,
             )
         }
-        tool(s, "cancel_transition", "Drops the planned transition; the next track follows with the normal crossfade or gaplessly.", mutates = true) {
+        tool("cancel_transition", "Drops the planned transition; the next track follows with the normal crossfade or gaplessly.", mutates = true) {
             g.player.cancelTransition(); "Cancelled"
         }
         tool(
-            s, "set_deck_fx",
+            "set_deck_fx",
             "Live effect on the playing track, like turning a knob on a DJ mixer: ${FxParam.entries.joinToString { "${it.key} (${it.description})" }}. " +
                 "Stays until changed or the track changes; running transitions automate these themselves.",
             props = mapOf("param" to enum(fxParams, ""), "value" to num("")), required = listOf("param", "value"), mutates = true,
+            check = { a -> requireNotNull(FxParam.byKey(a.string("param").orEmpty())) { "Unknown param, use one of ${fxParams.joinToString()}" } },
         ) { a ->
             val p = FxParam.byKey(a.string("param")!!) ?: error("Unknown param")
             g.player.setFx(p, a.double("value")!!)
             mapOf("param" to p.key, "value" to g.player.fxValue(p))
         }
-        tool(s, "get_deck_fx", "Current effect settings of the playing track.") {
+        tool("get_deck_fx", "Current effect settings of the playing track.") {
             FxParam.entries.associate { it.key to g.player.fxValue(it) }
         }
     }
@@ -653,8 +747,8 @@ class GrooveoTools(
 
     // ---------------------------------------------------------------- sound
 
-    private fun registerSound(s: Server) {
-        tool(s, "get_eq", "The parametric equalizer, the built-in and saved presets, and the 3D sound presets.") {
+    private fun registerSound() {
+        tool("get_eq", "The parametric equalizer, the built-in and saved presets, and the 3D sound presets.") {
             mapOf(
                 "eq" to g.settings.current.eq,
                 "loudness_normalization" to (g.settings.current.loudnessNormalization != false),
@@ -668,7 +762,7 @@ class GrooveoTools(
             )
         }
         tool(
-            s, "set_eq", "Change the equalizer. Pass only the fields to change; 'bands' replaces the whole band list. Use auto_preamp to avoid clipping.",
+            "set_eq", "Change the equalizer. Pass only the fields to change; 'bands' replaces the whole band list. Use auto_preamp to avoid clipping.",
             props = mapOf("eq" to obj("Partial EqProfile, see get_eq"), "auto_preamp" to bool("Set the preamp so the curve never boosts above 0 dB")),
             required = listOf("eq"), mutates = true,
         ) { a ->
@@ -682,14 +776,14 @@ class GrooveoTools(
             ui { g.settings.update { it.copy(eq = eq) } }
             eq
         }
-        tool(s, "apply_eq_preset", "Switch to a built-in or saved EQ preset by name.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true) { a ->
+        tool("apply_eq_preset", "Switch to a built-in or saved EQ preset by name.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true) { a ->
             val name = a.string("name")!!
             val p = (g.settings.current.eqUserPresets + EqProfile.PRESETS).firstOrNull { it.name.equals(name, ignoreCase = true) }
                 ?: error("No preset '$name'")
             ui { g.settings.update { it.copy(eq = p.copy(enabled = true)) } }
             "EQ: ${p.name}"
         }
-        tool(s, "save_eq_preset", "Save the current EQ as a user preset.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true) { a ->
+        tool("save_eq_preset", "Save the current EQ as a user preset.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true) { a ->
             val name = a.string("name")!!.trim().also { require(it.isNotEmpty()) { "Name is empty" } }
             ui { g.settings.update { st -> st.copy(eqUserPresets = st.eqUserPresets.filterNot { it.name == name } + st.eq.copy(name = name)) } }
             "Saved '$name'"
@@ -698,10 +792,10 @@ class GrooveoTools(
 
     // ---------------------------------------------------------------- settings
 
-    private fun registerSettings(s: Server) {
-        tool(s, "get_settings", "All app settings as JSON (playback, crossfade, sources, home screen, theme, downloads, ...).") { g.settings.current }
+    private fun registerSettings() {
+        tool("get_settings", "All app settings as JSON (playback, crossfade, sources, home screen, theme, downloads, ...).") { g.settings.current }
         tool(
-            s, "update_settings", "Change settings. Pass only the fields to change, with names and types as in get_settings.",
+            "update_settings", "Change settings. Pass only the fields to change, with names and types as in get_settings.",
             props = mapOf("settings" to obj("Partial settings object")), required = listOf("settings"), mutates = true,
         ) { a ->
             val tree = gson.toJsonTree(g.settings.current).asJsonObject
@@ -789,7 +883,6 @@ class GrooveoTools(
     private suspend fun <T> ui(block: () -> T): T = withContext(Dispatchers.Main) { block() }
 
     private fun tool(
-        s: Server,
         name: String,
         description: String,
         props: Map<String, JsonObject> = emptyMap(),
@@ -797,30 +890,13 @@ class GrooveoTools(
         mutates: Boolean = false,
         destructive: Boolean = false,
         openWorld: Boolean = false,
+        check: ((Args) -> Unit)? = null,
         body: suspend (Args) -> Any?,
     ) {
-        if (readOnly && mutates) return
-        s.addTool(
-            name = name,
-            description = description,
-            inputSchema = ToolSchema(properties = buildJsonObject { props.forEach { (k, v) -> put(k, v) } }, required = required.ifEmpty { null }),
-            toolAnnotations = ToolAnnotations(readOnlyHint = !mutates, destructiveHint = if (mutates) destructive else null, openWorldHint = openWorld),
-        ) { req ->
-            val args = Args(req.arguments)
-            val result = runCatching {
-                required.forEach { require(args.has(it)) { "Missing argument '$it'" } }
-                body(args)
-            }
-            val text = result.fold(
-                onSuccess = { if (it is String) it else gson.toJson(it) },
-                onFailure = { it.message ?: it.javaClass.simpleName },
-            )
-            log(McpActivity(System.currentTimeMillis(), name, result.isSuccess, text.take(120)))
-            CallToolResult(content = listOf(TextContent(text)), isError = if (result.isFailure) true else null)
-        }
+        _defs += ToolDef(name, description, buildJsonObject { props.forEach { (k, v) -> put(k, v) } }, required, mutates, destructive, openWorld, body, check)
     }
 
-    internal class Args(private val o: JsonObject?) {
+    class Args(private val o: JsonObject?) {
         fun has(n: String) = o?.get(n)?.let { it !is kotlinx.serialization.json.JsonNull } == true
         fun raw(n: String): JsonElement? = o?.get(n)
         fun string(n: String): String? = (raw(n) as? JsonPrimitive)?.content

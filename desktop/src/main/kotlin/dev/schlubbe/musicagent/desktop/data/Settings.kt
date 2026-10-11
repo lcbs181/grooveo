@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.data
 
+import dev.schlubbe.musicagent.desktop.audio.FxChain
 import dev.schlubbe.musicagent.playback.eq.EqProfile
 
 /**
@@ -47,6 +48,25 @@ data class Settings(
     val djStyle: String = "auto",
     /** Transpose the incoming track when the keys clash. */
     val djHarmonic: Boolean = false,
+    /** Effects on the whole output ("FX-Kette"), null = none. */
+    val fxChain: FxChain? = null,
+    val fxChainPresets: List<FxChain> = emptyList(),
+    /** In-app assistant: "local" (OpenAI-compatible server) or "anthropic". */
+    val aiProvider: String = "local",
+    /** Base URL of the OpenAI-compatible server (llama.cpp, Ollama, LM Studio). */
+    val aiBaseUrl: String = "http://127.0.0.1:8080/v1",
+    /** Model name; empty = the server's default (local) or Claude Sonnet (Anthropic). */
+    val aiModel: String = "",
+    /** Ask before the assistant deletes something. */
+    val aiAskDelete: Boolean = true,
+    /** Ask before the assistant switches on an FX chain. */
+    val aiAskFx: Boolean = true,
+    /** Ask when the assistant wants to change how loud it is (volume, loudness, EQ gain, bass). */
+    val aiAskLoudness: Boolean = true,
+    /** Ask before every other change, too. */
+    val aiAskOther: Boolean = false,
+    /** Give the assistant a summary of likes, playlists and history. */
+    val aiShareTaste: Boolean = true,
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized(): Settings {
@@ -69,6 +89,10 @@ data class Settings(
             volume = if (volume.isNaN()) d.volume else volume.coerceIn(0f, 1f),
             loudnessNormalization = loudnessNormalization ?: true,
             djStyle = djStyle ?: d.djStyle,
+            fxChainPresets = fxChainPresets ?: emptyList(),
+            aiProvider = aiProvider ?: d.aiProvider,
+            aiBaseUrl = aiBaseUrl ?: d.aiBaseUrl,
+            aiModel = aiModel ?: "",
         )
     }
 

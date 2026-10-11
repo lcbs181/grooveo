@@ -57,6 +57,7 @@ import dev.schlubbe.musicagent.desktop.ui.screens.AddToPlaylistDialog
 import dev.schlubbe.musicagent.desktop.ui.screens.ArtistScreen
 import dev.schlubbe.musicagent.desktop.ui.screens.DownloadsScreen
 import dev.schlubbe.musicagent.desktop.ui.screens.EqualizerScreen
+import dev.schlubbe.musicagent.desktop.ui.screens.AiPanel
 import dev.schlubbe.musicagent.desktop.ui.screens.HomeScreen
 import dev.schlubbe.musicagent.desktop.ui.screens.LibraryScreen
 import dev.schlubbe.musicagent.desktop.ui.screens.LyricsPanel
@@ -92,10 +93,11 @@ fun AppShell() {
                     }
                 }
                 ui.panel?.let { p ->
-                    Box(Modifier.width(340.dp).fillMaxHeight().padding(top = 8.dp, end = 8.dp).clip(RoundedCornerShape(16.dp)).background(c.surface)) {
+                    Box(Modifier.width(if (p == SidePanel.AI) 400.dp else 340.dp).fillMaxHeight().padding(top = 8.dp, end = 8.dp).clip(RoundedCornerShape(16.dp)).background(c.surface)) {
                         when (p) {
                             SidePanel.QUEUE -> QueuePanel(Modifier.fillMaxSize())
                             SidePanel.LYRICS -> LyricsPanel(Modifier.fillMaxSize())
+                            SidePanel.AI -> AiPanel(Modifier.fillMaxSize())
                         }
                     }
                 }

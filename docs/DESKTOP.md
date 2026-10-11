@@ -16,8 +16,11 @@ desktop.
   reordering.
 * **Playback**: shuffle and repeat, recommendation radio when the queue runs
   out, a sleep timer, gapless playback, and crossfade at analysed mix points.
-* **Sound**: a parametric equalizer (see below) and 3D-Sound convolution
-  reverb.
+* **Sound**: a parametric equalizer (see below), 3D-Sound convolution
+  reverb and an FX chain on the output (filters, 3-band EQ, echo, stereo
+  width, room), which you can save under a name.
+* **KI-Assistent** (Ctrl+K or the sparkle button): a chat panel where you tell
+  the app what to do (see "AI assistant" below).
 * **Desktop extras**:
   - right-click menus everywhere;
   - keyboard shortcuts;
@@ -203,6 +206,31 @@ Earlier prototypes used mpv over IPC (about 3 s of EQ latency, because mpv
 buffers that much audio when it writes PCM to a pipe) and then FFmpeg
 libavfilter biquads (single precision, bilinear cramping). The current chain
 runs in-process with one block (21 ms) of latency.
+
+## AI assistant
+
+`desktop/ai/` runs the agent loop inside the app. Its tools are the same
+`ToolDef`s that the MCP server offers (`mcp/GrooveoTools.kt`), so both paths
+can do the same things. The model comes from one of two providers:
+
+- **Lokal:** any OpenAI-compatible server (llama.cpp `llama-server --jinja`,
+  Ollama, LM Studio). Nothing leaves the PC.
+- **Anthropic API:** Claude. The key is stored in `ai-anthropic.key` in the
+  data folder, readable only by the user; `ANTHROPIC_API_KEY` works too.
+
+Each request carries a short context: what is playing, the queue, the sound
+settings and, if allowed, a taste summary.
+
+- **Confirmations** (`AiPolicy`): before deleting anything, the app asks the
+  user. It also asks before switching on an FX chain or an effect, and before
+  any change to how loud it is: volume, loudness normalisation, equalizer, bass,
+  or a deck's volume or EQ. The volume question comes once per new value: an
+  approved level is not asked again on the next track, only when the AI wants a
+  different one. A request with invalid arguments fails before anyone is asked.
+- **Undo:** one snapshot of library and settings per answer ("Letzte Antwort
+  rückgängig"). Playback and the queue are not part of it.
+- **Untrusted text:** titles, descriptions and lyrics in tool results are marked
+  as data in the system prompt, not as instructions.
 
 ## Data
 

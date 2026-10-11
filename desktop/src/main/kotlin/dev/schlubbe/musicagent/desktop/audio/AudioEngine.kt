@@ -81,6 +81,8 @@ class AudioEngine(
     @Volatile var listener: EngineListener = object : EngineListener {}
 
     val reverb = ReverbStage()
+    /** "FX-Kette": effects on the whole output, before the equalizer. */
+    val masterFx = MasterFx()
     private val equalizer = EqProcessor()
     val spectrum = SpectrumAnalyzer()
     /** Frames actually sent to the output while playing (for listening statistics). */
@@ -504,6 +506,7 @@ class AudioEngine(
         norms.forEach { it.makeupDb = equalizer.makeupDb }
         equalizer.forceLimiter = norms.any { it.currentGainDb > 0.05 }
         equalizer.setVolume(volume)
+        masterFx.process(buf, BLOCK)
         equalizer.process(buf, BLOCK)
         reverb.process(buf)
         val v = volume.coerceIn(0f, 1f)

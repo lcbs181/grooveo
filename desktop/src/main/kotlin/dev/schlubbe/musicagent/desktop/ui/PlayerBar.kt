@@ -48,6 +48,7 @@ import com.adamglin.phosphoricons.fill.SkipBack
 import com.adamglin.phosphoricons.fill.SkipForward
 import com.adamglin.phosphoricons.regular.ArrowsOutSimple
 import com.adamglin.phosphoricons.regular.Heart
+import com.adamglin.phosphoricons.regular.Sparkle
 import com.adamglin.phosphoricons.regular.Subtitles
 import com.adamglin.phosphoricons.regular.Queue
 import com.adamglin.phosphoricons.regular.Repeat
@@ -212,6 +213,7 @@ fun NowPlayingBar(modifier: Modifier = Modifier) {
         }
         Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             if (q.sleepTimerEndAt != null) Icon(PhosphorIcons.Regular.Timer, "Sleep-Timer aktiv", tint = c.accent2, modifier = Modifier.size(18.dp).padding(end = 4.dp))
+            IconBtn(PhosphorIcons.Regular.Sparkle, "KI-Assistent (Strg+K)", tint = if (ui.panel == SidePanel.AI) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.AI) }
             IconBtn(PhosphorIcons.Regular.Subtitles, "Songtext", tint = if (ui.panel == SidePanel.LYRICS) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.LYRICS) }
             IconBtn(PhosphorIcons.Regular.Queue, "Warteschlange", tint = if (ui.panel == SidePanel.QUEUE) c.accent2 else c.textMuted) { ui.togglePanel(SidePanel.QUEUE) }
             IconBtn(PhosphorIcons.Regular.SlidersHorizontal, "Equalizer", tint = if (settings.eq.enabled && settings.eq.name != "Flach") c.accent else c.textMuted) { ui.navigate(Route.Equalizer) }

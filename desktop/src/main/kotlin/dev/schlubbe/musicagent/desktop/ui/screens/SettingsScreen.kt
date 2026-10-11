@@ -1,5 +1,8 @@
 package dev.schlubbe.musicagent.desktop.ui.screens
 
+import dev.schlubbe.musicagent.desktop.audio.FxUnitSpec
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.material3.OutlinedTextField
 import dev.schlubbe.musicagent.desktop.data.imageCacheDir
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -158,6 +161,70 @@ fun SettingsScreen() {
                         Sound3dPreset.entries.forEach { p -> Pill(p.label, p == preset) { set { it.copy(sound3dPreset = p.name) } } }
                     }
                 }
+                val chain = s.fxChain
+                SettingsRow(
+                    "FX-Kette",
+                    chain?.let { ch -> "${ch.name}: " + ch.units.joinToString(" › ") { u -> FxUnitSpec.of(u.type)?.label ?: u.type } }
+                        ?: if (s.fxChainPresets.isEmpty()) "Aus · der KI-Assistent kann Ketten aus Filtern, EQ, Echo und Raum bauen" else "Aus",
+                    wide = s.fxChainPresets.isNotEmpty(),
+                ) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Pill("Aus", chain == null) { set { it.copy(fxChain = null) } }
+                        s.fxChainPresets.forEach { p -> Pill(p.name, chain?.name == p.name) { set { it.copy(fxChain = p) } } }
+                    }
+                }
+            }
+
+            SettingsSection("KI-Assistent") {
+                var baseUrl by remember { mutableStateOf(s.aiBaseUrl) }
+                var model by remember { mutableStateOf(s.aiModel) }
+                var key by remember { mutableStateOf("") }
+                var test by remember { mutableStateOf<String?>(null) }
+                SettingsRow("Anbieter", "Lokal bleibt alles auf dem PC und kostet nichts. Claude ist bei langen Aufgaben deutlich zuverlässiger. Öffnen mit Strg+K.") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Pill("Lokal", s.aiProvider != "anthropic") { set { it.copy(aiProvider = "local", aiModel = "") }; model = "" }
+                        Pill("Anthropic API", s.aiProvider == "anthropic") { set { it.copy(aiProvider = "anthropic", aiModel = "") }; model = "" }
+                    }
+                }
+                if (s.aiProvider != "anthropic") {
+                    SettingsRow("Server-Adresse", "llama.cpp (llama-server --jinja), Ollama, LM Studio: OpenAI-kompatible API", wide = true) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(baseUrl, { baseUrl = it; set { s2 -> s2.copy(aiBaseUrl = it.trim()) } }, singleLine = true, colors = fieldColors(), modifier = Modifier.weight(1f))
+                            PrimaryButton("Testen", accent = false) {
+                                test = "Verbinde …"
+                                scope.launch {
+                                    test = runCatching { dev.schlubbe.musicagent.desktop.ai.OpenAiProvider.listModels(baseUrl) }
+                                        .fold({ m -> if (m.isEmpty()) "Verbunden, kein Modell gemeldet" else "Verbunden · ${m.joinToString()}" }, { "Keine Verbindung: ${it.message}" })
+                                }
+                            }
+                        }
+                    }
+                    test?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
+                } else {
+                    SettingsRow("API-Schlüssel", if (g.ai.hasApiKey) "Gespeichert (nur für dich lesbar auf diesem PC)" else "Von console.anthropic.com; wird nur auf diesem PC gespeichert", wide = true) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(key, { key = it }, singleLine = true, placeholder = { Text("sk-ant-…") }, visualTransformation = PasswordVisualTransformation(), colors = fieldColors(), modifier = Modifier.weight(1f))
+                            PrimaryButton("Speichern", accent = false) { g.ai.saveApiKey(key); key = ""; ui.toast("API-Schlüssel gespeichert") }
+                        }
+                    }
+                }
+                SettingsRow("Modell", if (s.aiProvider == "anthropic") "Leer = ${dev.schlubbe.musicagent.desktop.ai.AnthropicProvider.DEFAULT_MODEL}" else "Leer = das Modell, das der Server geladen hat", wide = true) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(model, { model = it; set { s2 -> s2.copy(aiModel = it.trim()) } }, singleLine = true, colors = fieldColors(), modifier = Modifier.weight(1f))
+                        if (s.aiProvider == "anthropic") dev.schlubbe.musicagent.desktop.ai.AnthropicProvider.MODELS.forEach { m ->
+                            Pill(m.removePrefix("claude-"), s.aiModel == m) { model = m; set { it.copy(aiModel = m) } }
+                        }
+                    }
+                }
+                SettingsSwitchRow("Geschmack mitgeben", "Likes, Playlists und Verlauf als kurze Zusammenfassung", s.aiShareTaste) { v -> set { it.copy(aiShareTaste = v) } }
+                SettingsSwitchRow("Vor dem Löschen fragen", "Playlists, Downloads, Verlauf, Titel aus Playlists", s.aiAskDelete) { v -> set { it.copy(aiAskDelete = v) } }
+                SettingsSwitchRow("Vor FX-Ketten fragen", "Die KI darf Ketten aus Filtern, EQ, Echo und Raum bauen, schaltet sie aber erst nach deinem OK ein", s.aiAskFx) { v -> set { it.copy(aiAskFx = v) } }
+                SettingsSwitchRow(
+                    "Bei neuer Lautstärke fragen",
+                    "Lautstärke, Lautstärke angleichen, Equalizer und Bass. Einmal erlaubt, gilt sie weiter, bis die KI wieder etwas ändern will. Blenden in Übergängen zählen nicht.",
+                    s.aiAskLoudness,
+                ) { v -> set { it.copy(aiAskLoudness = v) } }
+                SettingsSwitchRow("Vor allen anderen Änderungen fragen", "Sonst laufen sie direkt; jede Antwort lässt sich rückgängig machen", s.aiAskOther) { v -> set { it.copy(aiAskOther = v) } }
             }
 
             SettingsSection("Darstellung") {

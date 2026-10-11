@@ -89,7 +89,8 @@ class PlayerController(
             override fun onError(source: AudioSource, message: String) { scope.launch { onPlaybackError(source, message) } }
         }
         scope.launch {
-            settings.state.distinctUntilChangedBy { listOf(it.eq, it.sound3dPreset, it.crossfadeSeconds, it.loudnessNormalization) }.collect { s ->
+            settings.state.distinctUntilChangedBy { listOf(it.eq, it.sound3dPreset, it.crossfadeSeconds, it.loudnessNormalization, it.fxChain) }.collect { s ->
+                engine.masterFx.set(s.fxChain)
                 engine.setEq(s.eq)
                 engine.setReverb(Sound3dPreset.of(s.sound3dPreset))
                 engine.crossfadeSec = s.crossfadeSeconds
@@ -367,6 +368,7 @@ class PlayerController(
         if (automatic) { recipes.remove(t.key); _planned.value = null }
         store.recordPlay(t)
         engine.mixOutSec = store.current.analysis[t.key]?.mixOutMs?.div(1000.0)
+        store.current.analysis[t.key]?.grid?.let { engine.masterFx.beatSec = it.beatMs / 1000 / engine.currentRate }
         schedulePreload()
         maybeExtendWithRadio()
     }

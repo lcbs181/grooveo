@@ -136,6 +136,9 @@ internal class Isolator {
 
     val neutral: Boolean get() = (0..2).all { g[it] == 1.0 && target[it] == 1.0 }
 
+    /** Jumps to the target gains (no fade in). */
+    fun settle() { for (k in 0..2) g[k] = target[k] }
+
     fun process(buf: FloatArray, from: Int, frames: Int) {
         for (i in from until from + frames) {
             for (k in 0..2) g[k] += (target[k] - g[k]) * SMOOTH
@@ -176,6 +179,9 @@ internal class SweepFilter(private val highpass: Boolean) {
     private val off: Double get() = if (highpass) FxParam.HIGHPASS.min else FxParam.LOWPASS.max
 
     fun setCutoff(hz: Double) { targetLog = ln(hz.coerceIn(20.0, 20_000.0)) }
+
+    /** Sets the cutoff without gliding there (a filter that starts in place). */
+    fun jumpTo(hz: Double) { setCutoff(hz); logCut = targetLog }
 
     val bypassed: Boolean get() = logCut == targetLog && logCut == ln(off)
 

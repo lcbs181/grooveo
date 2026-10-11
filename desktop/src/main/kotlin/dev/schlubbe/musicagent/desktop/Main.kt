@@ -111,6 +111,7 @@ internal fun handleShortcut(e: KeyEvent, ui: AppUi): Boolean {
     val p = ui.graph.player
     val focusInText = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner?.javaClass?.name?.contains("Text") == true
     return when {
+        e.isCtrlPressed && e.key == Key.K -> { ui.openAssistant(); true }
         e.isCtrlPressed && e.key == Key.F -> { ui.navigateRoot(Route.Search()); ui.searchFocusRequest++; true }
         e.isCtrlPressed && e.key == Key.DirectionRight -> { p.next(); true }
         e.isCtrlPressed && e.key == Key.DirectionLeft -> { p.previous(); true }

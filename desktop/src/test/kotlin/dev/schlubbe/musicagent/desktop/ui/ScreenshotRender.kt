@@ -26,6 +26,19 @@ class ScreenshotRender {
                 "home" -> ui.navigateRoot(Route.Home)
                 "settings" -> ui.navigateRoot(Route.Settings)
                 "search" -> ui.navigateRoot(Route.Search("daft punk"))
+                // the assistant panel; with GROOVEO_AI_URL and GROOVEO_AI_PROMPT a real conversation up to its first question
+                "ai" -> {
+                    ui.navigateRoot(Route.Home)
+                    ui.panel = SidePanel.AI
+                    System.getenv("GROOVEO_AI_URL")?.let { url -> graph.settings.update { it.copy(aiProvider = "local", aiBaseUrl = url) } }
+                    System.getenv("GROOVEO_AI_PROMPT")?.let { prompt ->
+                        graph.ai.send(prompt)
+                        val end = System.currentTimeMillis() + 300_000
+                        while (System.currentTimeMillis() < end && graph.ai.state.value.let { s ->
+                            s.items.none { it is dev.schlubbe.musicagent.desktop.ai.AiItem.Confirm } && (s.running || s.items.last() is dev.schlubbe.musicagent.desktop.ai.AiItem.User)
+                        }) Thread.sleep(500)
+                    }
+                }
             }
             val scene = ImageComposeScene((System.getenv("GROOVEO_SHOT_W") ?: "1440").toInt(), (System.getenv("GROOVEO_SHOT_H") ?: "900").toInt(), Density(1f)) {
                 CompositionLocalProvider(LocalUi provides ui) { GrooveoTheme("dark") { AppShell() } }

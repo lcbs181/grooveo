@@ -37,7 +37,7 @@ sealed interface Route {
     data class Onboarding(val tasteOnly: Boolean = false) : Route
 }
 
-enum class SidePanel { QUEUE, LYRICS }
+enum class SidePanel { QUEUE, LYRICS, AI }
 
 /** App-wide UI state and helpers, provided to every screen through [LocalUi]. */
 class AppUi(val graph: AppGraph) {
@@ -71,6 +71,15 @@ class AppUi(val graph: AppGraph) {
     fun back() {
         if (playerOpen) { playerOpen = false; return }
         if (stack.size > 1) stack.removeAt(stack.lastIndex)
+    }
+
+    /** Bumped to focus the assistant's input (Strg+K). */
+    var aiFocusRequest by mutableStateOf(0)
+
+    /** Strg+K: opens the assistant and puts the cursor in its input. */
+    fun openAssistant() {
+        if (panel != SidePanel.AI) togglePanel(SidePanel.AI)
+        aiFocusRequest++
     }
 
     fun togglePanel(p: SidePanel) {
