@@ -103,6 +103,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
 
     fun close() {
         mcp.shutdown()
+        sync.shutdown()
         settings.flush()
         player.close()
     }

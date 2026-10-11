@@ -20,8 +20,8 @@ and the update-check code has been repointed accordingly
 ## Cutting a release
 
 A release carries the Android APK, the Windows build (MSI installer and
-portable zip), the Linux build (`.deb` and portable `tar.gz`) and the source
-tarball. The full checklist, including the release-notes template, is the
+portable zip), the Linux build (`.deb` and portable `tar.gz`), the source
+tarball and `SHA256SUMS` over all of them. The full checklist, including the release-notes template, is the
 Claude Code skill [`.claude/skills/grooveo-release/SKILL.md`](../.claude/skills/grooveo-release/SKILL.md).
 In short:
 
@@ -40,8 +40,12 @@ In short:
    `git archive` source tarball, tag `v<versionCode>`, title `<versionName>`.
 4. Run `gh workflow run release.yml -f tag=v<versionCode>`: it builds the
    Windows and Linux packages on GitHub runners and uploads them to the draft.
-5. Check that all six assets are `uploaded`, then publish the draft. Both
-   updaters read `releases/latest`, so publish only once everything is there.
+   A last job downloads all assets, writes `SHA256SUMS` and uploads it too.
+5. Check that all seven assets (six files plus `SHA256SUMS`) are `uploaded`,
+   then publish the draft. Both updaters read `releases/latest`, so publish
+   only once everything is there. The desktop updater verifies every download
+   against `SHA256SUMS` and only offers the browser when it is missing; if an
+   asset is replaced later, rerun the workflow so the sums match again.
 
 ## How devices pick it up
 

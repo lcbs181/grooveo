@@ -250,6 +250,43 @@ Windows in `%APPDATA%\Grooveo`:
 The JSON files from the first desktop prototype (`liked.json`,
 `history.json`, …) are migrated automatically.
 
+## Phone sync
+
+Settings → "Mit Smartphone synchronisieren" starts a small server (TCP 47821, UDP
+47822 for discovery) and shows the pairing code (`GRV-XXXX-XXXX-XXXX`, kept in
+`sync.json`) as a QR code. The code itself never goes over the network
+(`SyncProtocol`, shared with the Android app):
+
+- Both sides derive keys from the code (PBKDF2-SHA256, then separate subkeys
+  for signing, encryption and the device id).
+- Before the phone sends anything, the PC answers a random nonce with an HMAC
+  (UDP broadcast, or `GET /sync/hello` for the address from last time).
+- `POST /sync` is signed (HMAC over method, path, time, nonce and body hash)
+  and AES-256-GCM encrypted; the PC checks a ±2 min window and refuses a
+  nonce it has seen. The answer is signed and encrypted the same way, bound to
+  the request's nonce.
+- Only peers in the local network (private IPv4, IPv6 fc00::/7, link-local,
+  loopback) are answered. Bad signatures lock out that address only.
+- Phone and PC must speak the same protocol version; otherwise both report
+  "bitte beide Apps aktualisieren".
+
+The merge is a union (nothing is deleted). Playlists carry a sync id and are
+matched by it, so two playlists with the same name stay apart; a name alone
+only matches when it is unique on both sides.
+
+## Updates
+
+The app checks GitHub's `releases/latest`. It installs only what it can verify
+against the release's `SHA256SUMS`; without that file it opens the download
+page. Windows runs the MSI. On Linux a `.deb` is offered only when dpkg owns
+the launcher; a portable `tar.gz` installation is updated in place only when
+its folder is exactly a Grooveo app image (`bin/Grooveo`, `lib/app/…`, nothing
+else). The previous version is kept as `<folder>.old` and removed on the next
+update (only folders the updater created itself, listed in
+`updates/created-old-dirs.txt`). The new version starts once the old process
+has exited. Anything else (other Linux packages, development builds) goes
+through the browser.
+
 ## Keyboard shortcuts
 
 | Key | Action |

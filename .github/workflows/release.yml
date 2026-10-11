@@ -1,9 +1,10 @@
 name: Release desktop builds
 
 # Builds the desktop app for Windows and Linux and attaches it to an existing
-# GitHub release. The release itself (tag, notes, Android APK, source tarball) is
-# created locally first, see docs/RELEASING.md. jpackage cannot cross-package, so
-# the Windows installer has to be built on a Windows runner.
+# GitHub release, then writes SHA256SUMS over all assets. The release itself
+# (tag, notes, Android APK, source tarball) is created locally first, see
+# docs/RELEASING.md. jpackage cannot cross-package, so the Windows installer has
+# to be built on a Windows runner.
 #
 #   gh workflow run release.yml -f tag=v22
 
@@ -70,3 +71,21 @@ jobs:
 
       - name: Upload to release
         run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  # SHA256SUMS over every asset of the release (APK, source tarball and the
+  # desktop builds above). The desktop updater installs nothing without it.
+  checksums:
+    needs: desktop
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Write and upload SHA256SUMS
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*'
+          rm -f SHA256SUMS
+          sha256sum -- * > ../SHA256SUMS
+          cat ../SHA256SUMS
+          gh release upload "$TAG" ../SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
