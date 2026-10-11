@@ -2,7 +2,9 @@ package dev.schlubbe.musicagent.desktop.audio
 
 import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
-import java.nio.ShortBuffer
+import java.nio.FloatBuffer
+import kotlin.math.PI
+import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -10,9 +12,10 @@ data class MixPoints(val mixInMs: Long, val mixOutMs: Long)
 
 /**
  * "Übergänge analysieren": finds where a track's body starts (mix-in) and ends
- * (mix-out) from its loudness envelope, so crossfades skip silent intros/outros.
- * Same algorithm and constants as the Android TrackAnalyzer; decoding uses FFmpeg,
- * so on desktop it also works directly on streams, not only downloads.
+ * (mix-out) from its loudness envelope, so crossfades skip silent intros/outros,
+ * and its tempo and beat grid (see BeatTracker). Mix points use the same algorithm
+ * and constants as the Android TrackAnalyzer; decoding uses FFmpeg, so on desktop
+ * it also works directly on streams, not only downloads.
  */
 object TrackAnalyzer {
     const val FRAME_MS = 50L
@@ -22,56 +25,95 @@ object TrackAnalyzer {
     const val MIN_SUSTAIN_FRAMES = 6
     const val INTRO_THRESHOLD = 0.22f
     const val OUTRO_THRESHOLD = 0.30f
-    private const val RATE = 11025
+    const val RATE = 22050
+    /** Bass envelope resolution for placing the grid on the kick. */
+    private const val BASS_FRAME_MS = 5
 
-    fun analyze(url: String, headers: Map<String, String> = emptyMap()): MixPoints? {
+    data class Result(val mix: MixPoints?, val grid: BeatGrid?)
+
+    /**
+     * Decodes the whole track once (mono, 22.05 kHz) and derives the mix points from
+     * its loudness envelope and, when the aubio library is available, the beat grid.
+     */
+    fun analyze(url: String, headers: Map<String, String> = emptyMap()): Result? {
         val g = FFmpegFrameGrabber(url).apply {
-            sampleRate = RATE; audioChannels = 1; sampleFormat = avutil.AV_SAMPLE_FMT_S16
+            sampleRate = RATE; audioChannels = 1; sampleFormat = avutil.AV_SAMPLE_FMT_FLT
             if (headers.isNotEmpty()) setOption("headers", headers.entries.joinToString("") { "${it.key}: ${it.value}\r\n" })
         }
         return try {
             g.start()
-            val totalMs = g.lengthInTime / 1000
-            val edge = EDGE_WINDOW_MS
-            if (totalMs <= 0 || totalMs < 3 * edge) {
-                val env = envelope(g, Long.MAX_VALUE)
-                computeMixPoints(env, 0, env, 0, env.maxOrNull() ?: 0f, if (totalMs > 0) totalMs else env.size * FRAME_MS)
-            } else {
-                val intro = envelope(g, edge)
-                g.setAudioTimestamp((totalMs / 2 - edge / 2) * 1000)
-                val middle = envelope(g, edge)
-                val outroStart = totalMs - edge
-                g.setAudioTimestamp(outroStart * 1000)
-                val outro = envelope(g, Long.MAX_VALUE)
-                val peak = maxOf(intro.maxOrNull() ?: 0f, middle.maxOrNull() ?: 0f, outro.maxOrNull() ?: 0f)
-                computeMixPoints(intro, 0, outro, outroStart, peak, totalMs)
+            analyzeSamples { sink ->
+                while (true) {
+                    val f = g.grabSamples() ?: break
+                    val fb = f.samples?.firstOrNull() as? FloatBuffer ?: continue
+                    val n = fb.remaining()
+                    val chunk = FloatArray(n)
+                    fb.duplicate().get(chunk)
+                    sink(chunk, n)
+                }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            java.util.logging.Logger.getLogger("TrackAnalyzer").warning("analysis failed: $e")
             null
         } finally {
             runCatching { g.close() }
         }
     }
 
-    /** RMS per 50 ms frame for the next [durationMs] of audio. */
-    private fun envelope(g: FFmpegFrameGrabber, durationMs: Long): List<Float> {
-        val frameSamples = (RATE * FRAME_MS / 1000).toInt()
-        val maxSamples = if (durationMs == Long.MAX_VALUE) Long.MAX_VALUE else RATE * durationMs / 1000
-        val env = mutableListOf<Float>()
+    /** Runs the analysis on mono [RATE] Hz samples that [feed] pushes into its sink. */
+    fun analyzeSamples(feed: ((FloatArray, Int) -> Unit) -> Unit): Result {
+        val env = ArrayList<Float>()
+        // frame ends in samples as Double: 50 ms and 5 ms are not whole samples at 22.05 kHz,
+        // and rounding them would let the frames drift against real time
+        val frameSamples = RATE * FRAME_MS / 1000.0
+        var total = 0L
         var acc = 0.0
         var cnt = 0
-        var total = 0L
-        while (total < maxSamples) {
-            val f = g.grabSamples() ?: break
-            val sb = f.samples?.firstOrNull() as? ShortBuffer ?: continue
-            for (i in sb.position() until sb.limit()) {
-                val v = sb.get(i).toDouble()
-                acc += v * v
-                if (++cnt == frameSamples) { env += sqrt(acc / cnt).toFloat(); acc = 0.0; cnt = 0 }
-                if (++total >= maxSamples) break
+        val bass = ArrayList<Float>()
+        val bassFrame = RATE * BASS_FRAME_MS / 1000.0
+        val lpA = 1.0 - exp(-2.0 * PI * 120.0 / RATE)
+        var lp1 = 0.0; var lp2 = 0.0
+        var bAcc = 0.0
+        var bCnt = 0
+        val tracker = if (BeatTracker.available) runCatching { BeatTracker(RATE) }.getOrNull() else null
+        try {
+            feed { chunk, n ->
+                tracker?.process(chunk, n)
+                for (i in 0 until n) {
+                    val v = chunk[i].toDouble()
+                    acc += v * v
+                    total++
+                    cnt++
+                    if (total >= (env.size + 1) * frameSamples) { env += sqrt(acc / cnt).toFloat(); acc = 0.0; cnt = 0 }
+                    // two one-pole low-passes at 120 Hz: kick and bass only
+                    lp1 += lpA * (v - lp1); lp2 += lpA * (lp1 - lp2)
+                    bAcc += lp2 * lp2
+                    bCnt++
+                    if (total >= (bass.size + 1) * bassFrame) { bass += sqrt(bAcc / bCnt).toFloat(); bAcc = 0.0; bCnt = 0 }
+                }
             }
+            val mix = mixPointsFromEnvelope(env)
+            val grid = tracker?.let { tr ->
+                val onset = FloatArray(bass.size) { k -> if (k == 0) 0f else (bass[k] - bass[k - 1]).coerceAtLeast(0f) }
+                BeatTracker.fitGrid(tr.beatsMs(), tr.confidence(), onset, BASS_FRAME_MS.toDouble())
+            }
+            return Result(mix, grid)
+        } finally {
+            tracker?.close()
         }
-        return env
+    }
+
+    /** Same windows as the Android analyzer: first, middle and last 30 s (or all of a short track). */
+    private fun mixPointsFromEnvelope(env: List<Float>): MixPoints? {
+        val totalMs = env.size * FRAME_MS
+        val edge = (EDGE_WINDOW_MS / FRAME_MS).toInt()
+        if (totalMs < 3 * EDGE_WINDOW_MS) return computeMixPoints(env, 0, env, 0, env.maxOrNull() ?: 0f, totalMs)
+        val intro = env.subList(0, edge)
+        val midStart = env.size / 2 - edge / 2
+        val middle = env.subList(midStart, midStart + edge)
+        val outro = env.subList(env.size - edge, env.size)
+        val peak = maxOf(intro.max(), middle.max(), outro.max())
+        return computeMixPoints(intro, 0, outro, totalMs - EDGE_WINDOW_MS, peak, totalMs)
     }
 
     fun computeMixPoints(intro: List<Float>, introStartMs: Long, outro: List<Float>, outroStartMs: Long, peak: Float, totalMs: Long): MixPoints? {

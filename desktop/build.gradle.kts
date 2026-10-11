@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -19,6 +20,55 @@ val nativePlatform = System.getProperty("os.name").lowercase().let { os ->
         "win" in os -> "windows-x86_64"
         "mac" in os -> if (arm) "macosx-arm64" else "macosx-x86_64"
         else -> if (arm) "linux-arm64" else "linux-x86_64"
+    }
+}
+
+// aubio (beat tracking, GPL-3.0) is built from its release tarball together with
+// native/aubio/grooveo_aubio.c into one shared library per OS and shipped as an app
+// resource; Kotlin loads it through JNA (see audio/BeatTracker.kt). Needs CMake and a
+// C compiler (gcc/clang, or MSVC on Windows).
+val aubioVersion = "0.4.9"
+val aubioSha256 = "d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da"
+val composeResourceOs = nativePlatform.replace("x86_64", "x64").replace("macosx", "macos")
+val isWindows = nativePlatform.startsWith("windows")
+val aubioDir = layout.buildDirectory.dir("aubio")
+val downloadAubio by tasks.registering {
+    val archive = aubioDir.map { it.file("aubio-$aubioVersion.tar.bz2") }
+    outputs.file(archive)
+    doLast {
+        val f = archive.get().asFile
+        f.parentFile.mkdirs()
+        uri("https://aubio.org/pub/aubio-$aubioVersion.tar.bz2").toURL().openStream().use { s -> f.outputStream().use { s.copyTo(it) } }
+        val sha = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+        if (sha != aubioSha256) { f.delete(); throw GradleException("aubio-$aubioVersion.tar.bz2: SHA-256 $sha, expected $aubioSha256") }
+    }
+}
+val unpackAubio by tasks.registering(Sync::class) {
+    from(downloadAubio.map { tarTree(resources.bzip2(it.outputs.files.singleFile)) })
+    into(aubioDir.map { it.dir("src") })
+}
+val buildAubio by tasks.registering {
+    val srcDir = project.file("native/aubio")
+    val cmakeDir = aubioDir.map { it.dir("cmake") }
+    val outDir = aubioDir.map { it.dir("resources/$composeResourceOs") }
+    dependsOn(unpackAubio)
+    inputs.dir(srcDir)
+    inputs.files(unpackAubio)
+    outputs.dir(outDir)
+    doLast {
+        val aubioSrc = aubioDir.get().dir("src/aubio-$aubioVersion").asFile
+        val build = cmakeDir.get().asFile
+        providers.exec { commandLine("cmake", "-S", srcDir, "-B", build, "-DAUBIO_SRC=$aubioSrc", "-DCMAKE_BUILD_TYPE=Release") }.result.get()
+        providers.exec { commandLine("cmake", "--build", build, "--config", "Release") }.result.get()
+        val name = when {
+            isWindows -> "grooveo_aubio.dll"
+            nativePlatform.startsWith("macosx") -> "libgrooveo_aubio.dylib"
+            else -> "libgrooveo_aubio.so"
+        }
+        val lib = build.walkTopDown().first { it.name == name }
+        val out = outDir.get().asFile
+        out.deleteRecursively(); out.mkdirs()
+        lib.copyTo(out.resolve(name))
     }
 }
 
@@ -96,6 +146,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
     implementation(libs.okhttp.core)
     implementation(libs.zxing.core)
+    implementation(libs.jna)
     implementation(libs.mcp.kotlin.server)
     implementation(libs.ktor.server.cio)
     implementation(libs.newpipe.extractor)
@@ -124,7 +175,11 @@ dependencies {
     testImplementation(compose.uiTest)
 }
 
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    dependsOn(buildAubio)
+    systemProperty("grooveo.native.dir", aubioDir.get().dir("resources/$composeResourceOs").asFile.absolutePath)
+}
 
 compose.desktop {
     application {
@@ -132,6 +187,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi)
             packageName = "Grooveo"
+            appResourcesRootDir.set(buildAubio.map { aubioDir.get().dir("resources") })
             // from `./gradlew :desktop:suggestRuntimeModules`; jdk.security.auth is needed by dbus-java (MPRIS)
             modules("java.instrument", "java.management", "java.net.http", "java.sql", "jdk.dynalink", "jdk.httpserver", "jdk.security.auth", "jdk.unsupported")
             packageVersion = versionName

@@ -68,7 +68,8 @@ retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.r
 retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 mcp-kotlin-server = { group = "io.modelcontextprotocol", name = "kotlin-sdk-server", version = "0.15.0" }
 ktor-server-cio = { group = "io.ktor", name = "ktor-server-cio", version = "3.5.1" }
-zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
+jna = { group = "net.java.dev.jna", name = "jna", version = "5.19.1" }
+zxing-core ={ group = "com.google.zxing", name = "core", version = "3.5.3" }
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version = "4.3.0" }
 okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }

@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.data
 
+import dev.schlubbe.musicagent.desktop.audio.BeatGrid
+
 import com.google.gson.reflect.TypeToken
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
@@ -66,8 +68,17 @@ data class DownloadRecord(
     val error: String? = null,
 )
 
-/** Mix-in/mix-out points from "Übergänge analysieren" (see TrackAnalyzer). */
-data class TrackAnalysis(val mixInMs: Long, val mixOutMs: Long, val analyzedAt: Long = System.currentTimeMillis())
+/**
+ * Result of "Übergänge analysieren" (see TrackAnalyzer): mix-in/mix-out points
+ * (null for tracks too short to have them) and the beat grid (null when aubio found
+ * no steady beat, and in analyses made before the beat tracker existed).
+ */
+data class TrackAnalysis(
+    val mixInMs: Long?,
+    val mixOutMs: Long?,
+    val analyzedAt: Long = System.currentTimeMillis(),
+    val grid: BeatGrid? = null,
+)
 
 /** Weekly listening time is accumulated per ISO day ("2026-10-01") in seconds. */
 data class LibraryData(

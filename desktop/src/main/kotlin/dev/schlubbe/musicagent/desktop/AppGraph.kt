@@ -16,12 +16,16 @@ import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.LyricsRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.desktop.audio.AudioEngine
 import dev.schlubbe.musicagent.desktop.audio.FfmpegDeck
 import dev.schlubbe.musicagent.desktop.audio.JavaSoundSink
+import dev.schlubbe.musicagent.desktop.audio.TrackAnalyzer
 import dev.schlubbe.musicagent.desktop.data.BackupManager
 import dev.schlubbe.musicagent.desktop.data.DownloadManager
 import dev.schlubbe.musicagent.desktop.data.LibraryStore
+import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
+import dev.schlubbe.musicagent.desktop.data.key
 import dev.schlubbe.musicagent.desktop.data.UpdateChecker
 import dev.schlubbe.musicagent.desktop.data.defaultDataDir
 import dev.schlubbe.musicagent.desktop.playback.PlayerController
@@ -76,6 +80,20 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     /** "KI-Steuerung (MCP)", started with the app when the user left it on. */
     val mcp = dev.schlubbe.musicagent.desktop.mcp.McpService(this, File(dataDir, "mcp.json"))
         .also { if (it.enabled) runCatching { it.start() } }
+
+    /**
+     * "Übergänge analysieren" for one track: decodes its download or stream, stores
+     * mix points and beat grid in the library and returns them (null if not loadable).
+     */
+    suspend fun analyze(t: TrackResultDto): TrackAnalysis? {
+        val src = runCatching { player.resolveStream(t) }
+            .onFailure { java.util.logging.Logger.getLogger("AppGraph").warning("analysis: cannot load ${t.key}: $it") }
+            .getOrNull() ?: return null
+        val r = TrackAnalyzer.analyze(src.url, src.headers) ?: return null
+        if (r.mix == null && r.grid == null) return null
+        return TrackAnalysis(r.mix?.mixInMs, r.mix?.mixOutMs, grid = r.grid)
+            .also { store.putAnalysis(t.key, it) }
+    }
 
     fun downloadDir(): File = settings.current.downloadDir.takeIf { it.isNotBlank() }?.let(::File) ?: File(dataDir, "downloads")
 

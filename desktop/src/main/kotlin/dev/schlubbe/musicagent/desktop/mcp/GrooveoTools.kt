@@ -5,10 +5,13 @@ import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.desktop.AppGraph
+import dev.schlubbe.musicagent.desktop.audio.BeatGrid
+import dev.schlubbe.musicagent.desktop.audio.BeatTracker
 import dev.schlubbe.musicagent.desktop.audio.Sound3dPreset
 import dev.schlubbe.musicagent.desktop.data.FollowedArtist
 import dev.schlubbe.musicagent.desktop.data.SavedPlaylist
 import dev.schlubbe.musicagent.desktop.data.Settings
+import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
 import dev.schlubbe.musicagent.desktop.data.gson
 import dev.schlubbe.musicagent.desktop.data.key
 import dev.schlubbe.musicagent.desktop.playback.RepeatMode
@@ -18,11 +21,18 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.GetPromptResult
 import io.modelcontextprotocol.kotlin.sdk.types.PromptArgument
 import io.modelcontextprotocol.kotlin.sdk.types.PromptMessage
+import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceResult
 import io.modelcontextprotocol.kotlin.sdk.types.Role
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -36,6 +46,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
+import kotlin.math.floor
 
 /**
  * The MCP tools: everything the user can do in the app, as calls an AI can make. Tracks are
@@ -59,6 +71,8 @@ class GrooveoTools(
         registerLibrary(server)
         registerSound(server)
         registerSettings(server)
+        registerAnalysis(server)
+        registerResources(server)
         registerPrompts(server)
     }
 
@@ -130,6 +144,7 @@ class GrooveoTools(
             "shuffle" to q.shuffle,
             "repeat" to q.repeat.name.lowercase(),
             "sleep_timer_ends_at" to q.sleepTimerEndAt?.let { java.time.Instant.ofEpochMilli(it).toString() },
+            "beat" to q.current?.let { t -> g.store.current.analysis[t.key]?.grid?.let { beatPosition(it, e.positionSec * 1000) } },
             "queue_index" to q.index,
             "queue_length" to q.queue.size,
             "error" to q.error,
@@ -357,9 +372,122 @@ class GrooveoTools(
             ui { g.store.clearHistory() }
             "Cleared"
         }
-        tool(s, "get_track_analysis", "Analysed mix-in/mix-out points of a track, if it was analysed.", props = mapOf("track_id" to str("")), required = listOf("track_id")) { a ->
-            g.store.current.analysis[a.string("track_id")!!]?.let { mapOf("mix_in_ms" to it.mixInMs, "mix_out_ms" to it.mixOutMs) } ?: "Not analysed"
+    }
+
+    // ---------------------------------------------------------------- analysis
+
+    private fun registerAnalysis(s: Server) {
+        tool(
+            s, "analyze_tracks",
+            "Analyse tracks: tempo (BPM), beat grid with bars (4/4), and mix-in/mix-out points (where the music starts and ends, " +
+                "skipping silent intros/outros). Decodes each whole track, so it takes a few seconds per track. " +
+                "Results are stored; already analysed tracks are returned from the store unless force=true.",
+            props = mapOf("track_ids" to ids("At most $MAX_ANALYZE per call"), "force" to bool("Analyse again even if already analysed")),
+            required = listOf("track_ids"), openWorld = true,
+        ) { a ->
+            val ids = a.strings("track_ids").distinct()
+            require(ids.size <= MAX_ANALYZE) { "At most $MAX_ANALYZE tracks per call" }
+            val tracks = tracks(ids)
+            val force = a.bool("force") == true
+            val gate = Semaphore(ANALYZE_PARALLEL)
+            coroutineScope {
+                tracks.map { t ->
+                    async(Dispatchers.IO) {
+                        val stored = g.store.current.analysis[t.key]?.takeIf { !force && it.grid != null }
+                        val r = stored ?: gate.withPermit { g.analyze(t) }
+                        r?.let { analysisView(t.key, it) } ?: mapOf("track_id" to t.key, "error" to "Could not load or analyse this track")
+                    }
+                }.awaitAll()
+            }
         }
+        tool(
+            s, "get_track_analysis", "Stored analysis of a track (BPM, beat grid, mix points), or 'Not analysed' - see analyze_tracks.",
+            props = mapOf("track_id" to str(""), "include_beats" to bool("Also list every detected beat (ms), when the tempo is not steady; can be long")),
+            required = listOf("track_id"),
+        ) { a ->
+            val id = a.string("track_id")!!
+            g.store.current.analysis[id]?.let { analysisView(id, it, includeBeats = a.bool("include_beats") == true) } ?: "Not analysed"
+        }
+        tool(
+            s, "find_tracks_by_bpm",
+            "Analysed tracks whose tempo fits a range, sorted by closeness to its middle. With allow_half_double, a track at half or double " +
+                "the tempo also matches (e.g. 70 BPM for 140), since those mix on the beat as well. Only tracks analysed before are searched.",
+            props = mapOf("min_bpm" to num(""), "max_bpm" to num(""), "allow_half_double" to bool("Default true"), "limit" to int("Default 50")),
+            required = listOf("min_bpm", "max_bpm"),
+        ) { a ->
+            val lo = a.double("min_bpm")!!
+            val hi = a.double("max_bpm")!!
+            require(lo in 1.0..hi) { "Need 0 < min_bpm <= max_bpm" }
+            val factors = if (a.bool("allow_half_double") != false) listOf(1.0, 2.0, 0.5) else listOf(1.0)
+            val mid = (lo + hi) / 2
+            g.store.current.analysis.mapNotNull { (id, an) ->
+                val bpm = an.grid?.bpm ?: return@mapNotNull null
+                val fit = factors.map { bpm * it }.filter { it in lo..hi }.minByOrNull { abs(it - mid) } ?: return@mapNotNull null
+                Triple(id, an, abs(fit - mid))
+            }.sortedBy { it.third }.take(a.int("limit") ?: 50).map { (id, an, _) ->
+                val t = runCatching { track(id) }.getOrNull()
+                mapOf("track" to (t?.let(::view) ?: mapOf("id" to id)), "bpm" to round2(an.grid!!.bpm))
+            }
+        }
+    }
+
+    /** MCP resources: the same data as the read tools, for clients that browse resources. */
+    private fun registerResources(s: Server) {
+        fun json(uri: String, value: Any?) = ReadResourceResult(listOf(TextResourceContents(gson.toJson(value), uri, "application/json")))
+        s.addResource("grooveo://now-playing", "Now playing", "Current track, position, beat/bar position and player state.", "application/json") { req ->
+            json(req.uri, nowPlaying())
+        }
+        s.addResource("grooveo://queue", "Queue", "The play queue.", "application/json") { req ->
+            val q = g.player.state.value
+            json(req.uri, mapOf("index" to q.index, "tracks" to q.queue.map(::view)))
+        }
+        s.addResourceTemplate(
+            "grooveo://track/{track_id}/analysis", "Track analysis",
+            "BPM, beat grid, bars and mix points of a track, e.g. grooveo://track/ytmusic:abc/analysis. Percent-encode '/' in the " +
+                "track id (soundcloud:artist%2Ftitle). Analyse first with analyze_tracks.",
+            "application/json",
+        ) { req, vars ->
+            val id = vars["track_id"].orEmpty()
+            json(req.uri, g.store.current.analysis[id]?.let { analysisView(id, it, includeBeats = true) } ?: mapOf("track_id" to id, "analysed" to false))
+        }
+    }
+
+    private fun analysisView(id: String, a: TrackAnalysis, includeBeats: Boolean = false): Map<String, Any?> {
+        val grid = a.grid
+        return mapOf(
+            "track_id" to id,
+            "mix_in_ms" to a.mixInMs,
+            "mix_out_ms" to a.mixOutMs,
+            "bpm" to grid?.let { round2(it.bpm) },
+            "beat_ms" to grid?.let { round2(it.beatMs) },
+            "beats_per_bar" to grid?.let { 4 },
+            "first_beat_ms" to grid?.let { round2(it.firstBeatMs) },
+            "first_downbeat_ms" to grid?.let { round2(it.firstBeatMs + it.downbeatOffset * it.beatMs) },
+            "tempo_confidence" to grid?.let { round2(it.confidence.toDouble()) },
+            "grid_stability" to grid?.let { round2(it.stability) },
+            "beats_ms" to grid?.beatsMs?.takeIf { includeBeats },
+            "note" to when {
+                grid == null -> "No steady beat found (or analysed by an older version - analyze_tracks with force=true)"
+                grid.stability < BeatTracker.KEEP_BEATS_BELOW ->
+                    "Not every part follows the grid (breakdowns without drums, or tempo changes); the grid fits the steady parts. " +
+                        "Detected beats: get_track_analysis with include_beats=true"
+                else -> "Beat n is at first_beat_ms + n*beat_ms; bars start at first_downbeat_ms + k*4*beat_ms (downbeat is an estimate)"
+            },
+            "analysed_at" to java.time.Instant.ofEpochMilli(a.analyzedAt).toString(),
+        )
+    }
+
+    /** Where [ms] falls on the grid: 1-based bar and beat in bar, like a DJ counts. */
+    private fun beatPosition(grid: BeatGrid, ms: Double): Map<String, Any> {
+        val downbeat = grid.firstBeatMs + grid.downbeatOffset * grid.beatMs
+        val beats = floor((ms - downbeat) / grid.beatMs).toLong()
+        return mapOf(
+            "bpm" to round2(grid.bpm),
+            "bar" to Math.floorDiv(beats, 4L) + 1,
+            "beat_in_bar" to Math.floorMod(beats, 4L) + 1,
+            "next_beat_ms" to round2(downbeat + (beats + 1) * grid.beatMs),
+            "next_bar_ms" to round2(downbeat + (Math.floorDiv(beats, 4L) + 1) * 4 * grid.beatMs),
+        )
     }
 
     // ---------------------------------------------------------------- sound
@@ -439,7 +567,8 @@ class GrooveoTools(
             GetPromptResult(
                 messages = listOf(PromptMessage(Role.User, TextContent(
                     "Be my DJ in Grooveo for about $minutes minutes: $mood. Look at my likes and history (get_library) for taste, " +
-                        "find tracks with search/get_trending/get_recommendations, order them by energy so the set builds and releases, " +
+                        "find tracks with search/get_trending/get_recommendations, analyse them (analyze_tracks) and order them by energy " +
+                        "and tempo so the set builds and releases without big BPM jumps (find_tracks_by_bpm helps), " +
                         "set a fitting crossfade (update_settings crossfadeSeconds) and EQ, then start it with play_tracks. " +
                         "Save the set as a playlist too.",
                 ))),
@@ -543,6 +672,10 @@ class GrooveoTools(
     }
 
     companion object {
+        private const val MAX_ANALYZE = 25
+        private const val ANALYZE_PARALLEL = 3
+        private fun round2(v: Double) = Math.round(v * 100) / 100.0
+
         /** Settings fields whose default is null, so get_settings may not list them. */
         private val NULLABLE_SETTINGS = setOf("lastBackupAt", "loudnessNormalization")
 
@@ -550,6 +683,7 @@ class GrooveoTools(
             "Grooveo is a music player (SoundCloud + YouTube Music) running on the user's PC. Tracks are referred to by id " +
                 "('soundcloud:123', 'ytmusic:abc') as returned by search, get_library, get_queue and get_playlist. " +
                 "Look at get_library (likes, history) to learn the listener's taste before choosing music. " +
+                "analyze_tracks gives tempo, beat grid and mix points for planning transitions. " +
                 "Changes appear in the app window at once. Avoid destructive tools unless the user asked for them."
 
         private fun str(d: String) = schema("string", d)

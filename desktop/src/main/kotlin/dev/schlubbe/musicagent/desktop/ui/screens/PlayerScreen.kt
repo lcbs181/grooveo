@@ -244,7 +244,8 @@ private fun TrackInfo() {
     val scope = rememberCoroutineScope()
     val liked = data.likes.any { it.track.key == t.key }
     val followed = data.followed.firstOrNull { f -> t.artist != null && f.name.equals(t.artist, ignoreCase = true) }
-    val analysed = data.analysis[t.key] != null
+    val analysis = data.analysis[t.key]
+    val analysed = analysis != null
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(t.title, style = MaterialTheme.typography.displayMedium, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(
@@ -271,7 +272,7 @@ private fun TrackInfo() {
             }
             ActionChip(PhosphorIcons.Regular.ShareNetwork, "Teilen", false) { ui.copyLink(t.webpageUrl) }
             ActionChip(PhosphorIcons.Regular.PlusCircle, "Zu Playlist", false) { ui.addToPlaylist = listOf(t) }
-            ActionChip(PhosphorIcons.Regular.Waveform, if (analysed) "Übergänge analysiert" else "Übergänge analysieren", analysed) { ui.analyze(listOf(t)) }
+            ActionChip(PhosphorIcons.Regular.Waveform, analysis?.grid?.let { "${"%.0f".format(it.bpm)} BPM" } ?: if (analysed) "Übergänge analysiert" else "Übergänge analysieren", analysed) { ui.analyze(listOf(t)) }
         }
     }
 }

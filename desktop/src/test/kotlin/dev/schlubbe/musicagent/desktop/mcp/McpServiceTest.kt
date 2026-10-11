@@ -3,6 +3,8 @@ package dev.schlubbe.musicagent.desktop.mcp
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import dev.schlubbe.musicagent.desktop.AppGraph
+import dev.schlubbe.musicagent.desktop.audio.BeatGrid
+import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
 import dev.schlubbe.musicagent.desktop.data.track
 import java.net.URI
 import java.net.http.HttpClient
@@ -83,6 +85,35 @@ class McpServiceTest {
 
         assertFalse(call("add_to_playlist", """{"playlist_id":"${p.id}","track_ids":["soundcloud:unknown"]}""").first)
         assertTrue(mcp.activity.value.any { it.tool == "create_playlist" && it.ok })
+    }
+
+    @Test fun `analysis is readable as tools and track resources`() {
+        graph.store.toggleLike(track("a")); graph.store.toggleLike(track("b")); graph.store.toggleLike(track("c"))
+        graph.store.putAnalysis("soundcloud:a", TrackAnalysis(2_000, 180_000, grid = BeatGrid(128.0, 100.0, 1, 0.5f, 0.98)))
+        graph.store.putAnalysis("soundcloud:b", TrackAnalysis(1_000, 200_000, grid = BeatGrid(64.5, 50.0, 0, 0.5f, 0.97)))
+        graph.store.putAnalysis("soundcloud:c", TrackAnalysis(1_000, 200_000, grid = BeatGrid(150.0, 50.0, 0, 0.5f, 0.97)))
+        connect()
+        assertTrue("analyze_tracks" in toolNames())
+
+        val (ok, text) = call("get_track_analysis", """{"track_id":"soundcloud:a"}""")
+        assertTrue(ok, text)
+        val a = JsonParser.parseString(text).asJsonObject
+        assertEquals(128.0, a["bpm"].asDouble)
+        assertEquals(468.75, a["beat_ms"].asDouble)
+        assertEquals(568.75, a["first_downbeat_ms"].asDouble)
+        assertEquals(2_000, a["mix_in_ms"].asLong)
+
+        // 64.5 BPM counts as 129 (double time), 150 is out of range
+        val found = JsonParser.parseString(call("find_tracks_by_bpm", """{"min_bpm":125,"max_bpm":131}""").second).asJsonArray
+        assertEquals(listOf("soundcloud:a", "soundcloud:b"), found.map { it.asJsonObject["track"].asJsonObject["id"].asString })
+
+        val templates = rpc("resources/templates/list").getAsJsonObject("result").getAsJsonArray("resourceTemplates")
+        assertTrue(templates.any { it.asJsonObject["uriTemplate"].asString == "grooveo://track/{track_id}/analysis" })
+        val read = rpc("resources/read", """{"uri":"grooveo://track/soundcloud:a/analysis"}""")
+            .getAsJsonObject("result").getAsJsonArray("contents")[0].asJsonObject
+        assertEquals(128.0, JsonParser.parseString(read["text"].asString).asJsonObject["bpm"].asDouble)
+        val now = rpc("resources/read", """{"uri":"grooveo://now-playing"}""").getAsJsonObject("result").getAsJsonArray("contents")[0].asJsonObject
+        assertTrue("playing" in now["text"].asString)
     }
 
     @Test fun `read-only mode offers no tool that changes anything`() {

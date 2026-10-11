@@ -8,7 +8,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.desktop.AppGraph
-import dev.schlubbe.musicagent.desktop.audio.TrackAnalyzer
 import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
 import dev.schlubbe.musicagent.desktop.data.key
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import kotlin.math.roundToInt
 
 enum class LibraryTab(val label: String) { LIKES("Favoriten"), PLAYLISTS("Playlists"), FOLLOWING("Folge ich"), HISTORY("Verlauf") }
 
@@ -108,14 +108,10 @@ class AppUi(val graph: AppGraph) {
         toast(if (tracks.size == 1) "Übergänge werden analysiert …" else "${tracks.size} Titel werden analysiert …")
         scope.launch(Dispatchers.IO) {
             var ok = 0
-            tracks.forEach { t ->
-                val src = runCatching { graph.player.resolveStream(t) }.getOrNull() ?: return@forEach
-                TrackAnalyzer.analyze(src.url, src.headers)?.let {
-                    graph.store.putAnalysis(t.key, TrackAnalysis(it.mixInMs, it.mixOutMs)); ok++
-                }
-            }
+            var last: TrackAnalysis? = null
+            tracks.forEach { t -> graph.analyze(t)?.let { last = it; ok++ } }
             toast(when {
-                tracks.size == 1 && ok == 1 -> "Übergänge analysiert"
+                tracks.size == 1 && ok == 1 -> last?.grid?.let { "Übergänge analysiert · ${it.bpm.roundToInt()} BPM" } ?: "Übergänge analysiert"
                 ok == 0 -> "Analyse nicht möglich (Titel zu kurz oder nicht ladbar)"
                 else -> "$ok von ${tracks.size} Titeln analysiert"
             })

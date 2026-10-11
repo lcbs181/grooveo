@@ -109,6 +109,7 @@ class McpService(private val graph: AppGraph, private val stateFile: File, priva
             capabilities = ServerCapabilities(
                 tools = ServerCapabilities.Tools(listChanged = false),
                 prompts = ServerCapabilities.Prompts(listChanged = false),
+                resources = ServerCapabilities.Resources(listChanged = false, subscribe = false),
             ),
         ),
         instructions = GrooveoTools.INSTRUCTIONS,

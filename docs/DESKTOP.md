@@ -29,7 +29,9 @@ desktop.
 
 ## Requirements
 
-You need JDK 21 to build. The packaged app bundles its own runtime. The
+You need JDK 21, CMake and a C compiler (gcc or clang; MSVC on Windows) to
+build. The C compiler builds the aubio beat tracker; Gradle downloads aubio's
+release tarball and checks its SHA-256. The packaged app bundles its own runtime. The
 Android SDK is optional: without one, Gradle leaves out `:app` and builds only
 the desktop app (it compiles the shared sources straight from `app/src`).
 
@@ -51,7 +53,9 @@ cross-package, so build Windows packages on Windows (the release workflow
 does this on a GitHub Windows runner). The FFmpeg natives are picked for the
 building OS (`nativePlatform` in `desktop/build.gradle.kts`). Nothing needs to
 be installed on the system. Decoding and resampling use the bundled FFmpeg
-libraries (JavaCV). The equalizer, limiter and reverb are pure Kotlin.
+libraries (JavaCV). The equalizer, limiter and reverb are pure Kotlin. Beat
+tracking uses `libgrooveo_aubio`, which the `buildAubio` task compiles for the
+building OS and ships as an app resource.
 
 ## Architecture
 
@@ -148,6 +152,18 @@ FfmpegDeck B ─┘  (gapless hand-over,
   starts at that track's mix-out point and the next track starts at its
   mix-in point. Without an analysis, the fade covers the last *n* seconds.
   The analysis works on streams too, not only on downloads.
+* **Tempo and beat grid** (`BeatTracker.kt`, `native/aubio/`): the same
+  analysis decodes the whole track once (mono, 22.05 kHz). It feeds
+  [aubio](https://aubio.org)'s beat tracker (spectral-flux onsets and
+  autocorrelation, GPL-3.0), which Kotlin calls through JNA. aubio's beat times
+  jitter by its 11.6 ms hop, and it slips between beat and offbeat on hi-hat
+  heavy tracks, so Grooveo fits a constant-tempo grid on top. The period comes
+  from phase coherence on the half-beat lattice, refined by least squares. The
+  phase is set by the kick, from bass onsets folded over one beat. The
+  downbeat is the beat in the bar with the strongest bass onsets; it is an
+  estimate. On test tracks the BPM is within 0.2 BPM of published values
+  (Around the World 121.29, One More Time 122.88). The player shows the BPM,
+  and the MCP tools expose it, with bar and beat positions.
 
 Earlier prototypes used mpv over IPC (about 3 s of EQ latency, because mpv
 buffers that much audio when it writes PCM to a pipe) and then FFmpeg
