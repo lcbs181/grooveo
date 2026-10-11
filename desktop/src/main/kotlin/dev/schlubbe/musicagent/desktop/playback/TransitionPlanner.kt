@@ -25,7 +25,11 @@ data class TransitionRecipe(
     /**
      * Where the outgoing track starts the transition: mix_out (default: the outro, or
      * early enough to fit), outro_start, breakdown, drop, build, bar:N, next_bar,
-     * next_phrase (next 8-bar phrase).
+     * next_phrase (next 8-bar phrase). A named cue that occurs more than once (drop,
+     * breakdown, build) means its next occurrence after the current position. A
+     * transition that does not fit before the outgoing track's last beat is shortened,
+     * unless both this cue and [bars] were given: then it is an error, as is an explicit
+     * cue after the last beat.
      */
     val outCue: String? = null,
     /** Where the incoming track is heard from: mix_in (default), first_beat, drop, breakdown, build, bar:N. */
@@ -65,15 +69,16 @@ object TransitionPlanner {
 
     /**
      * Plans the transition from [out] (playing, at [positionSec] seconds) to [inn] with
-     * id [nextId]. Null when either track has no beat grid, so the caller falls back to
-     * a plain crossfade.
+     * id [nextId]. Null when either track has no beat grid, when the end of the outgoing
+     * track is unknown, or when the default plan no longer fits before it, so the caller
+     * falls back to a plain crossfade.
      */
     fun plan(
         out: TrackAnalysis, inn: TrackAnalysis, nextId: String, recipe: TransitionRecipe,
         positionSec: Double, outDurationSec: Double?, canSync: Boolean,
     ): PlannedTransition? {
-        val og = out.grid ?: return null
-        val ig = inn.grid ?: return null
+        val og = out.grid?.takeIf { it.bpm > 0 && it.bpm.isFinite() } ?: return null
+        val ig = inn.grid?.takeIf { it.bpm > 0 && it.bpm.isFinite() } ?: return null
         val outBeat = og.beatMs / 1000
         // half/double tempo counts as a match: 70 BPM over 140 runs on every other beat
         val inBeatNative = ig.beatMs / 1000
@@ -90,12 +95,12 @@ object TransitionPlanner {
 
         val outBar = 4 * outBeat
         val outD0 = (og.firstBeatMs + og.downbeatOffset * og.beatMs) / 1000
-        val outLast = out.structure?.cue("last_beat")?.ms?.div(1000.0) ?: (outDurationSec ?: Double.MAX_VALUE)
+        // without a known end the transition cannot be placed: plain crossfade
+        val outLast = out.structure?.cue("last_beat")?.ms?.div(1000.0) ?: outDurationSec?.takeIf { it > 0 } ?: return null
         val inD0 = (ig.firstBeatMs + ig.downbeatOffset * ig.beatMs) / 1000
 
         // length: what fits into the outgoing outro and the incoming intro
-        val bars = (recipe.bars ?: defaultBars(style, out, inn, outLast, outBar)).coerceIn(1, 64)
-        val lengthBeats = bars * 4.0
+        var bars = (recipe.bars ?: defaultBars(style, out, inn, outLast, outBar)).coerceIn(1, 64)
 
         // where the outgoing track starts the transition (always on a downbeat)
         fun barAt(sec: Double, roundUp: Boolean) = (if (roundUp) ceil((sec - outD0) / outBar - 1e-6) else floor((sec - outD0) / outBar + 1e-6)).toInt()
@@ -111,15 +116,32 @@ object TransitionPlanner {
                 val latest = barAt(outLast - bars * outBar, false)
                 minOf(mixOut?.let { barAt(it, false) } ?: latest, latest)
             }
-            else -> out.structure?.cues?.lastOrNull { it.name == outCue && it.ms / 1000.0 > lead }?.ms?.let { barAt(it / 1000.0, false) }
-                ?: error("The playing track has no cue '$outCue'")
+            // the next occurrence: "drop" while in the intro is the first drop, not the last one
+            else -> out.structure?.cues?.firstOrNull { it.name == outCue && it.ms / 1000.0 > lead }?.ms?.let { barAt(it / 1000.0, false) }
+                ?: error("The playing track has no cue '$outCue' ahead")
         }
         // never in the past
         if (outD0 + startBar * outBar < lead) startBar = barAt(lead, true)
         val outStart = outD0 + startBar * outBar
 
+        // the transition has to end before the outgoing beat does; echo out and cut
+        // keep their fixed length and only need their start bar
+        val explicitCue = recipe.outCue != null && recipe.outCue != "mix_out"
+        val roomBars = floor((outLast - outStart) / outBar + 1e-6).toInt()
+        val fixedLength = style == "echo_out" || style == "cut"
+        if (roomBars < (if (fixedLength) 1 else bars)) {
+            if (explicitCue && roomBars < 1) error("The transition at '$outCue' would start after the playing track's last beat")
+            if (explicitCue && recipe.bars != null) error("A $bars-bar transition at '$outCue' does not fit before the playing track's last beat (room for $roomBars bars)")
+            if (roomBars < 1) return null
+            if (!fixedLength) bars = roomBars
+        }
+        val lengthBeats = bars * 4.0
+
         // incoming cue, heard at beat [inAt] of the transition
         val inAt = if (style == "echo_out") 4.0 else 0.0
+        // lanes run on outgoing beats; unsynced, the incoming deck plays at its own rate,
+        // so the pre-roll is that many outgoing beats of wall-clock time
+        val preRoll = inAt * if (wantSync) inBeat else outBeat
         val inCueName = recipe.inCue ?: "mix_in"
         val inCue = when {
             inCueName.startsWith("bar:") -> inD0 + ((inCueName.removePrefix("bar:").toIntOrNull() ?: 1) - 1) * 4 * inBeatNative
@@ -127,7 +149,8 @@ object TransitionPlanner {
             else -> inn.structure?.cue(inCueName)?.ms?.div(1000.0)
                 ?: if (inCueName == "mix_in") inD0 - floor(inD0 / (4 * inBeatNative)) * 4 * inBeatNative else error("The next track has no cue '$inCueName'")
         }
-        val inStart = (inCue - inAt * inBeat).let { if (it < 0) it + ceil(-it / (4 * inBeat)) * 4 * inBeat else it }
+        val inBar = 4 * inBeatNative // one real incoming bar
+        val inStart = (inCue - preRoll).let { if (it < 0) it + ceil(-it / inBar) * inBar else it }
 
         val semitones = when {
             !wantSync -> 0
@@ -160,7 +183,7 @@ object TransitionPlanner {
                 "starts_at_sec" to round2(outStart),
                 "starts_in_sec" to round2(outStart - positionSec),
                 "outgoing_bar" to startBar + 1,
-                "incoming_from_sec" to round2(inStart + inAt * inBeat),
+                "incoming_from_sec" to round2(inStart + preRoll),
                 "tempo_sync" to wantSync,
                 "outgoing_bpm" to round2(60 / outBeat),
                 "incoming_bpm" to round2(60 / inBeatNative),

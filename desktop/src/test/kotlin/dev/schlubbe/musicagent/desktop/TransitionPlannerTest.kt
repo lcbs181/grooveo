@@ -15,6 +15,7 @@ import dev.schlubbe.musicagent.desktop.playback.TransitionRecipe
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -66,9 +67,75 @@ class TransitionPlannerTest {
         assertEquals("echo_out", p.plan.style)
         assertFalse(p.plan.sync)
         assertTrue(p.summary["note"].toString().contains("no sync"))
-        // what is heard on beat 4, after the cut, is a downbeat of the incoming track
-        val heard = p.plan.inCueSec + 4 * p.plan.inBeatSec
+        // unsynced, the incoming deck runs at its own rate for 4 outgoing beats until the
+        // cut: what is heard then is a downbeat of the incoming track
+        val heard = p.plan.inCueSec + 4 * p.plan.outBeatSec
         assertEquals(0.0, ((heard - 0.1) % 2.4 + 2.4) % 2.4, 1e-6)
+        assertEquals(Math.round(heard * 100) / 100.0, p.summary["incoming_from_sec"])
+    }
+
+    @Test fun `synced echo out pre-rolls by incoming beats`() {
+        val p = assertNotNull(TransitionPlanner.plan(track(128.0), track(126.0, firstMs = 3000.0), "b", TransitionRecipe(style = "echo_out"), 10.0, 190.0, canSync = true))
+        assertTrue(p.plan.sync)
+        // stretched to the outgoing tempo, 4 outgoing beats play 4 incoming beats
+        val heard = p.plan.inCueSec + 4 * p.plan.inBeatSec
+        assertEquals(3.0, heard, 1e-6)
+    }
+
+    @Test fun `half tempo wrap moves the incoming cue by one real bar`() {
+        // the cue is at 0.1 s, too early for the pre-roll: it moves to the next incoming bar
+        val p = assertNotNull(TransitionPlanner.plan(track(140.0), track(71.0), "b", TransitionRecipe(style = "echo_out"), 10.0, 190.0, canSync = true))
+        assertTrue(p.plan.sync)
+        val heard = p.plan.inCueSec + 4 * p.plan.inBeatSec
+        val inBar = 4 * 60 / 71.0
+        assertEquals(0.1 + inBar, heard, 1e-6)
+        assertTrue(p.plan.inCueSec >= 0)
+    }
+
+    @Test fun `unknown end of the outgoing track means no plan`() {
+        val g = BeatGrid(128.0, 100.0, 0, 1f, 1.0)
+        val noStructure = TrackAnalysis(0, 100_000, grid = g)
+        assertEquals(null, TransitionPlanner.plan(noStructure, track(128.0), "b", TransitionRecipe(), 10.0, null, true))
+        val p = assertNotNull(TransitionPlanner.plan(noStructure, track(128.0), "b", TransitionRecipe(), 10.0, 200.0, true))
+        assertTrue(p.plan.outStartSec + p.plan.lengthBeats * p.plan.outBeatSec <= 200.0 + 1e-6)
+    }
+
+    @Test fun `empty structures plan without errors`() {
+        val empty = TrackStructure(emptyList(), emptyList(), 0)
+        val a = TrackAnalysis(0, 100_000, grid = BeatGrid(124.0, 100.0, 0, 1f, 1.0), structure = empty)
+        val p = assertNotNull(TransitionPlanner.plan(a, a.copy(), "b", TransitionRecipe(), 10.0, 200.0, true))
+        assertTrue(onDownbeat(p.plan.outStartSec, a))
+        assertNotNull(TransitionPlanner.plan(a, a.copy(), "b", TransitionRecipe(style = "echo_out", inCue = "first_beat"), 10.0, 200.0, true))
+    }
+
+    @Test fun `transitions are fitted before the outgoing last beat`() {
+        val out = track(120.0, firstMs = 0.0) // 2 s bars, last beat at 192 s
+        // automatic: 182 s lead leaves 5 bars, the 16-bar blend shrinks to them
+        val p = assertNotNull(TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(), positionSec = 180.0, outDurationSec = 200.0, canSync = true))
+        assertEquals(182.0, p.plan.outStartSec, 1e-9)
+        assertEquals(5 * 4.0, p.plan.lengthBeats)
+        // a live transition without a length shrinks as well
+        val now = assertNotNull(TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(style = "blend", outCue = "next_bar"), 180.0, 200.0, true))
+        assertEquals(5, now.summary["bars"])
+        // explicit cue and length that do not fit, or a cue past the end: errors
+        assertFailsWith<IllegalStateException> { TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(bars = 16, outCue = "next_bar"), 180.0, 200.0, true) }
+        assertFailsWith<IllegalStateException> { TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(outCue = "bar:999"), 10.0, 200.0, true) }
+        // echo out keeps its length and only needs its start bar
+        val echo = assertNotNull(TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(style = "echo_out"), 187.5, 200.0, true))
+        assertEquals(190.0, echo.plan.outStartSec, 1e-9)
+        assertEquals(8.0, echo.plan.lengthBeats)
+        // nothing fits any more: plain crossfade
+        assertEquals(null, TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(), 190.5, 200.0, true))
+    }
+
+    @Test fun `a named outgoing cue means its next occurrence`() {
+        val base = track(120.0, firstMs = 0.0)
+        val s = base.structure!!
+        val out = base.copy(structure = s.copy(cues = (s.cues + Cue("drop", 128_000, 65)).sortedBy { it.ms }))
+        val p = assertNotNull(TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(bars = 4, outCue = "drop"), 10.0, 200.0, true))
+        assertEquals(32.0, p.plan.outStartSec, 1e-9) // bar 17, not the last drop at bar 65
+        val later = assertNotNull(TransitionPlanner.plan(out, track(120.0), "b", TransitionRecipe(bars = 4, outCue = "drop"), 40.0, 200.0, true))
+        assertEquals(128.0, later.plan.outStartSec, 1e-9)
     }
 
     @Test fun `half tempo tracks sync on every other beat`() {

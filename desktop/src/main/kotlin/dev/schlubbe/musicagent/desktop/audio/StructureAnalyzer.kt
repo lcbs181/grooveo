@@ -102,7 +102,8 @@ object StructureAnalyzer {
 
         val cues = ArrayList<Cue>()
         fun cueAt(name: String, i: Int) { cues += Cue(name, barStart(i).toLong(), barNumber(i)) }
-        cues += Cue("first_beat", grid.firstBeatMs.toLong(), barNumber(((grid.firstBeatMs - first) / barMs).toInt()))
+        // floor: a pickup beat before the earliest downbeat lies in bar 0, not bar 1
+        cues += Cue("first_beat", grid.firstBeatMs.toLong(), barNumber(floor((grid.firstBeatMs - first) / barMs).toInt()))
         // the last bar that still has a beat (kick) or real loudness
         val lastBar = (nBars - 1 downTo 0).firstOrNull { f[it][3] >= 0.25 || energy[it] >= 0.3 * maxE } ?: (nBars - 1)
         // mix in where the kick starts (usually bar 1), on a 4-bar step

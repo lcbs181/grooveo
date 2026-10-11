@@ -83,6 +83,19 @@ class StructureTest {
         assertEquals("9B", r.key?.camelot)
     }
 
+    @Test fun `a pickup beat before the first downbeat is in bar 0`() {
+        val durationMs = 100.0 + 41 * 2000
+        val envs = StructureAnalyzer.Envelopes(
+            FloatArray((durationMs / 50).toInt()) { 0.5f }, FloatArray((durationMs / 50).toInt()) { 0.1f }, 50.0,
+            FloatArray((durationMs / 5).toInt()) { 0.3f }, FloatArray((durationMs / 5).toInt()), 5.0,
+        )
+        // 120 BPM, first beat at 100 ms, bars start two beats later
+        val pickup = assertNotNull(StructureAnalyzer.analyze(BeatGrid(120.0, 100.0, 2, 1f, 1.0), durationMs, envs))
+        assertEquals(0, pickup.cue("first_beat")?.bar)
+        val onOne = assertNotNull(StructureAnalyzer.analyze(BeatGrid(120.0, 100.0, 0, 1f, 1.0), durationMs, envs))
+        assertEquals(1, onOne.cue("first_beat")?.bar)
+    }
+
     @Test fun `camelot distance and harmonic shift`() {
         assertEquals(0, MusicalKey.camelotDistance("8A", "8A"))
         assertEquals(1, MusicalKey.camelotDistance("8A", "9A"))
