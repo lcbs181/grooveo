@@ -63,6 +63,7 @@ class StructureTest {
     private val aMinor = listOf(listOf(57, 60, 64), listOf(62, 65, 69), listOf(57, 60, 64), listOf(64, 68, 71))
 
     @Test fun `sections, cues and key of a dance track`() {
+        requireNative() // bars come from the aubio beat grid
         val parts = listOf("intro" to 16, "drop" to 32, "breakdown" to 16, "drop" to 32, "outro" to 16)
         val r = analyze(track(parts, aMinor))
         val s = assertNotNull(r.structure, "no structure")

@@ -62,6 +62,7 @@ class BeatTrackerTest {
     }
 
     @Test fun aubioFindsTempoBeatsAndDownbeatOfSyntheticTrack() {
+        dev.schlubbe.musicagent.desktop.audio.requireNative()
         assertTrue(BeatTracker.available, "libgrooveo_aubio must be built and loadable (grooveo.native.dir)")
         val rate = TrackAnalyzer.RATE
         val bpm = 128.0
