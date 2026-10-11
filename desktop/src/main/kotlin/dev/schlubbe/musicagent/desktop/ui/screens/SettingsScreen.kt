@@ -254,6 +254,39 @@ fun SettingsScreen() {
                 }
             }
 
+            SettingsSection("KI-Steuerung (MCP)") {
+                var mcpOn by remember { mutableStateOf(g.mcp.running) }
+                var mcpReadOnly by remember { mutableStateOf(g.mcp.readOnly) }
+                var mcpCmd by remember { mutableStateOf(g.mcp.claudeCodeCommand) }
+                val activity by g.mcp.activity.collectAsState()
+                SettingsSwitchRow(
+                    "KI darf Grooveo steuern",
+                    "Ein KI-Assistent (z. B. Claude) kann Musik suchen, abspielen, Playlists anlegen, EQ und Einstellungen ändern – nur auf diesem PC, mit Zugangsschlüssel",
+                    mcpOn,
+                ) { v ->
+                    runCatching { if (v) g.mcp.start() else g.mcp.stop() }.onFailure { ui.toast("KI-Steuerung konnte nicht gestartet werden: ${it.message}") }
+                    mcpOn = g.mcp.running
+                    mcpCmd = g.mcp.claudeCodeCommand
+                }
+                if (mcpOn) {
+                    SettingsSwitchRow("Nur lesen", "Die KI sieht Bibliothek und Wiedergabe, darf aber nichts ändern", mcpReadOnly) { v ->
+                        g.mcp.setReadOnly(v); mcpReadOnly = v
+                    }
+                    SettingsRow("Mit Claude Code verbinden", mcpCmd) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PrimaryButton("Befehl kopieren", accent = false) { ui.copyLink(mcpCmd) }
+                            PrimaryButton("Neuer Schlüssel", accent = false) {
+                                g.mcp.regenerateToken(); mcpCmd = g.mcp.claudeCodeCommand
+                                ui.toast("Neuer Schlüssel – verbundene KI-Programme neu einrichten")
+                            }
+                        }
+                    }
+                    if (activity.isNotEmpty()) {
+                        SettingsRow("Letzte KI-Aktionen", activity.take(5).joinToString("\n") { (if (it.ok) "✓ " else "✗ ") + it.tool + ": " + it.summary }) {}
+                    }
+                }
+            }
+
             SettingsSection("Speicher") {
                 SettingsRow("Bild-Cache", cacheBytes?.let { "${formatBytes(it)} zwischengespeicherte Cover" } ?: "Wird berechnet …") {
                     PrimaryButton("Leeren", accent = false) {

@@ -96,6 +96,8 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
     implementation(libs.okhttp.core)
     implementation(libs.zxing.core)
+    implementation(libs.mcp.kotlin.server)
+    implementation(libs.ktor.server.cio)
     implementation(libs.newpipe.extractor)
     implementation(libs.jsoup)
     implementation("com.google.code.gson:gson:2.11.0")

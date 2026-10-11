@@ -73,9 +73,14 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
         }
     }
 
+    /** "KI-Steuerung (MCP)", started with the app when the user left it on. */
+    val mcp = dev.schlubbe.musicagent.desktop.mcp.McpService(this, File(dataDir, "mcp.json"))
+        .also { if (it.enabled) runCatching { it.start() } }
+
     fun downloadDir(): File = settings.current.downloadDir.takeIf { it.isNotBlank() }?.let(::File) ?: File(dataDir, "downloads")
 
     fun close() {
+        mcp.shutdown()
         settings.flush()
         player.close()
     }
