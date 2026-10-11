@@ -16,7 +16,10 @@ class ScreenshotRender {
     @Test fun render() {
         val out = System.getenv("GROOVEO_SCREENSHOTS")?.let(::File) ?: return
         out.mkdirs()
-        val graph = AppGraph(Files.createTempDirectory("grooveo-shot").toFile())
+        val dataDir = Files.createTempDirectory("grooveo-shot").toFile()
+        // GROOVEO_SHOT_DATA: copy library and settings from a real data folder (the copy is used, never the original)
+        System.getenv("GROOVEO_SHOT_DATA")?.let { src -> listOf("library.json", "settings.json").forEach { f -> File(src, f).takeIf { it.isFile }?.copyTo(File(dataDir, f)) } }
+        val graph = AppGraph(dataDir)
         graph.settings.update { it.copy(onboardingDone = true, lastSeenVersion = APP_VERSION, eq = EqProfile.PRESETS[1]) }
         val ui = AppUi(graph)
         val routes = (System.getenv("GROOVEO_ROUTES") ?: "eq").split(',')
@@ -26,6 +29,8 @@ class ScreenshotRender {
                 "home" -> ui.navigateRoot(Route.Home)
                 "settings" -> ui.navigateRoot(Route.Settings)
                 "search" -> ui.navigateRoot(Route.Search("daft punk"))
+                "library" -> ui.navigateRoot(Route.Library())
+                "downloads" -> ui.navigateRoot(Route.Downloads)
                 // the assistant panel; with GROOVEO_AI_URL and GROOVEO_AI_PROMPT a real conversation up to its first question
                 "ai" -> {
                     ui.navigateRoot(Route.Home)
