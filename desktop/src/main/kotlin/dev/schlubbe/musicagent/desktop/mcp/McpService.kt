@@ -1,8 +1,10 @@
 package dev.schlubbe.musicagent.desktop.mcp
 
 import dev.schlubbe.musicagent.desktop.AppGraph
+import dev.schlubbe.musicagent.desktop.ai.tightenSecretFile
+import dev.schlubbe.musicagent.desktop.ai.writeSecretFile
+import dev.schlubbe.musicagent.desktop.data.gson
 import dev.schlubbe.musicagent.desktop.data.readJson
-import dev.schlubbe.musicagent.desktop.data.writeJson
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
@@ -40,6 +42,7 @@ data class McpActivity(val at: Long, val tool: String, val ok: Boolean, val summ
 class McpService(private val graph: AppGraph, private val stateFile: File, private val port: Int = DEFAULT_PORT) {
     private var server: EmbeddedServer<*, *>? = null
     private var state: McpState = (readJson<McpState>(stateFile, McpState::class.java) ?: McpState()).let {
+        tightenSecretFile(stateFile)
         if (it.token.length < 32) it.copy(token = newToken()).also(::save) else it
     }
     private val _activity = MutableStateFlow<List<McpActivity>>(emptyList())
@@ -57,7 +60,8 @@ class McpService(private val graph: AppGraph, private val stateFile: File, priva
     /** Command that registers Grooveo in Claude Code. */
     val claudeCodeCommand: String get() = "claude mcp add --transport http grooveo $url --header \"Authorization: Bearer $token\""
 
-    private fun save(s: McpState) { state = s; writeJson(stateFile, s) }
+    /** The file holds the access token: readable by the user only. */
+    private fun save(s: McpState) { state = s; writeSecretFile(stateFile, gson.toJson(s)) }
 
     @Synchronized fun start() {
         if (server != null) return

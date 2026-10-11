@@ -58,6 +58,13 @@ class McpServiceTest {
         return (r["isError"]?.asBoolean != true) to r.getAsJsonArray("content")[0].asJsonObject["text"].asString
     }
 
+    @Test fun `the token file is readable by the owner only`() {
+        val f = java.io.File(dir, "mcp-test.json")
+        assertTrue(f.isFile)
+        assertEquals(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(f.toPath()))
+        assertTrue(mcp.token in f.readText())
+    }
+
     @Test fun `requests without the token are refused`() {
         assertEquals(401, post("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}""", token = null).statusCode())
         assertEquals(401, post("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}""", token = "wrong").statusCode())
@@ -79,6 +86,12 @@ class McpServiceTest {
 
         val (bad, msg) = call("update_settings", """{"settings":{"noSuchSetting":1}}""")
         assertFalse(bad); assertTrue("noSuchSetting" in msg)
+        // the AI cannot switch off the assistant's questions, move downloads or redirect the assistant
+        for (k in listOf("aiAskDelete", "aiBaseUrl", "downloadDir", "soundCloudClientId", "fxChainPresets")) {
+            assertFalse(call("update_settings", """{"settings":{"$k":"x"}}""").first, k)
+        }
+        assertTrue(graph.settings.current.aiAskDelete)
+        assertEquals("", graph.settings.current.downloadDir)
 
         assertTrue(call("set_eq", """{"eq":{"preampDb":-3.0,"bassEnhance":0.4}}""").first)
         assertEquals(-3.0, graph.settings.current.eq.preampDb); assertEquals(0.4, graph.settings.current.eq.bassEnhance)

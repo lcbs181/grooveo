@@ -604,12 +604,12 @@ class GrooveoTools(
                 "optional custom automation of fader, 3-band EQ, filters and echo per deck. Both tracks are analysed first if needed. " +
                 "Returns what was planned (start time, bars, tempos). Applies to the next transition only; call again after it ran.",
             props = recipeProps, mutates = true,
-        ) { a -> plannedView(g.player.setTransition(recipe(a))) }
+        ) { a -> plannedView(transition(recipe(a))) }
         tool(
             "transition_now",
             "Starts a transition into the next queued track at the next bar (or next 8-bar phrase): a live DJ move. Same options as set_transition.",
             props = recipeProps + ("at" to enum(listOf("next_bar", "next_phrase"), "Default next_bar")), mutates = true,
-        ) { a -> plannedView(g.player.setTransition(recipe(a).copy(outCue = a.string("at") ?: "next_bar"))) }
+        ) { a -> plannedView(transition(recipe(a).copy(outCue = a.string("at") ?: "next_bar"))) }
         tool("get_transition", "The planned or running transition: phase (none/armed/running/releasing), beat, rates, beat-sync error and the plan.") {
             val st = g.player.transition.value
             mapOf(
@@ -624,7 +624,7 @@ class GrooveoTools(
             )
         }
         tool("cancel_transition", "Drops the planned transition; the next track follows with the normal crossfade or gaplessly.", mutates = true) {
-            g.player.cancelTransition(); "Cancelled"
+            ui { g.player.cancelTransition() }; "Cancelled"
         }
         tool(
             "set_deck_fx",
@@ -634,12 +634,34 @@ class GrooveoTools(
             check = { a -> requireNotNull(FxParam.byKey(a.string("param").orEmpty())) { "Unknown param, use one of ${fxParams.joinToString()}" } },
         ) { a ->
             val p = FxParam.byKey(a.string("param")!!) ?: error("Unknown param")
-            g.player.setFx(p, a.double("value")!!)
-            mapOf("param" to p.key, "value" to g.player.fxValue(p))
+            ui {
+                g.player.setFx(p, a.double("value")!!)
+                mapOf("param" to p.key, "value" to g.player.fxValue(p))
+            }
         }
         tool("get_deck_fx", "Current effect settings of the playing track.") {
-            FxParam.entries.associate { it.key to g.player.fxValue(it) }
+            ui { FxParam.entries.associate { it.key to g.player.fxValue(it) } }
         }
+    }
+
+    /**
+     * Plans a transition on the UI thread, like the player's own calls. The analyses it needs
+     * are made here first, off the UI thread, since decoding a track takes seconds.
+     */
+    private suspend fun transition(r: TransitionRecipe): PlannedTransition? {
+        val q = g.player.state.value
+        val next = when {
+            q.queue.isEmpty() -> null
+            q.repeat == RepeatMode.ONE -> q.current
+            q.index + 1 < q.queue.size -> q.queue[q.index + 1]
+            q.repeat != RepeatMode.OFF -> q.queue.first()
+            else -> null
+        }
+        val analysed = next == null || listOfNotNull(q.current, next).distinctBy { it.key }.all { t ->
+            g.store.current.analysis[t.key]?.upToDate == true || withContext(Dispatchers.IO) { g.analyze(t) } != null
+        }
+        // a track that cannot be analysed would be tried again inside; that must not block the window
+        return withContext(if (analysed) Dispatchers.Main else Dispatchers.IO) { g.player.setTransition(r) }
     }
 
     private fun recipe(a: Args): TransitionRecipe = TransitionRecipe(
@@ -795,19 +817,34 @@ class GrooveoTools(
     private fun registerSettings() {
         tool("get_settings", "All app settings as JSON (playback, crossfade, sources, home screen, theme, downloads, ...).") { g.settings.current }
         tool(
-            "update_settings", "Change settings. Pass only the fields to change, with names and types as in get_settings.",
+            "update_settings",
+            "Change playback, sound and display settings. Pass only the fields to change, with names and types as in get_settings. " +
+                "Only these can be changed: ${SETTABLE_SETTINGS.joinToString()}.",
             props = mapOf("settings" to obj("Partial settings object")), required = listOf("settings"), mutates = true,
+            check = { a -> settingsPatch(a) },
         ) { a ->
-            val tree = gson.toJsonTree(g.settings.current).asJsonObject
-            val patch = JsonParser.parseString(a.raw("settings").toString()).asJsonObject
-            patch.entrySet().forEach { (k, v) ->
-                require(tree.has(k) || k in NULLABLE_SETTINGS) { "Unknown setting '$k'" }
-                tree.add(k, v)
+            val patch = settingsPatch(a)
+            ui {
+                val tree = gson.toJsonTree(g.settings.current).asJsonObject
+                patch.entrySet().forEach { (k, v) -> tree.add(k, v) }
+                val next = gson.fromJson(tree, Settings::class.java).normalized().let { it.copy(fxChain = it.fxChain?.let(FxUnitSpec::validate)) }
+                g.settings.update { next.copy(volume = it.volume) }
+                // the engine only follows the volume through the player
+                if (patch.has("volume")) g.player.setVolume(next.volume)
             }
-            val next = gson.fromJson(tree, Settings::class.java).let { it.copy(eq = it.eq.normalized(), crossfadeSeconds = it.crossfadeSeconds.coerceIn(0, 12)) }
-            ui { g.settings.update { next } }
             "Updated: ${patch.keySet().joinToString()}"
         }
+    }
+
+    /** The settings patch of update_settings; only [SETTABLE_SETTINGS], an FX chain must be valid. */
+    private fun settingsPatch(a: Args): com.google.gson.JsonObject {
+        val patch = runCatching { JsonParser.parseString(a.raw("settings").toString()).asJsonObject }.getOrNull()
+            ?: error("settings must be an object")
+        patch.entrySet().forEach { (k, v) ->
+            require(k in SETTABLE_SETTINGS) { "Setting '$k' cannot be changed with update_settings. Allowed: ${SETTABLE_SETTINGS.joinToString()}" }
+            if (k == "fxChain" && !v.isJsonNull) FxUnitSpec.validate(gson.fromJson(v, FxChain::class.java))
+        }
+        return patch
     }
 
     // ---------------------------------------------------------------- prompts
@@ -916,8 +953,16 @@ class GrooveoTools(
         private const val ANALYZE_PARALLEL = 3
         private fun round2(v: Double) = Math.round(v * 100) / 100.0
 
-        /** Settings fields whose default is null, so get_settings may not list them. */
-        private val NULLABLE_SETTINGS = setOf("lastBackupAt", "loudnessNormalization")
+        /**
+         * What update_settings may change: playback, sound and display. Never the assistant's own
+         * setup (ai*: provider, server, when to ask), paths, accounts, presets or internal state.
+         */
+        val SETTABLE_SETTINGS = setOf(
+            "hiResAudio", "dataSaverMode", "crossfadeSeconds", "playerStyle", "autoplayRadio", "showMixControls", "showFeatured",
+            "showNewUploads", "sound3dPreset", "vizVariant", "notifyNewUploads", "profileName", "profileColorStyle",
+            "sourceSoundCloud", "sourceYouTube", "preferredGenres", "preferredArtists", "volume", "loudnessNormalization", "eq",
+            "themeMode", "queuePanelOpen", "minimizeToTray", "djTransitions", "djStyle", "djHarmonic", "fxChain",
+        )
 
         const val INSTRUCTIONS =
             "Grooveo is a music player (SoundCloud + YouTube Music) running on the user's PC. Tracks are referred to by id " +

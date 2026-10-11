@@ -97,11 +97,13 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     }
 
     /** The in-app assistant ("KI-Panel"); created on first use. */
-    val ai by lazy { dev.schlubbe.musicagent.desktop.ai.AiAssistant(this, File(dataDir, "ai-anthropic.key")) }
+    private val aiLazy = lazy { dev.schlubbe.musicagent.desktop.ai.AiAssistant(this, File(dataDir, "ai-anthropic.key")) }
+    val ai by aiLazy
 
     fun downloadDir(): File = settings.current.downloadDir.takeIf { it.isNotBlank() }?.let(::File) ?: File(dataDir, "downloads")
 
     fun close() {
+        if (aiLazy.isInitialized()) ai.close()
         mcp.shutdown()
         settings.flush()
         player.close()

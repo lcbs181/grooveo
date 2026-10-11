@@ -194,13 +194,23 @@ fun SettingsScreen() {
                             PrimaryButton("Testen", accent = false) {
                                 test = "Verbinde …"
                                 scope.launch {
-                                    test = runCatching { dev.schlubbe.musicagent.desktop.ai.OpenAiProvider.listModels(baseUrl) }
+                                    test = runCatching { dev.schlubbe.musicagent.desktop.ai.OpenAiProvider.listModels(baseUrl, g.ai.openAiKey()) }
                                         .fold({ m -> models = m; if (m.isEmpty()) "Verbunden, kein Modell gemeldet" else "Verbunden · Modell unten wählen" }, { models = emptyList(); "Keine Verbindung: ${it.message}" })
                                 }
                             }
                         }
                     }
                     test?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textMuted) }
+                    SettingsRow("API-Schlüssel (optional)", if (g.ai.hasOpenAiKey) "Gespeichert (nur für dich lesbar auf diesem PC) · leer speichern entfernt ihn" else "Nur für Server, die einen verlangen (z. B. OpenRouter); wird als Bearer-Token gesendet", wide = true) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(key, { key = it }, singleLine = true, placeholder = { Text("sk-…") }, visualTransformation = PasswordVisualTransformation(), colors = fieldColors(), modifier = Modifier.weight(1f))
+                            PrimaryButton("Speichern", accent = false) {
+                                g.ai.saveOpenAiKey(key)
+                                ui.toast(if (key.isBlank()) "API-Schlüssel entfernt" else "API-Schlüssel gespeichert")
+                                key = ""
+                            }
+                        }
+                    }
                 } else {
                     SettingsRow("API-Schlüssel", if (g.ai.hasApiKey) "Gespeichert (nur für dich lesbar auf diesem PC)" else "Von console.anthropic.com; wird nur auf diesem PC gespeichert", wide = true) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
