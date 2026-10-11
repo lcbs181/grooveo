@@ -10,6 +10,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import coil.imageLoader
 import dagger.hilt.android.HiltAndroidApp
+import dev.schlubbe.musicagent.data.backup.BackupWorker
 import dev.schlubbe.musicagent.data.extract.youtube.NewPipeDownloader
 import dev.schlubbe.musicagent.data.repository.AuthRepository
 import dev.schlubbe.musicagent.data.repository.AuthTokenHolder
@@ -51,6 +52,11 @@ class MusicAgentApp : Application(), Configuration.Provider {
         // of monitor contention on a real device); touching it here moves it to IO.
         appScope.launch { runCatching { imageLoader.diskCache?.size } }
         schedulePeriodicUpdateCheck()
+        workManager.enqueueUniquePeriodicWork(
+            BackupWorker.UNIQUE_WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<BackupWorker>(24, TimeUnit.HOURS).build(),
+        )
 
         // No login screen in this backend-less variant, but analytics events
         // (/events) and update checks still go through the real backend, and

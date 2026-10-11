@@ -6,6 +6,8 @@ import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.fill.Sparkle
 import com.adamglin.phosphoricons.regular.Stop
+import com.adamglin.phosphoricons.regular.Folder
+import com.adamglin.phosphoricons.regular.UploadSimple
 import com.adamglin.phosphoricons.regular.MagnifyingGlass
 import com.adamglin.phosphoricons.regular.Check
 import com.adamglin.phosphoricons.regular.Shuffle
@@ -236,6 +238,8 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "arrow-clockwise" -> PhosphorIcons.Regular.ArrowClockwise
         "lock-simple" -> PhosphorIcons.Regular.LockSimple
         "stop" -> PhosphorIcons.Regular.Stop
+        "folder" -> PhosphorIcons.Regular.Folder
+        "upload-simple" -> PhosphorIcons.Regular.UploadSimple
         else -> PhosphorIcons.Regular.WarningCircle
     }
 }

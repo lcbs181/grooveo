@@ -2,6 +2,8 @@ package dev.schlubbe.musicagent.data.backup
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.core.content.FileProvider
 import com.google.gson.Gson
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -54,16 +56,104 @@ class BackupManager @Inject constructor(
     private val backupDir: File
         get() = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
 
-    /** Writes a fresh backup_<timestamp>.json and returns it. */
+    private val prefs = context.getSharedPreferences("backup", Context.MODE_PRIVATE)
+
+    /**
+     * Folder the user picked for backups (Storage Access Framework tree). Files there stay
+     * when the app is uninstalled, unlike [backupDir] inside the app's own data.
+     */
+    val folder: Uri? get() = prefs.getString(FOLDER, null)?.let(Uri::parse)
+
+    /** A readable name of [folder] ("Download/Grooveo"), or null when none is set. */
+    fun folderName(): String? = folder?.let { u ->
+        runCatching { DocumentsContract.getTreeDocumentId(u).substringAfter(':').ifEmpty { "Hauptordner" } }.getOrNull()
+    }
+
+    /** Keeps write access to [uri] across restarts and makes it the backup folder; null forgets it. */
+    fun setFolder(uri: Uri?) {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        folder?.takeIf { it != uri }?.let { old -> runCatching { context.contentResolver.releasePersistableUriPermission(old, flags) } }
+        if (uri != null) context.contentResolver.takePersistableUriPermission(uri, flags)
+        prefs.edit().putString(FOLDER, uri?.toString()).apply()
+    }
+
+    /**
+     * Writes a fresh backup_<timestamp>.json inside the app and, when a [folder] is set, a copy
+     * there (the newest [KEEP] of each are kept). Fails when the folder copy fails, so the user
+     * learns that the backup outside the app is missing.
+     */
     suspend fun createBackup(): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val payload = buildPayload()
+            val json = gson.toJson(buildPayload())
             val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
             val file = File(backupDir, "backup_$timestamp.json")
-            file.writeText(gson.toJson(payload))
+            file.writeText(json)
+            backupDir.listFiles { f -> f.isFile && f.name.startsWith("backup_") && f.extension == "json" }
+                ?.sortedByDescending { it.lastModified() }?.drop(KEEP)?.forEach { it.delete() }
+            folder?.let { tree ->
+                try {
+                    writeToFolder(tree, "grooveo-backup-$timestamp.json", json)
+                } catch (e: Exception) {
+                    throw IllegalStateException("Sicherung im Ordner fehlgeschlagen – Ordner neu wählen (${e.message})", e)
+                }
+            }
             file
         }
     }
+
+    private fun writeToFolder(tree: Uri, name: String, json: String) {
+        val r = context.contentResolver
+        val dir = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        val doc = DocumentsContract.createDocument(r, dir, "application/json", name) ?: error("Datei nicht angelegt")
+        r.openOutputStream(doc, "wt")?.use { it.write(json.toByteArray(Charsets.UTF_8)) } ?: error("Datei nicht beschreibbar")
+        // only the app's own backups are tidied up, nothing else in the folder
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        val ours = ArrayList<Pair<String, String>>()
+        r.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                val n = c.getString(1) ?: continue
+                if (n.startsWith("grooveo-backup-") && n.endsWith(".json")) ours += c.getString(0) to n
+            }
+        }
+        // names carry the time, so sorting by name sorts by age
+        ours.sortedByDescending { it.second }.drop(KEEP).forEach { (id, _) ->
+            runCatching { DocumentsContract.deleteDocument(r, DocumentsContract.buildDocumentUriUsingTree(tree, id)) }
+        }
+    }
+
+    /** Writes the current library and settings into [uri] (a file the user created with "Speichern unter"). */
+    suspend fun exportTo(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val json = gson.toJson(buildPayload())
+            context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                ?: error("Datei nicht beschreibbar")
+        }
+    }
+
+    /**
+     * Restores from a backup file the user picked (from this app, an older one or the PC app).
+     * [merge] adds what is missing and keeps everything here; otherwise the backup replaces
+     * playlists, likes, follows and settings.
+     */
+    suspend fun restoreFrom(uri: Uri, merge: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val text = context.contentResolver.openInputStream(uri)?.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    if (out.size() > SyncProtocol.MAX_BODY) error("Datei ist zu groß für eine Grooveo-Sicherung")
+                }
+                out.toString(Charsets.UTF_8.name())
+            } ?: error("Datei lässt sich nicht öffnen")
+            val payload = parse(text)
+            if (merge) applySynced(payload) else restorePayload(payload)
+        }
+    }
+
+    private fun parse(text: String): BackupPayload = parseBackup(gson, text)
 
     /** The current library and settings in the backup format (also what the PC sync sends). */
     suspend fun buildPayload(): BackupPayload {
@@ -155,11 +245,7 @@ class BackupManager @Inject constructor(
     }
 
     suspend fun restoreFromFile(file: File): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val payload = runCatching { gson.fromJson(file.readText(), BackupPayload::class.java) }.getOrNull()
-                ?: error("Sicherungsdatei ist beschädigt oder ungültig")
-            restorePayload(payload)
-        }
+        runCatching { restorePayload(parse(file.readText())) }
     }
 
     private suspend fun restorePayload(payload: BackupPayload) {
@@ -186,24 +272,26 @@ class BackupManager @Inject constructor(
             p.tracks.forEach { t -> playlistRepository.addTrack(created.id, t.toTrackResultDto()) }
         }
 
-        val s = payload.settings
+        @Suppress("SENSELESS_COMPARISON")
+        val s = payload.settings ?: return
         settingsRepository.setHiResAudio(s.hiResAudio)
         settingsRepository.setDataSaverMode(s.dataSaverMode)
         @Suppress("USELESS_ELVIS")
         settingsRepository.setEqProfile(s.eqProfile?.normalized() ?: EqCodec.fromLegacy(s.eqPreset ?: "FLAT", null))
         s.eqUserPresets?.let { list -> settingsRepository.setEqUserPresets(list.filterNotNull().map { it.normalized() }) }
-        settingsRepository.setPlayerStyle(s.playerStyle)
+        // a file from another app version may lack text settings: those keep their current value
+        (s.playerStyle as String?)?.let { settingsRepository.setPlayerStyle(it) }
         settingsRepository.setAutoplayRadio(s.autoplayRadio)
         settingsRepository.setContentSafetyFilter(s.contentSafetyFilter)
-        settingsRepository.setSound3dPreset(s.sound3dPreset)
+        (s.sound3dPreset as String?)?.let { settingsRepository.setSound3dPreset(it) }
         settingsRepository.setDownloadsWifiOnly(s.downloadsWifiOnly)
         settingsRepository.setNotifyNewUploads(s.notifyNewUploads)
         settingsRepository.setShowMixControls(s.showMixControls)
         settingsRepository.setShowFeatured(s.showFeatured)
         settingsRepository.setShowNewUploads(s.showNewUploads)
         settingsRepository.setAutoBackup(s.autoBackup)
-        settingsRepository.setProfileName(s.profileName)
-        settingsRepository.setProfileColorStyle(s.profileColorStyle)
+        (s.profileName as String?)?.let { settingsRepository.setProfileName(it) }
+        (s.profileColorStyle as String?)?.let { settingsRepository.setProfileColorStyle(it) }
     }
 
     /** Fires the system share sheet for the most recent backup file via a
@@ -224,6 +312,12 @@ class BackupManager @Inject constructor(
         return true
     }
 
+    private companion object {
+        const val FOLDER = "folder"
+        /** Backups kept inside the app and in the folder. */
+        const val KEEP = 10
+    }
+
     private fun TrackOutDto.toBackupTrackDto() =
         BackupTrackDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl)
 
@@ -231,4 +325,22 @@ class BackupManager @Inject constructor(
 
     private fun BackupTrackDto.toTrackResultDto() =
         TrackResultDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl, isDrmProtected = false)
+}
+
+/**
+ * A backup file's content, with lists a file may lack filled in (Gson would leave them null);
+ * throws with a German message when it is not a backup.
+ */
+internal fun parseBackup(gson: Gson, text: String): BackupPayload {
+    val o = runCatching { com.google.gson.JsonParser.parseString(text.trimStart('\uFEFF')) }.getOrNull()
+        ?.takeIf { it.isJsonObject }?.asJsonObject
+        ?: error("Das ist keine Grooveo-Sicherung (kein gültiges JSON)")
+    if (!o.has("createdAt") && !o.has("settings") && !o.has("likes") && !o.has("playlists")) error("Das ist keine Grooveo-Sicherung")
+    fun com.google.gson.JsonObject.list(key: String) {
+        if (get(key)?.isJsonArray != true) add(key, com.google.gson.JsonArray())
+    }
+    listOf("likes", "playlists", "followedArtists", "savedPlaylists").forEach(o::list)
+    o.getAsJsonArray("playlists").forEach { pl -> if (pl.isJsonObject) pl.asJsonObject.apply { list("moodTags"); list("tracks") } }
+    return runCatching { gson.fromJson(o, BackupPayload::class.java) }.getOrNull()
+        ?: error("Sicherungsdatei ist beschädigt")
 }

@@ -33,6 +33,8 @@ sealed interface BackupState {
     data object Idle : BackupState
     data object Running : BackupState
     data object Done : BackupState
+    /** Finished, with what happened ("Gespeichert in …"). */
+    data class Info(val message: String) : BackupState
     data class Error(val message: String) : BackupState
 }
 
@@ -67,6 +69,10 @@ data class SettingsUiState(
     val lastBackupText: String? = null,
     val backupState: BackupState = BackupState.Idle,
     val showRestoreConfirm: Boolean = false,
+    /** Folder for backups outside the app (survives uninstalling), null when none is chosen. */
+    val backupFolderName: String? = null,
+    /** A backup file the user picked to import; the dialog asks how. */
+    val restoreFile: android.net.Uri? = null,
     // Sync mit PC
     val syncPaired: Boolean = false,
     val syncRunning: Boolean = false,
@@ -87,6 +93,7 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        _uiState.value = _uiState.value.copy(backupFolderName = backupManager.folderName())
         viewModelScope.launch {
             settingsRepository.backendBaseUrl.collect { url ->
                 _uiState.value = _uiState.value.copy(backendBaseUrl = url)
@@ -323,7 +330,9 @@ class SettingsViewModel @Inject constructor(
             result.fold(
                 onSuccess = {
                     settingsRepository.setLastBackupAt(Instant.now().toString())
-                    _uiState.value = _uiState.value.copy(backupState = BackupState.Done)
+                    _uiState.value = _uiState.value.copy(
+                        backupState = backupManager.folderName()?.let { BackupState.Info("Gesichert, auch im Ordner „$it“") } ?: BackupState.Done,
+                    )
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
@@ -375,6 +384,51 @@ class SettingsViewModel @Inject constructor(
 
     fun clearSyncMessage() {
         _uiState.value = _uiState.value.copy(syncPaired = syncClient.isPaired, syncMessage = null, syncFailed = false)
+    }
+
+    /** The folder the user picked for backups (null = only inside the app). */
+    fun setBackupFolder(uri: android.net.Uri?) {
+        runCatching { backupManager.setFolder(uri) }
+            .onSuccess {
+                _uiState.value = _uiState.value.copy(backupFolderName = backupManager.folderName())
+                if (uri != null) backupNow()
+            }
+            .onFailure { e -> _uiState.value = _uiState.value.copy(backupState = BackupState.Error("Ordner nicht nutzbar: ${e.message}")) }
+    }
+
+    /** "Als Datei speichern": writes a backup into the file the user created. */
+    fun exportTo(uri: android.net.Uri) {
+        _uiState.value = _uiState.value.copy(backupState = BackupState.Running)
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                backupState = backupManager.exportTo(uri).fold(
+                    onSuccess = { BackupState.Info("Sicherung gespeichert") },
+                    onFailure = { e -> BackupState.Error(e.message ?: "Speichern fehlgeschlagen") },
+                ),
+            )
+        }
+    }
+
+    fun onRestoreFilePicked(uri: android.net.Uri) {
+        _uiState.value = _uiState.value.copy(restoreFile = uri)
+    }
+
+    fun dismissRestoreFile() {
+        _uiState.value = _uiState.value.copy(restoreFile = null)
+    }
+
+    /** Imports the picked file: [merge] adds what is missing, otherwise the file replaces the library. */
+    fun confirmRestoreFile(merge: Boolean) {
+        val uri = _uiState.value.restoreFile ?: return
+        _uiState.value = _uiState.value.copy(restoreFile = null, backupState = BackupState.Running)
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                backupState = backupManager.restoreFrom(uri, merge).fold(
+                    onSuccess = { BackupState.Info(if (merge) "Sicherung übernommen – nichts wurde gelöscht" else "Sicherung wiederhergestellt") },
+                    onFailure = { e -> BackupState.Error(e.message ?: "Import fehlgeschlagen") },
+                ),
+            )
+        }
     }
 
     fun onRestoreClicked() {

@@ -1,5 +1,9 @@
 package dev.schlubbe.musicagent.ui.settings
 
+import androidx.activity.result.contract.ActivityResultContracts
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.widget.Toast
@@ -250,7 +254,7 @@ fun SettingsScreen(
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("cloud-arrow-up"),
-                            title = "Backup exportieren",
+                            title = "Sicherung",
                             subtitle = uiState.lastBackupText ?: "Noch keine Sicherung",
                             onClick = { showBackupSheet = true },
                         )
@@ -429,6 +433,15 @@ fun SettingsScreen(
         SyncSheet(uiState = uiState, onDismiss = { showSyncSheet = false }, onPair = viewModel::pairWithPc, onSync = viewModel::syncWithPc, onUnpair = viewModel::unpairPc)
     }
 
+    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let(viewModel::exportTo)
+    }
+    val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::onRestoreFilePicked)
+    }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(viewModel::setBackupFolder)
+    }
     if (showBackupSheet) {
         BackupSheet(
             uiState = uiState,
@@ -437,6 +450,32 @@ fun SettingsScreen(
             onShare = viewModel::shareBackup,
             onAutoBackupChanged = viewModel::onAutoBackupChanged,
             onRestoreClick = viewModel::onRestoreClicked,
+            onSaveAs = { saveAs.launch("grooveo-backup-${java.time.LocalDate.now()}.json") },
+            onImport = { openFile.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
+            onPickFolder = { pickFolder.launch(null) },
+            onClearFolder = { viewModel.setBackupFolder(null) },
+        )
+    }
+
+    if (uiState.restoreFile != null) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissRestoreFile,
+            title = { Text("Sicherung importieren") },
+            text = {
+                Text(
+                    "Zusammenführen: fügt Playlists, Likes und gefolgte Künstler aus der Datei hinzu, hier geht nichts verloren.\n\n" +
+                        "Ersetzen: Playlists, Likes, gefolgte Künstler und Einstellungen werden durch den Stand der Datei ersetzt.",
+                )
+            },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = { viewModel.confirmRestoreFile(merge = false) }) { Text("Ersetzen") }
+                    TextButton(onClick = { viewModel.confirmRestoreFile(merge = true) }) { Text("Zusammenführen") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissRestoreFile) { Text("Abbrechen") }
+            },
         )
     }
 
@@ -444,7 +483,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = viewModel::dismissRestoreConfirm,
             title = { Text("Aus Sicherung wiederherstellen?") },
-            text = { Text("Playlists, Likes und Einstellungen werden durch den Stand der letzten Sicherung ersetzt.") },
+            text = { Text("Playlists, Likes und Einstellungen werden durch den Stand der letzten Sicherung in der App ersetzt.") },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmRestore) { Text("Wiederherstellen") }
             },
@@ -686,19 +725,23 @@ private fun BackupSheet(
     onShare: () -> Unit,
     onAutoBackupChanged: (Boolean) -> Unit,
     onRestoreClick: () -> Unit,
+    onSaveAs: () -> Unit,
+    onImport: () -> Unit,
+    onPickFolder: () -> Unit,
+    onClearFolder: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Backup exportieren", style = MaterialTheme.typography.headlineSmall)
+            Text("Sicherung", style = MaterialTheme.typography.headlineSmall)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text("Letzte Sicherung", style = MaterialTheme.typography.bodyMedium)
                     Text(
                         uiState.lastBackupText ?: "Noch keine Sicherung",
@@ -707,7 +750,7 @@ private fun BackupSheet(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CanopyIconButton(icon = phosphorIcon("share-network"), onClick = onShare, iconSize = 16.dp)
+                    CanopyIconButton(icon = phosphorIcon("share-network"), onClick = onShare, iconSize = 16.dp, contentDescription = "Teilen")
                     CanopyButton(
                         text = if (uiState.backupState == BackupState.Running) "…" else "Jetzt sichern",
                         onClick = onBackupNow,
@@ -718,20 +761,60 @@ private fun BackupSheet(
             }
             when (val state = uiState.backupState) {
                 is BackupState.Error -> Text(state.message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                is BackupState.Info -> Text(state.message, style = MaterialTheme.typography.labelSmall, color = Canopy.accent)
                 else -> Unit
+            }
+
+            // Sicherungen in der App verschwinden beim Deinstallieren: der Ordner bleibt
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Sicherungsordner", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    uiState.backupFolderName?.let { "„$it“ – jede Sicherung landet auch dort und bleibt beim Deinstallieren erhalten." }
+                        ?: "Nur in der App – wird beim Deinstallieren mit gelöscht. Wähle einen Ordner (z. B. Download), damit die Sicherungen bleiben.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (uiState.backupFolderName == null) Canopy.accent2 else Canopy.neutral500,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CanopyButton(
+                        text = if (uiState.backupFolderName == null) "Ordner wählen" else "Anderer Ordner",
+                        onClick = onPickFolder,
+                        variant = CanopyButtonVariant.Secondary,
+                        leadingIcon = phosphorIcon("folder"),
+                    )
+                    if (uiState.backupFolderName != null) {
+                        CanopyButton(text = "Entfernen", onClick = onClearFolder, variant = CanopyButtonVariant.Ghost)
+                    }
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Automatische Sicherung", style = MaterialTheme.typography.bodyMedium)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Automatische Sicherung", style = MaterialTheme.typography.bodyMedium)
+                    Text("Einmal pro Woche", style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                }
                 CanopyToggle(checked = uiState.autoBackup, onCheckedChange = onAutoBackupChanged)
             }
             CanopyButton(
-                text = "Aus Sicherung wiederherstellen",
-                onClick = onRestoreClick,
+                text = "Als Datei speichern …",
+                onClick = onSaveAs,
                 variant = CanopyButtonVariant.Secondary,
+                leadingIcon = phosphorIcon("download-simple"),
+                block = true,
+            )
+            CanopyButton(
+                text = "Aus Datei importieren …",
+                onClick = onImport,
+                variant = CanopyButtonVariant.Secondary,
+                leadingIcon = phosphorIcon("upload-simple"),
+                block = true,
+            )
+            CanopyButton(
+                text = "Letzte Sicherung in der App wiederherstellen",
+                onClick = onRestoreClick,
+                variant = CanopyButtonVariant.Ghost,
                 leadingIcon = phosphorIcon("clock-counter-clockwise"),
                 block = true,
             )
