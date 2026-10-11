@@ -4,6 +4,7 @@ import dev.schlubbe.musicagent.playback.eq.*
 import java.nio.file.Files
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -108,6 +109,21 @@ class LoudnessNormalizerTest {
         n.startTrack("a", -20.0)
         run(n, 0.2, 0.1)
         assertEquals(14.0, n.currentGainDb, 1e-9) // wants +10 +6, capped at 8 + 6
+    }
+
+    @Test fun `makeup applies at once without normalisation or a measurement`() {
+        for (on in listOf(false, true)) {
+            val n = LoudnessNormalizer(FS).apply { enabled = on; makeupDb = 6.0 }
+            n.startTrack("a", null) // nothing known, nothing measured yet
+            run(n, 0.05, 0.1)
+            assertEquals(6.0, n.currentGainDb, 0.05)
+            n.makeupDb = 2.0 // a change within the first seconds is followed too
+            val out = run(n, 0.1, 0.1)
+            assertEquals(2.0, n.currentGainDb, 1e-3)
+            val ref = tones(0.1, 0.1 to 997.0)
+            val i = out.size - 2
+            assertEquals(ref[i] * 10.0.pow(2.0 / 20).toFloat(), out[i], 1e-4f)
+        }
     }
 
     @Test fun `disabled is transparent but still measures`() {
