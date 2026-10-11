@@ -16,6 +16,8 @@ import kotlin.test.assertTrue
 
 class UpdaterTest {
     private val dir = Files.createTempDirectory("grooveo-upd").toFile()
+
+    @kotlin.test.AfterTest fun cleanUp() { dir.deleteRecursively() }
     private val info = UpdateInfo("9.9.9", "", "", listOf(
         UpdateAsset("Grooveo-9.9.9-linux-x64.deb", "u1", 1), UpdateAsset("Grooveo-9.9.9-linux-x64.tar.gz", "u2", 1),
         UpdateAsset("Grooveo-9.9.9-windows-x64.msi", "u3", 1), UpdateAsset("Grooveo-9.9.9.apk", "u4", 1),

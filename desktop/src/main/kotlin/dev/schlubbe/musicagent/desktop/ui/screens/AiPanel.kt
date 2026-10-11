@@ -139,12 +139,11 @@ fun AiPanel(modifier: Modifier = Modifier) {
                 if (st.running) IconBtn(PhosphorIcons.Regular.Stop, "Anhalten", tint = c.accent2) { ai.stop() }
                 else IconBtn(PhosphorIcons.Regular.ArrowUp, "Senden (Enter)", tint = if (input.isBlank()) c.textFaint else c.accent, enabled = input.isNotBlank()) { send() }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(st.provider.ifBlank { ai.providerLabel() }, style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.weight(1f))
-                if (st.canUndo && !st.running) TextButton({ ai.undoLast() }) {
-                    Text(st.undoFor?.let { "„$it“ rückgängig" } ?: "Letzte Antwort rückgängig", color = c.accent, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+            // undo on its own line: the quoted request can be long and would squeeze the model label
+            if (st.canUndo && !st.running) TextButton({ ai.undoLast() }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text(st.undoFor?.let { "„$it“ rückgängig" } ?: "Letzte Antwort rückgängig", color = c.accent, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            Text(st.provider.ifBlank { ai.providerLabel() }, style = MaterialTheme.typography.labelSmall, color = c.textFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
