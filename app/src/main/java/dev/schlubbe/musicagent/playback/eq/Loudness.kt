@@ -112,10 +112,13 @@ class LoudnessNormalizer(fs: Double) {
     @Volatile var enabled = false
     @Volatile var targetLufs = DEFAULT_TARGET_LUFS
     @Volatile var maxBoostDb = DEFAULT_MAX_BOOST_DB
+    /** Level the EQ chain takes away after this stage (negative preamp); added back so turning the EQ on does not make everything quieter. */
+    @Volatile var makeupDb = 0.0
 
     private val meter = LoudnessMeter(fs)
     private val pending = AtomicReference<Pair<String, Double?>?>(null)
     private var known: Double? = null
+    private var latched: Double? = null // measurement frozen once the track was heard long enough: no drifting level mid-song
     private var gainDb = 0.0
     private var linDb = 0.0
     private var lin = 1f
@@ -136,13 +139,14 @@ class LoudnessNormalizer(fs: Double) {
     val currentGainDb: Double get() = gainDb
 
     fun process(buf: FloatArray, frames: Int) {
-        pending.getAndSet(null)?.let { (id, k) -> trackId = id; known = k; meter.reset() }
+        pending.getAndSet(null)?.let { (id, k) -> trackId = id; known = k; latched = null; meter.reset() }
         meter.add(buf, frames)
-        val loudness = known ?: meter.integrated()?.takeIf { meter.seconds >= MIN_SECONDS_TO_ADAPT }
+        if (latched == null && known == null && meter.seconds >= MIN_SECONDS_TO_STORE) latched = meter.integrated()
+        val loudness = known ?: latched ?: meter.integrated()?.takeIf { meter.seconds >= MIN_SECONDS_TO_ADAPT }
         val target = when {
             !enabled -> 0.0
             loudness == null -> gainDb // keep the previous track's gain until measured
-            else -> (targetLufs - loudness).coerceIn(-MAX_CUT_DB, maxBoostDb)
+            else -> (targetLufs + makeupDb - loudness).coerceIn(-MAX_CUT_DB, maxBoostDb + makeupDb)
         }
         val step = if (known != null && enabled) fastSlewPerSample else slewPerSample
         for (i in 0 until frames) {

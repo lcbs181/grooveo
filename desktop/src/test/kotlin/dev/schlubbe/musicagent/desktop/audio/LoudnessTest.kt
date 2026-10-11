@@ -94,6 +94,22 @@ class LoudnessNormalizerTest {
         assertEquals(-6.0, n.currentGainDb, 1e-9)
     }
 
+    @Test fun `gain stays fixed once the measurement is latched`() {
+        val n = LoudnessNormalizer(FS).apply { enabled = true }
+        n.startTrack("a", null)
+        run(n, 30.0, 0.5)
+        val g = n.currentGainDb
+        run(n, 30.0, 0.05) // much quieter section later in the song
+        assertEquals(g, n.currentGainDb, 1e-9)
+    }
+
+    @Test fun `makeup adds back the preamp cut`() {
+        val n = LoudnessNormalizer(FS).apply { enabled = true; makeupDb = 6.0 }
+        n.startTrack("a", -20.0)
+        run(n, 0.2, 0.1)
+        assertEquals(14.0, n.currentGainDb, 1e-9) // wants +10 +6, capped at 8 + 6
+    }
+
     @Test fun `disabled is transparent but still measures`() {
         val n = LoudnessNormalizer(FS)
         n.startTrack("a", null)

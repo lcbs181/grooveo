@@ -116,6 +116,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         }
         inputBuffer.position(inputBuffer.limit())
         normalizer?.let { n ->
+            n.makeupDb = p.makeupDb
             n.process(work, frames)
             p.forceLimiter = n.currentGainDb > 0.05
         }

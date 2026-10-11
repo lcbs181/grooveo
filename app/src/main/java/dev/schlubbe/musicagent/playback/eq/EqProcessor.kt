@@ -30,7 +30,14 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
     private val tameHarsh = DynamicEqBand.harsh(fs)
     private val limiter = LookaheadLimiter(fs)
 
-    fun setProfile(p: EqProfile) = pendingProfile.set(p)
+    fun setProfile(p: EqProfile) {
+        makeupDb = if (p.enabled) (-p.preampDb).coerceAtLeast(0.0) else 0.0
+        pendingProfile.set(p)
+    }
+
+    /** Level the current profile's preamp takes away; the loudness normaliser adds it back in front of the EQ. */
+    @Volatile var makeupDb = 0.0
+        private set
     fun setVolume(v: Float) { volume = v }
 
     /** Keeps the limiter on although the profile has it off: an upstream gain (loudness
