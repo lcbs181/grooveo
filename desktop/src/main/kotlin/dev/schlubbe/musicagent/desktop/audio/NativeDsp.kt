@@ -22,6 +22,7 @@ internal interface NativeDspLib : Library {
     fun grooveo_stretch_output_latency(handle: Pointer): Int
     fun grooveo_stretch_set_transpose(handle: Pointer, semitones: Float)
     fun grooveo_stretch_process(handle: Pointer, input: FloatArray, inFrames: Int, output: FloatArray, outFrames: Int)
+    fun grooveo_stretch_flush(handle: Pointer, output: FloatArray, outFrames: Int, rate: Float)
     fun grooveo_stretch_reset(handle: Pointer)
     fun grooveo_stretch_free(handle: Pointer)
 }
@@ -61,6 +62,12 @@ class TimeStretcher : AutoCloseable {
     fun process(input: FloatArray, inFrames: Int, output: FloatArray, outFrames: Int) {
         val h = handle ?: return
         lib.grooveo_stretch_process(h, input, inFrames, output, outFrames)
+    }
+
+    /** After the last input: writes the [outFrames] frames still inside the stretcher (see [latencyFrames]). Needs [reset] before new input. */
+    fun flush(output: FloatArray, outFrames: Int, rate: Double) {
+        val h = handle ?: return
+        lib.grooveo_stretch_flush(h, output, outFrames, rate.toFloat())
     }
 
     fun reset() { handle?.let { lib.grooveo_stretch_reset(it) } }

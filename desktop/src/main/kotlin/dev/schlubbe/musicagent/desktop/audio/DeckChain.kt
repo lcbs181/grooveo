@@ -43,9 +43,18 @@ class DeckChain(val deck: Deck) {
     private val outTmp = FloatArray(BLOCK_IN * 2)
     /** Remaining frames of the STRETCH -> DELAYED crossfade. */
     private var switchLeft = 0
+    /** The deck ended while stretching: the stretcher's last output, played out before [ended]. */
+    private var tail = FloatArray(0)
+    private var tailPos = 0
+    private var tailLeft = 0
+    private var flushed = false
 
     val source: AudioSource? get() = deck.source
-    val ended: Boolean get() = deck.ended && (mode != Mode.DELAYED || delayFill == 0)
+    val ended: Boolean get() = deck.ended && when (mode) {
+        Mode.DRY -> true
+        Mode.STRETCH -> flushed && tailLeft == 0
+        Mode.DELAYED -> delayFill == 0
+    }
 
     val outputSourceSec: Double
         get() = deck.positionSec - when (mode) {
@@ -62,6 +71,7 @@ class DeckChain(val deck: Deck) {
         mode = Mode.DRY
         rate = 1.0; targetRate = 1.0; glidePerFrame = 0.0
         inCarry = 0.0; switchLeft = 0; delayFill = 0
+        tailPos = 0; tailLeft = 0; flushed = false
         semitones = 0f
         stretcher?.reset()
     }
@@ -75,6 +85,9 @@ class DeckChain(val deck: Deck) {
         s.semitones = semitones
         this.rate = rate; targetRate = rate
         mode = Mode.STRETCH
+        // room for the flush at track end even at the slowest rate
+        val tailFrames = (s.latencyFrames(MIN_RATE) / MIN_RATE).roundToInt() + 1
+        if (tail.size < tailFrames * 2) tail = FloatArray(tailFrames * 2)
     }
 
     /** Glides the rate to [target] over [frames] output frames (0 = at once). */
@@ -94,6 +107,7 @@ class DeckChain(val deck: Deck) {
      * deck has not decoded enough audio yet (call again on the next block).
      */
     fun prime(cueSec: Double, read: (FloatArray, Int) -> Int): Boolean {
+        if (mode != Mode.STRETCH) return true
         val s = stretcher ?: return true
         while (true) {
             val missing = ((cueSec - outputSourceSec) * SAMPLE_RATE).roundToInt()
@@ -134,6 +148,12 @@ class DeckChain(val deck: Deck) {
         val s = stretcher!!
         var done = 0
         while (done < frames) {
+            if (flushed) {
+                val k = minOf(frames - done, tailLeft)
+                System.arraycopy(tail, tailPos * 2, out, (from + done) * 2, k * 2)
+                tailPos += k; tailLeft -= k; done += k
+                break
+            }
             val n = minOf(frames - done, 256)
             // rate glide (tempo release) in small steps
             if (rate != targetRate) {
@@ -151,20 +171,30 @@ class DeckChain(val deck: Deck) {
                 // the deck ran dry or ended: stretch what arrived
                 inCarry = 0.0
                 produce = (got / rate).toInt()
-                if (produce == 0) break
+                if (produce == 0) { if (flushAtEnd(s)) continue else break }
             }
             s.process(inBuf, got, outTmp, produce)
             System.arraycopy(outTmp, 0, out, (from + done) * 2, produce * 2)
             pushDelay(inBuf, got)
             done += produce
-            if (produce < n) break
+            if (produce < n) { if (flushAtEnd(s)) continue else break }
         }
         if (switchPending()) beginSwitch()
         return done
     }
 
+    /** At deck end, takes the output still inside the stretcher (its latency) as the tail. */
+    private fun flushAtEnd(s: TimeStretcher): Boolean {
+        if (!deck.ended) return false
+        val n = (s.latencyFrames(rate) / rate).roundToInt()
+        if (tail.size < n * 2) tail = FloatArray(n * 2)
+        s.flush(tail, n, rate)
+        tailPos = 0; tailLeft = n; flushed = true
+        return true
+    }
+
     /** Back at the native tempo without pitch shift: hand over to the delayed dry path. */
-    private fun switchPending() = rate == 1.0 && targetRate == 1.0 && semitones == 0f && switchLeft == 0 &&
+    private fun switchPending() = !flushed && rate == 1.0 && targetRate == 1.0 && semitones == 0f && switchLeft == 0 &&
         delay.isNotEmpty() && delayFill >= delayFrames
 
     private fun beginSwitch() {
@@ -234,5 +264,6 @@ class DeckChain(val deck: Deck) {
     companion object {
         const val BLOCK_IN = 4096
         const val SWITCH_FRAMES = 960 // 20 ms
+        private const val MIN_RATE = 0.45
     }
 }

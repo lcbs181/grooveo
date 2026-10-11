@@ -106,6 +106,90 @@ class DjEngineTest {
         assertTrue(gainDb(8000.0, 0.0, 0.0, EQ_KILL_DB) < -35, "high kill")
     }
 
+    /** Runs a 0.5 sine at [hz] through a [DeckFx] in 64-frame steps, calling [automate] with the time before each; returns the left channel. */
+    private fun runFx(hz: Double, seconds: Double, automate: (DeckFx, Double) -> Unit): FloatArray {
+        val fx = DeckFx()
+        val n = (seconds * SAMPLE_RATE).toInt()
+        val out = FloatArray(n)
+        val buf = FloatArray(64 * 2)
+        val sink = FloatArray(64 * 2)
+        var i = 0
+        while (i < n) {
+            val len = minOf(64, n - i)
+            automate(fx, i / SAMPLE_RATE)
+            for (j in 0 until len) { val v = (0.5 * sin(2 * PI * hz * (i + j) / SAMPLE_RATE)).toFloat(); buf[2 * j] = v; buf[2 * j + 1] = v }
+            fx.process(buf, sink, 0, len)
+            for (j in 0 until len) out[i + j] = buf[2 * j]
+            i += len
+        }
+        return out
+    }
+
+    private fun maxStep(x: FloatArray, from: Int, to: Int) = (from + 1 until to).maxOf { abs(x[it] - x[it - 1]) }
+
+    private fun dry(hz: Double, i: Int) = (0.5 * sin(2 * PI * hz * i / SAMPLE_RATE)).toFloat()
+
+    @Test fun `isolator fades into and out of bypass without a click`() {
+        val hz = 90.0
+        // bass cut for half a second, then back to 0 dB (the end of a bass swap)
+        val x = runFx(hz, 1.5) { fx, t -> fx.set(FxParam.EQ_LOW, if (t in 0.25..0.75) -12.0 else 0.0) }
+        val normal = 2 * PI * hz / SAMPLE_RATE * 0.5
+        val step = maxStep(x, 100, x.size)
+        assertTrue(step < normal * 1.5, "max step $step, a clean sine steps $normal")
+        // and afterwards it is bypassed again: exactly the dry signal
+        val tail = (x.size - 4800 until x.size).maxOf { abs(x[it] - dry(hz, it)) }
+        assertEquals(0f, tail)
+    }
+
+    @Test fun `sweep filter fades into and out of bypass without a click`() {
+        val hz = 50.0
+        val x = runFx(hz, 1.5) { fx, t -> fx.set(FxParam.HIGHPASS, if (t in 0.25..0.75) 300.0 else 20.0) }
+        val normal = 2 * PI * hz / SAMPLE_RATE * 0.5
+        val step = maxStep(x, 100, x.size)
+        assertTrue(step < normal * 1.5, "max step $step, a clean sine steps $normal")
+        val tail = (x.size - 4800 until x.size).maxOf { abs(x[it] - dry(hz, it)) }
+        assertEquals(0f, tail)
+        // a low-pass lane that sweeps back open, as at the end of a filter transition
+        val y = runFx(hz, 1.5) { fx, t ->
+            fx.set(FxParam.LOWPASS, when {
+                t < 0.25 || t > 0.75 -> 20_000.0
+                t < 0.5 -> 200.0
+                else -> 200.0 * Math.pow(100.0, (t - 0.5) / 0.25)
+            })
+        }
+        assertTrue(maxStep(y, 100, y.size) < normal * 1.5, "low-pass max step ${maxStep(y, 100, y.size)}")
+        assertEquals(0f, (y.size - 4800 until y.size).maxOf { abs(y[it] - dry(hz, it)) })
+    }
+
+    @Test fun `stretcher plays out its latency when the deck ends`() {
+        requireNative()
+        val seconds = 2.0
+        for (rate in listOf(1.0, 0.8, 1.25)) {
+            // the last burst ends exactly at the end of the track
+            val deck = BeatDeck(0.25, 0.23, 440.0, seconds).apply { load(AudioSource("t", "x")) }
+            val chain = DeckChain(deck)
+            // transposed, so it stays in the stretcher to the end
+            chain.startStretch(rate, 2f)
+            val out = FloatArray(1024 * 2)
+            var total = 0
+            var lastLoud = 0
+            var guard = 0
+            while (!chain.ended && guard++ < 10_000) {
+                val n = chain.render(out, 0, 1024) { b, k -> deck.read(b, k) }
+                for (i in 0 until n) if (abs(out[2 * i]) > 0.01f) lastLoud = total + i
+                total += n
+                if (n == 0) break
+            }
+            chain.close()
+            assertTrue(chain.ended, "chain never ended at rate $rate")
+            // output frame k plays source frame k * rate - latency: the end of the source is heard one latency later
+            val latency = TimeStretcher().use { it.latencyFrames(rate) }
+            val expected = (seconds * SAMPLE_RATE + latency) / rate
+            assertEquals(expected, total.toDouble(), 0.01 * SAMPLE_RATE, "output length at rate $rate")
+            assertTrue(lastLoud > (1.98 * SAMPLE_RATE + latency) / rate, "last burst missing at rate $rate: last loud frame $lastLoud")
+        }
+    }
+
     @Test fun `lanes interpolate with curves and log scale for filters`() {
         val vol = Lane(DeckRole.OUT, FxParam.VOLUME, listOf(LanePoint(0.0, 1.0), LanePoint(8.0, 0.0, Curve.EASE_IN)))
         assertEquals(1.0, vol.valueAt(-1.0)); assertEquals(0.0, vol.valueAt(9.0))
@@ -117,7 +201,7 @@ class DjEngineTest {
     }
 
     @Test fun `synced transition locks the incoming beats onto the outgoing beats`() {
-        assertTrue(TimeStretcher.available, "native library must be built")
+        requireNative()
         val outBeat = 60.0 / 126 // outgoing 126 BPM
         val inBeat = 60.0 / 120 // incoming 120 BPM, stretched by 5 %
         val decks = ArrayDeque(listOf(BeatDeck(outBeat, 0.25, 300.0, 40.0), BeatDeck(inBeat, 0.1, 3000.0, 60.0)))

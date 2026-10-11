@@ -73,6 +73,13 @@ class AudioEngine(
     private var syncErrMs: Double? = null
     /** A preload that arrived while a transition was using the other deck. */
     @Volatile private var pendingPreload: Pair<AudioSource?, TransitionPlan?>? = null
+    /** Loads per deck (changed under [lock]), so a deferred stop leaves a newer load alone. */
+    private val deckLoads = IntArray(2)
+    /** Outgoing frames already in [bufA] from a block that a pause interrupted (mixer thread). */
+    private var held = false
+    private var heldFrames = 0
+    private var heldStart = 0
+    private var heldEpoch = 0
 
     @Volatile var crossfadeSec: Int = 0
     /** Mix-out point (seconds) of the current track from "Übergänge analysieren"; null = fade over the last [crossfadeSec]. */
@@ -111,6 +118,7 @@ class AudioEngine(
             phase = TransitionStatus.Phase.NONE
             pendingPreload = null
             mixOutSec = null
+            deckLoads[cur]++
         }
         other.deck.stop()
         chains.forEach { it.resetTempo(); it.fx.reset(clearEcho = true) }
@@ -130,7 +138,6 @@ class AudioEngine(
      * [plan]. Null clears it. While a transition uses the idle deck, the request waits.
      */
     fun preloadNext(source: AudioSource?, plan: TransitionPlan? = null) = ctl.execute {
-        if (phase == TransitionStatus.Phase.RUNNING) { pendingPreload = source to plan; return@execute }
         val p = plan?.takeIf { source != null && it.nextId == source.id }
         if (source == next && (source == null || other.source?.id == source.id) && p == this.plan) return@execute
         loadNext(source, p)
@@ -145,18 +152,28 @@ class AudioEngine(
         loadNext(n, plan)
     }
 
+    /**
+     * Loads the idle deck (ctl thread). The mixer only touches the idle deck while [next]
+     * is set, so [next] stays null until the deck is fully prepared; a request during a
+     * running transition waits in [pendingPreload].
+     */
     private fun loadNext(source: AudioSource?, p: TransitionPlan?) {
-        val o = other
+        val oi: Int
         synchronized(lock) {
-            next = source
-            plan = p
+            if (phase == TransitionStatus.Phase.RUNNING) { pendingPreload = source to p; return }
+            pendingPreload = null
+            next = null
+            plan = null
             primed = false
-            phase = if (p != null) TransitionStatus.Phase.ARMED else if (phase == TransitionStatus.Phase.ARMED) TransitionStatus.Phase.NONE else phase
+            if (phase == TransitionStatus.Phase.ARMED) phase = TransitionStatus.Phase.NONE
+            oi = 1 - cur
+            if (source != null) deckLoads[oi]++
         }
+        val o = chains[oi]
         o.resetTempo()
         o.fx.reset(clearEcho = false)
         if (source == null) { o.deck.stop(); publishTransition(); return }
-        startLoudness(1 - cur, source)
+        startLoudness(oi, source)
         if (p == null) {
             o.deck.load(source)
         } else if (p.sync && canSync) {
@@ -166,7 +183,13 @@ class AudioEngine(
             o.deck.load(source.copy(startSec = (p.inCueSec - o.stretchLatencySec(rate) - 0.05).coerceAtLeast(0.0)))
         } else {
             o.deck.load(source.copy(startSec = p.inCueSec))
-            primed = true
+        }
+        synchronized(lock) {
+            if (phase == TransitionStatus.Phase.RUNNING || oi == cur) return
+            next = source
+            plan = p
+            primed = false
+            if (p != null) phase = TransitionStatus.Phase.ARMED
         }
         publishTransition()
     }
@@ -220,7 +243,8 @@ class AudioEngine(
 
     /** Ends the running transition: the incoming deck becomes the current one. Holds [lock]. */
     private fun finishTransition() {
-        val old = current
+        val oi = cur
+        val load = deckLoads[oi]
         val p = active
         cur = 1 - cur
         active = null
@@ -235,10 +259,16 @@ class AudioEngine(
         } else TransitionStatus.Phase.NONE
         // the outgoing deck's echo keeps ringing; its fader and filters reset with the next load
         ctl.execute {
-            old.deck.stop()
-            old.resetTempo()
+            stopIfUnchanged(oi, load)
             pendingPreload?.let { (s, pl) -> pendingPreload = null; loadNext(s, pl) }
         }
+    }
+
+    /** Stops deck [i] after a hand-over unless it became current again or got loaded since (ctl thread). */
+    private fun stopIfUnchanged(i: Int, load: Int) {
+        synchronized(lock) { if (cur == i || deckLoads[i] != load) return }
+        chains[i].deck.stop()
+        chains[i].resetTempo()
     }
 
     private fun publish(buffering: Boolean = _state.value.buffering) {
@@ -274,15 +304,19 @@ class AudioEngine(
         cache?.save()
     }
 
-    /** Fills [buf] from [deck] until [frames] frames, deck end, error, pause or epoch change. */
-    private fun readFull(deck: Deck, buf: FloatArray, frames: Int, myEpoch: Int): Int {
+    /**
+     * Fills [buf] from [deck] until [frames] frames, deck end, error, pause or epoch change.
+     * With [stopOnPause] false a pause does not cut the read short (the incoming deck of
+     * a transition must advance exactly as far as the outgoing one).
+     */
+    private fun readFull(deck: Deck, buf: FloatArray, frames: Int, myEpoch: Int, stopOnPause: Boolean = true): Int {
         var got = 0
         var waitedMs = 0
         while (got < frames && running) {
             val n = deck.read(scratch, minOf(frames - got, scratch.size / 2))
             System.arraycopy(scratch, 0, buf, got * 2, n * 2)
             got += n
-            if (got >= frames || deck.ended || deck.error != null || !playing || epoch != myEpoch || deck.source == null) break
+            if (got >= frames || deck.ended || deck.error != null || (stopOnPause && !playing) || epoch != myEpoch || deck.source == null) break
             Thread.sleep(2)
             waitedMs += 2
             if (waitedMs == 150) publish(buffering = true)
@@ -313,19 +347,25 @@ class AudioEngine(
             try {
                 if (!playing || current.source == null) { Thread.sleep(10); continue }
                 val myEpoch = epoch
-                val startAt = maybeStartTransition(myEpoch)
+                // a block cut short by a pause continues where it stopped, so no audio is dropped
+                // and a running transition's clock stays on the outgoing deck's beats
+                val resume = held && heldEpoch == myEpoch
+                held = false
+                val startAt = if (resume) heldStart else maybeStartTransition(myEpoch)
                 val c = current
                 val o = other
-                bufA.fill(0f)
+                val have = if (resume) heldFrames else 0
+                bufA.fill(0f, have * 2, BLOCK * 2)
                 mix.fill(0f)
-                val n = c.render(bufA, 0, BLOCK) { b, k -> readFull(c.deck, b, k, myEpoch) }
-                if (epoch != myEpoch || !playing) continue
+                val n = have + c.render(bufA, have, BLOCK - have) { b, k -> readFull(c.deck, b, k, myEpoch) }
+                if (epoch != myEpoch) continue
+                if (!playing) { held = true; heldFrames = n; heldStart = startAt; heldEpoch = myEpoch; continue }
                 val p = active
                 if (p != null && phase == TransitionStatus.Phase.RUNNING) {
                     val from = startAt.coerceIn(0, BLOCK)
                     syncIncoming(p)
                     bufB.fill(0f)
-                    o.render(bufB, from, BLOCK - from) { b, k -> readFull(o.deck, b, k, myEpoch) }
+                    o.render(bufB, from, BLOCK - from) { b, k -> readFull(o.deck, b, k, myEpoch, stopOnPause = false) }
                     // frames before the start belong to the outgoing deck only
                     applyLanes(p, DeckRole.OUT, c, bufA, 0, BLOCK, -from.toLong())
                     applyLanes(p, DeckRole.IN, o, bufB, from, BLOCK - from, -from.toLong())
@@ -388,71 +428,80 @@ class AudioEngine(
      * block where the incoming deck starts (0 when it starts with the block).
      */
     private fun maybeStartTransition(myEpoch: Int): Int {
-        if (phase == TransitionStatus.Phase.RUNNING) return 0
-        val c = current
-        val o = other
-        val nxt = next ?: return 0
-        if (o.source?.id != nxt.id || o.deck.error != null) return 0
-        val p = plan
-        if (p != null) {
-            if (!primed) primed = o.prime(p.inCueSec) { b, k -> readAvailable(o.deck, b, k) }
-            val framesToStart = ((p.outStartSec - c.outputSourceSec) / c.rate * SAMPLE_RATE).toLong()
-            if (framesToStart >= BLOCK) return 0
-            if (!primed || framesToStart < 0) {
-                // the next track is not ready yet (or the plan came too late): one bar later, if the outgoing track lasts
-                val later = p.copy(outStartSec = p.outStartSec + 4 * p.outBeatSec)
-                val dur = c.deck.durationSec
-                synchronized(lock) { if (epoch == myEpoch) plan = if (dur == null || later.outStartSec + later.lengthBeats * later.outBeatSec < dur) later else null }
-                if (plan == null) phase = TransitionStatus.Phase.NONE
-                publishTransition()
-                return 0
+        if (phase == TransitionStatus.Phase.RUNNING || next == null) return 0
+        var started: AudioSource? = null
+        var offset = 0
+        // checked and started under the lock: ctl clears [next] under it before touching the idle deck
+        synchronized(lock) {
+            if (epoch != myEpoch || phase == TransitionStatus.Phase.RUNNING) return 0
+            val c = current
+            val o = other
+            val nxt = next ?: return 0
+            if (o.source?.id != nxt.id || o.deck.error != null) return 0
+            // without decoded audio the incoming read would stall the whole mixer
+            val ready = o.deck.available() >= BLOCK || o.deck.ended
+            val p = plan
+            if (p != null) {
+                if (!primed) primed = if (o.mode == DeckChain.Mode.STRETCH) o.prime(p.inCueSec) { b, k -> readAvailable(o.deck, b, k) } else ready
+                val framesToStart = ((p.outStartSec - c.outputSourceSec) / c.rate * SAMPLE_RATE).toLong()
+                if (framesToStart >= BLOCK) return 0
+                if (!primed || framesToStart < 0) {
+                    // the next track is not ready yet (or the plan came too late): one bar later, if the outgoing track lasts
+                    val later = p.copy(outStartSec = p.outStartSec + 4 * p.outBeatSec)
+                    val dur = c.deck.durationSec
+                    plan = if (dur == null || later.outStartSec + later.lengthBeats * later.outBeatSec < dur) later else null
+                    if (plan == null) phase = TransitionStatus.Phase.NONE
+                } else {
+                    begin(p, if (p.sync && canSync) syncRate(p) else 1.0)
+                    started = o.source
+                    offset = framesToStart.coerceAtLeast(0).toInt()
+                }
+            } else {
+                // plain crossfade over the last crossfadeSec seconds (or from the analysed mix-out point)
+                val xf = crossfadeSec
+                if (xf <= 0 || !ready) return 0
+                val dur = c.deck.durationSec ?: return 0
+                val pos = c.outputSourceSec
+                val start = (mixOutSec ?: (dur - xf)).coerceAtMost(dur - 1.0)
+                if (pos < start) return 0
+                val len = (dur - pos).coerceIn(1.0, maxOf(xf.toDouble(), 1.0))
+                begin(
+                    TransitionPlan(
+                        nxt.id, pos, 1.0, o.outputSourceSec, 1.0, len,
+                        listOf(
+                            Lane(DeckRole.OUT, FxParam.VOLUME, listOf(LanePoint(0.0, 1.0), LanePoint(len, 0.0, Curve.EASE_IN))),
+                            Lane(DeckRole.IN, FxParam.VOLUME, listOf(LanePoint(0.0, 0.0), LanePoint(len, 1.0, Curve.EASE_OUT))),
+                        ),
+                        sync = false, releaseBeats = null, style = "crossfade",
+                    ),
+                    1.0,
+                )
+                started = o.source
             }
-            begin(p, if (p.sync && canSync) syncRate(p) else 1.0)
-            return framesToStart.coerceAtLeast(0).toInt()
         }
-        // plain crossfade over the last crossfadeSec seconds (or from the analysed mix-out point)
-        val xf = crossfadeSec
-        if (xf <= 0) return 0
-        val dur = c.deck.durationSec ?: return 0
-        val pos = c.outputSourceSec
-        val start = (mixOutSec ?: (dur - xf)).coerceAtMost(dur - 1.0)
-        if (pos < start) return 0
-        val len = (dur - pos).coerceIn(1.0, maxOf(xf.toDouble(), 1.0))
-        begin(
-            TransitionPlan(
-                nxt.id, pos, 1.0, o.outputSourceSec, 1.0, len,
-                listOf(
-                    Lane(DeckRole.OUT, FxParam.VOLUME, listOf(LanePoint(0.0, 1.0), LanePoint(len, 0.0, Curve.EASE_IN))),
-                    Lane(DeckRole.IN, FxParam.VOLUME, listOf(LanePoint(0.0, 0.0), LanePoint(len, 1.0, Curve.EASE_OUT))),
-                ),
-                sync = false, releaseBeats = null, style = "crossfade",
-            ),
-            1.0,
-        )
-        return 0
+        started?.let { listener.onStarted(it, automatic = true) }
+        publishTransition()
+        return offset
     }
 
+    /** Starts [p] on the idle deck. Holds [lock]. */
     private fun begin(p: TransitionPlan, inRate: Double) {
         val c = current
         val o = other
-        synchronized(lock) {
-            active = p
-            plan = null
-            phase = TransitionStatus.Phase.RUNNING
-            tFrames = 0
-            beatFrames = p.outBeatSec / c.rate * SAMPLE_RATE
-            syncBaseRate = inRate
-            // the outgoing tempo holds still during the transition (stops a running release)
-            c.setRate(c.rate)
-        }
+        active = p
+        plan = null
+        phase = TransitionStatus.Phase.RUNNING
+        tFrames = 0
+        beatFrames = p.outBeatSec / c.rate * SAMPLE_RATE
+        syncBaseRate = inRate
+        // the outgoing tempo holds still during the transition (stops a running release)
+        c.setRate(c.rate)
         if (o.mode == DeckChain.Mode.STRETCH) o.setRate(inRate)
         val echo = (p.echoBeats * beatFrames).toInt().coerceIn(1, Echo.MAX_FRAMES - 1)
         c.fx.echo.delayFrames = echo
         o.fx.echo.delayFrames = echo
         // the incoming deck's effects start where its lanes start, not at neutral
         p.lanes.filter { it.deck == DeckRole.IN }.forEach { o.fx.set(it.param, it.valueAt(0.0)) }
-        listener.onStarted(o.source!!, automatic = true)
-        publishTransition()
     }
 
     /**
@@ -463,11 +512,15 @@ class AudioEngine(
         val src = c.source ?: return
         val err = c.deck.error
         val o = other
-        val nxt = next
-        var switched = false
+        val oi = cur
+        var nxt: AudioSource? = null
+        var oldLoad = 0
         synchronized(lock) {
             if (epoch != myEpoch) return
-            if (err == null && nxt != null && o.source?.id == nxt.id && o.deck.error == null) {
+            val nx = next
+            if (err == null && nx != null && o.source?.id == nx.id && o.deck.error == null) {
+                nxt = nx
+                oldLoad = deckLoads[oi]
                 cur = 1 - cur
                 next = null
                 plan = null
@@ -476,15 +529,15 @@ class AudioEngine(
                 phase = if (o.mode == DeckChain.Mode.STRETCH && o.rate != 1.0) {
                     o.glideTo(1.0, 8 * SAMPLE_RATE); TransitionStatus.Phase.RELEASING
                 } else TransitionStatus.Phase.NONE
-                switched = true
             } else {
                 playing = false
             }
         }
-        if (switched) {
-            ctl.execute { c.deck.stop(); c.resetTempo() }
+        val started = nxt
+        if (started != null) {
+            ctl.execute { stopIfUnchanged(oi, oldLoad) }
             spectrum.reset()
-            listener.onStarted(nxt!!, automatic = true)
+            listener.onStarted(started, automatic = true)
             publishTransition()
             val rest = o.render(bufA, n, BLOCK - n) { b, k -> readFull(o.deck, b, k, myEpoch) }
             if (n + rest < BLOCK) bufA.fill(0f, (n + rest) * 2, BLOCK * 2)
@@ -530,8 +583,12 @@ class AudioEngine(
         running = false
         mixer.interrupt()
         ctl.shutdownNow()
+        // the mixer or ctl may be inside the native stretcher: free it only once both are gone
+        mixer.join(1000)
         ctl.awaitTermination(1, TimeUnit.SECONDS)
-        chains.forEach { it.deck.close(); it.close() }
+        val idle = !mixer.isAlive && ctl.isTerminated
+        if (!idle) java.util.logging.Logger.getLogger("AudioEngine").warning("engine threads still running, native stretchers not freed")
+        chains.forEach { it.deck.close(); if (idle) it.close() }
         sink.close()
     }
 
