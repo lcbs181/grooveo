@@ -83,7 +83,7 @@ desktop/src/main/kotlin/
 
 The extraction clients (SoundCloud, YouTube Music via NewPipeExtractor) and
 their HTTP client, the search, feed, lyrics, backup models, the convolution
-reverb and the parametric equalizer are **not copied**. `desktop/build.gradle.kts` (`sharedFiles`) compiles those files
+reverb, the parametric equalizer, the phone assistant models and the reply Markdown renderer are **not copied**. `desktop/build.gradle.kts` (`sharedFiles`) compiles those files
 straight from `app/src/main/java`. The few Android types they reference
 (`android.util.Log`, Room DAOs, the DataStore-backed `SettingsRepository`)
 have desktop implementations with the same fully-qualified names. A fix in
@@ -234,6 +234,26 @@ settings and, if allowed, a taste summary.
   rückgängig"). Playback and the queue are not part of it.
 - **Untrusted text:** titles, descriptions and lyrics in tool results are marked
   as data in the system prompt, not as instructions.
+
+### From the phone ("KI" tab)
+
+The Android app has a "KI" tab that uses this assistant over the phone sync
+connection (`ai/PhoneBridge.kt`, models in `data/sync/RemoteAi.kt`). The PC
+runs the model and the tools; the phone only shows the conversation and sends
+the user's messages and answers. The panel on the PC shows the same
+conversation, and the same questions apply (delete, FX, loudness); they can be
+answered on either device.
+
+- `POST /sync/ai`: `send`, `answer`, `stop`, `new`, `undo`, and `state`, which
+  the PC holds open for up to 20 s until the conversation changes (long poll).
+  Every request is answered with the current conversation and a revision.
+- `POST /sync/mcp`: MCP JSON-RPC (`initialize`, `tools/list`, `tools/call`)
+  with the same tools as the MCP server. The phone uses it for the small player
+  bar (what plays on the PC, play/pause, skip). Tools that delete data are not
+  offered there; they only run through the assistant, which asks first.
+- Both paths use the sync protocol's signed, encrypted requests and need the
+  sync server switched on. Settings → KI-Assistent → "KI vom Handy" switches
+  them off.
 
 ## Data
 

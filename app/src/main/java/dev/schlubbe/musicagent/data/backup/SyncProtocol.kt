@@ -35,6 +35,7 @@ import javax.crypto.spec.SecretKeySpec
  * - Sync: the phone POSTs its library to [SYNC_PATH], AES-GCM encrypted and authenticated with
  *   [requestMac] (method, path, time, nonce and body hash). The PC checks the time window and that
  *   the nonce is new, merges, and answers encrypted with [responseMac] bound to the same nonce.
+ * - The assistant ([AI_PATH]) and MCP tool calls ([MCP_PATH]) use the same sealed requests.
  *
  * [VERSION] is sent with every request and reply; when phone and PC differ, both have to update.
  */
@@ -46,6 +47,12 @@ object SyncProtocol {
 
     const val SYNC_PATH = "/sync"
     const val HELLO_PATH = "/sync/hello"
+    /** The phone's "KI" tab: the PC's assistant ([dev.schlubbe.musicagent.data.sync.RemoteAi]). */
+    const val AI_PATH = "/sync/ai"
+    /** MCP tool calls (JSON-RPC: tools/list, tools/call) from the phone to the PC. */
+    const val MCP_PATH = "/sync/mcp"
+    /** Largest request body for [AI_PATH] and [MCP_PATH]. */
+    const val MAX_SMALL_SEALED = 256 * 1024
     const val VERSION_HEADER = "X-Grooveo-Sync"
     const val TIME_HEADER = "X-Grooveo-Time"
     const val NONCE_HEADER = "X-Grooveo-Nonce"
@@ -293,12 +300,19 @@ object SyncTransport {
      * Sends the library [json] to [peer] and returns its answer. A 200 whose signature does not
      * verify throws [SecurityException]; network errors throw [IOException].
      */
-    fun sync(peer: Peer, keys: SyncProtocol.Keys, json: ByteArray, deadline: Long): Answer {
+    fun sync(peer: Peer, keys: SyncProtocol.Keys, json: ByteArray, deadline: Long): Answer =
+        call(peer, keys, SyncProtocol.SYNC_PATH, json, deadline)
+
+    /**
+     * One sealed, signed POST of [json] to [path] on [peer] ([SyncProtocol.SYNC_PATH],
+     * [SyncProtocol.AI_PATH], [SyncProtocol.MCP_PATH]); same errors as [sync].
+     */
+    fun call(peer: Peer, keys: SyncProtocol.Keys, path: String, json: ByteArray, deadline: Long): Answer {
         val nonce = SyncProtocol.newNonce()
         val time = System.currentTimeMillis() + peer.clockOffset
         val body = SyncProtocol.seal(keys, json, SyncProtocol.requestAad(nonce))
-        val mac = SyncProtocol.requestMac(keys, "POST", SyncProtocol.SYNC_PATH, time, nonce, body)
-        val res = exchange(peer.host, peer.port, "POST", SyncProtocol.SYNC_PATH, mapOf(
+        val mac = SyncProtocol.requestMac(keys, "POST", path, time, nonce, body)
+        val res = exchange(peer.host, peer.port, "POST", path, mapOf(
             SyncProtocol.TIME_HEADER to time.toString(),
             SyncProtocol.NONCE_HEADER to nonce,
             SyncProtocol.AUTH_HEADER to mac,

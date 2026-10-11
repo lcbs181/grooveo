@@ -194,6 +194,8 @@ val sharedFiles = listOf(
     "data/backup/BackupModels.kt",
     "data/backup/SyncMerge.kt",
     "data/backup/SyncProtocol.kt",
+    "data/sync/RemoteAi.kt",
+    "ui/util/Markdown.kt",
     "playback/reverb/Fft.kt",
     "playback/reverb/PartitionedConvolver.kt",
     "playback/eq/ParametricEq.kt",

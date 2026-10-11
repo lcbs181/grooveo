@@ -462,7 +462,7 @@ class AiAssistantTest {
     }
 
     @Test fun `replies render simple Markdown`() {
-        val s = dev.schlubbe.musicagent.desktop.ui.screens.markdown("**Fett** und *schräg* mit `code`\n- eins\n2. zwei\nsnake_case_name")
+        val s = dev.schlubbe.musicagent.ui.util.markdown("**Fett** und *schräg* mit `code`\n- eins\n2. zwei\nsnake_case_name")
         assertEquals("Fett und schräg mit code\n• eins\n2. zwei\nsnake_case_name", s.text)
         assertTrue(s.spanStyles.any { it.item.fontWeight == androidx.compose.ui.text.font.FontWeight.SemiBold && s.text.substring(it.start, it.end) == "Fett" })
         assertTrue(s.spanStyles.any { it.item.fontStyle == androidx.compose.ui.text.font.FontStyle.Italic && s.text.substring(it.start, it.end) == "schräg" })

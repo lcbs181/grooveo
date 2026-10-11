@@ -230,6 +230,7 @@ fun SettingsScreen() {
                         models.forEach { m -> Pill(m.substringAfterLast('/'), s.aiModel == m) { model = m; set { it.copy(aiModel = m) } } }
                     }
                 }
+                SettingsSwitchRow("KI vom Handy", "Der KI-Tab der gekoppelten Handy-App nutzt diesen Assistenten und steuert Grooveo am PC (braucht „Mit Smartphone synchronisieren“)", s.aiFromPhone) { v -> set { it.copy(aiFromPhone = v) } }
                 SettingsSwitchRow("Geschmack mitgeben", "Likes, Playlists und Verlauf als kurze Zusammenfassung", s.aiShareTaste) { v -> set { it.copy(aiShareTaste = v) } }
                 SettingsSwitchRow("Vor dem Löschen fragen", "Playlists, Downloads, Verlauf, Titel aus Playlists", s.aiAskDelete) { v -> set { it.copy(aiAskDelete = v) } }
                 SettingsSwitchRow("Vor FX-Ketten fragen", "Die KI darf Ketten aus Filtern, EQ, Echo und Raum bauen, schaltet sie aber erst nach deinem OK ein", s.aiAskFx) { v -> set { it.copy(aiAskFx = v) } }

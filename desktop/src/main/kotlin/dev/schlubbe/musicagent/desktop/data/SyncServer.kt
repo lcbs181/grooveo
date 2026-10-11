@@ -14,6 +14,16 @@ import java.net.NetworkInterface
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
+/**
+ * What the phone may do besides syncing: talk to the PC's assistant ([SyncProtocol.AI_PATH])
+ * and call its tools ([SyncProtocol.MCP_PATH]). Both take and return JSON; they may block
+ * (the assistant holds a request open until its conversation changes).
+ */
+interface PhoneRemote {
+    fun ai(json: String): String
+    fun mcp(json: String): String
+}
+
 /** Persistent sync state: the pairing key stays the same across restarts, [enabled] is what the user switched on. */
 data class SyncState(val key: String = "", val enabled: Boolean = false)
 
@@ -24,7 +34,8 @@ data class SyncState(val key: String = "", val enabled: Boolean = false)
  * merges it with its own ([SyncMerge]), applies the result and answers with the same merged
  * library, so both end up identical. A UDP responder (and `/sync/hello`) lets the phone check that
  * this PC holds the key before it sends anything. Only peers in the local network are answered;
- * bad signatures are rate limited per address with a growing lock-out.
+ * bad signatures are rate limited per address with a growing lock-out. With a [remote], the
+ * phone's "KI" tab can use the PC's assistant and tools over the same keys.
  */
 class SyncServer(private val backup: BackupManager, private val stateFile: File, private val port: Int = SyncProtocol.PORT, private val discoveryPort: Int = SyncProtocol.DISCOVERY_PORT) {
     private var http: HttpServer? = null
@@ -43,6 +54,8 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     @Volatile var lastSyncAt: Long? = null
         private set
     private var boundPort = port
+    /** Assistant and tools for the phone; null answers those paths with 404. */
+    @Volatile var remote: PhoneRemote? = null
 
     val running: Boolean get() = http != null
     /** The user wants the server on (it starts again with the app). */
@@ -67,7 +80,8 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         keys()
         val s = HttpServer.create(InetSocketAddress(port), 0)
         s.createContext(SyncProtocol.SYNC_PATH) { ex -> runCatching { handle(ex) }.onFailure { runCatching { reply(ex, 500, "error") } } }
-        s.executor = Executors.newSingleThreadExecutor { r -> Thread(r, "sync-server").apply { isDaemon = true } }
+        // a few threads: the assistant's long polls must not hold up a sync
+        s.executor = Executors.newFixedThreadPool(THREADS) { r -> Thread(r, "sync-server").apply { isDaemon = true } }
         s.start()
         http = s
         boundPort = s.address.port
@@ -118,18 +132,36 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
             ?: return reply(ex, 400, "bad nonce")
         when (ex.requestURI.path) {
             SyncProtocol.HELLO_PATH -> reply(ex, 200, SyncProtocol.discoveryReply(keys(), nonce, boundPort))
-            SyncProtocol.SYNC_PATH -> sync(ex, ip, nonce)
+            SyncProtocol.SYNC_PATH -> sealed(ex, ip, nonce, SyncProtocol.SYNC_PATH, SyncProtocol.MAX_SEALED) { json ->
+                val theirs = runCatching { gson.fromJson(String(json, Charsets.UTF_8), BackupPayload::class.java) }.getOrNull() ?: return@sealed null
+                val merged = synchronized(this) {
+                    SyncMerge.merge(backup.payload(), theirs).also { backup.applySynced(it); lastSyncAt = System.currentTimeMillis() }
+                }
+                gson.toJson(merged).toByteArray(Charsets.UTF_8)
+            }
+            SyncProtocol.AI_PATH, SyncProtocol.MCP_PATH -> {
+                val r = remote ?: return reply(ex, 404, "not found")
+                val path = ex.requestURI.path
+                sealed(ex, ip, nonce, path, SyncProtocol.MAX_SMALL_SEALED) { json ->
+                    val text = String(json, Charsets.UTF_8)
+                    (if (path == SyncProtocol.AI_PATH) r.ai(text) else r.mcp(text)).toByteArray(Charsets.UTF_8)
+                }
+            }
             else -> reply(ex, 404, "not found")
         }
     }
 
-    private fun sync(ex: HttpExchange, ip: String, nonce: String) {
+    /**
+     * A signed, encrypted POST to [path]: checks key, time window and nonce, opens the body,
+     * lets [handle] answer it (null = the content is invalid) and seals the answer.
+     */
+    private inline fun sealed(ex: HttpExchange, ip: String, nonce: String, path: String, maxBody: Int, handle: (ByteArray) -> ByteArray?) {
         if (ex.requestMethod != "POST") return reply(ex, 405, "POST only")
         val time = ex.requestHeaders.getFirst(SyncProtocol.TIME_HEADER)?.toLongOrNull() ?: return reply(ex, 400, "bad time")
-        val body = ex.requestBody.readNBytes(SyncProtocol.MAX_SEALED + 1)
-        if (body.size > SyncProtocol.MAX_SEALED) return reply(ex, 413, "too large")
+        val body = ex.requestBody.readNBytes(maxBody + 1)
+        if (body.size > maxBody) return reply(ex, 413, "too large")
         val keys = keys()
-        val expected = SyncProtocol.requestMac(keys, ex.requestMethod, SyncProtocol.SYNC_PATH, time, nonce, body)
+        val expected = SyncProtocol.requestMac(keys, ex.requestMethod, path, time, nonce, body)
         if (!SyncProtocol.macEquals(ex.requestHeaders.getFirst(SyncProtocol.AUTH_HEADER), expected)) {
             strike(ip)
             return reply(ex, 401, "wrong key")
@@ -138,12 +170,8 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         synchronized(strikes) { strikes.remove(ip) }
         val json = runCatching { SyncProtocol.open(keys, body, SyncProtocol.requestAad(nonce)) }.getOrNull()
             ?: return reply(ex, 400, "bad payload")
-        val theirs = runCatching { gson.fromJson(String(json, Charsets.UTF_8), BackupPayload::class.java) }.getOrNull()
-            ?: return reply(ex, 400, "bad payload")
-        val merged = synchronized(this) {
-            SyncMerge.merge(backup.payload(), theirs).also { backup.applySynced(it); lastSyncAt = System.currentTimeMillis() }
-        }
-        val out = SyncProtocol.seal(keys, gson.toJson(merged).toByteArray(Charsets.UTF_8), SyncProtocol.responseAad(nonce))
+        val answer = handle(json) ?: return reply(ex, 400, "bad payload")
+        val out = SyncProtocol.seal(keys, answer, SyncProtocol.responseAad(nonce))
         ex.responseHeaders.add(SyncProtocol.AUTH_HEADER, SyncProtocol.responseMac(keys, 200, nonce, out))
         send(ex, 200, out, "application/octet-stream")
     }
@@ -170,6 +198,7 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     companion object {
         const val MAX_FAILURES = 5
         const val LOCK_MS = 30_000L
+        const val THREADS = 4
 
         /** First private IPv4 address of this machine (the one the phone can reach). */
         fun localAddress(): String? = runCatching {

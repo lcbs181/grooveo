@@ -67,6 +67,8 @@ data class Settings(
     val aiAskOther: Boolean = false,
     /** Give the assistant a summary of likes, playlists and history. */
     val aiShareTaste: Boolean = true,
+    /** The paired phone's "KI" tab may use this assistant and its tools. */
+    val aiFromPhone: Boolean = true,
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized(): Settings {

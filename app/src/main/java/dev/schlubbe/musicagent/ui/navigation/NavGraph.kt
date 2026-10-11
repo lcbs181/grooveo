@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +50,7 @@ import androidx.navigation.navArgument
 import dev.schlubbe.musicagent.ui.account.AccountScreen
 import dev.schlubbe.musicagent.ui.artist.ArtistFollowersScreen
 import dev.schlubbe.musicagent.ui.artist.ArtistScreen
+import dev.schlubbe.musicagent.ui.assistant.AssistantScreen
 import dev.schlubbe.musicagent.ui.components.CanopyOverlayHost
 import dev.schlubbe.musicagent.ui.components.CanopyOverlayState
 import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
@@ -87,6 +91,7 @@ object Routes {
     const val LIBRARY = "library"
     const val ACCOUNT = "account"
     const val DOWNLOADS = "downloads"
+    const val ASSISTANT = "assistant"
     const val CONNECT = "connect_pc"
     const val EQUALIZER = "equalizer"
     const val TASTE_PICKER = "taste_picker"
@@ -112,6 +117,7 @@ private val BOTTOM_NAV_ITEMS = listOf(
     BottomNavItem(Routes.SEARCH, "Suche", "magnifying-glass"),
     BottomNavItem(Routes.LIBRARY, "Bibliothek", "stack"),
     BottomNavItem(Routes.DOWNLOADS, "Downloads", "download-simple"),
+    BottomNavItem(Routes.ASSISTANT, "KI", "sparkle"),
 )
 
 // The bottom mini-player + nav bar never appears on the full Player screen itself --
@@ -128,6 +134,7 @@ private val BOTTOM_BAR_HIDDEN_ROUTES = setOf(
     Routes.TASTE_PICKER,
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MusicAgentNavGraph(
     navController: NavHostController = rememberNavController(),
@@ -137,7 +144,9 @@ fun MusicAgentNavGraph(
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = currentRoute !in BOTTOM_BAR_HIDDEN_ROUTES
+    // while typing to the assistant, the keyboard takes the bar's place
+    val typingToAssistant = currentRoute == Routes.ASSISTANT && WindowInsets.isImeVisible
+    val showBottomBar = currentRoute !in BOTTOM_BAR_HIDDEN_ROUTES && !typingToAssistant
     val haptic = LocalHapticFeedback.current
     val dimens = rememberResponsiveDimens()
 
@@ -327,6 +336,9 @@ fun MusicAgentNavGraph(
             }
             composable(Routes.DOWNLOADS) {
                 DownloadsScreen(onDownloadPlayed = { navController.navigate(Routes.PLAYER) })
+            }
+            composable(Routes.ASSISTANT) {
+                AssistantScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) })
             }
             composable(Routes.CONNECT) {
                 ConnectScreen(onNavigateBack = { navController.popBackStack() })

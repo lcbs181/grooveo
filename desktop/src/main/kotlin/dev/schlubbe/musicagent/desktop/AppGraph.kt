@@ -111,6 +111,11 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     private val aiLazy = lazy { dev.schlubbe.musicagent.desktop.ai.AiAssistant(this, File(dataDir, "ai-anthropic.key")) }
     val ai by aiLazy
 
+    init {
+        // the phone's "KI" tab: the assistant above and the tools, over the sync connection
+        sync.remote = dev.schlubbe.musicagent.desktop.ai.PhoneBridge(this)
+    }
+
     fun downloadDir(): File = settings.current.downloadDir.takeIf { it.isNotBlank() }?.let(::File) ?: File(dataDir, "downloads")
 
     fun close() {
