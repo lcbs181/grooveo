@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import dev.schlubbe.musicagent.desktop.data.TrackAnalysis
 
 enum class RepeatMode(val label: String) { OFF("Wiederholen: aus"), ALL("Wiederholen: alle"), ONE("Wiederholen: ein Titel") }
 
@@ -57,6 +59,8 @@ class PlayerController(
     private val store: LibraryStore,
     private val settings: SettingsRepository,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    /** "Übergänge analysieren" for one track, storing the result (AppGraph.analyze in the app). */
+    private val analyze: suspend (TrackResultDto) -> TrackAnalysis? = { null },
 ) {
     private val _state = MutableStateFlow(QueueState())
     val state: StateFlow<QueueState> = _state.asStateFlow()
@@ -71,6 +75,12 @@ class PlayerController(
     private var consecutiveFailures = 0
     /** Stream retries for the current track (reset when a track starts), see [onPlaybackError]. */
     private var streamRetries = 0
+    /** Transition wishes for the transition into a track (by track key), e.g. from the AI. */
+    private val recipes = ConcurrentHashMap<String, TransitionRecipe>()
+    private val _planned = MutableStateFlow<PlannedTransition?>(null)
+    /** The transition planned into the next track, if any. */
+    val planned: StateFlow<PlannedTransition?> = _planned.asStateFlow()
+    val transition get() = engine.transition
 
     init {
         engine.listener = object : EngineListener {
@@ -196,6 +206,56 @@ class PlayerController(
 
     fun seek(sec: Double) = engine.seek(sec)
 
+    /**
+     * Sets how to mix into the next track ([recipe] null = back to the default) and
+     * plans it right away. Returns the plan, or null when the next track or either
+     * analysis is missing a beat grid (then the plain crossfade applies).
+     */
+    suspend fun setTransition(recipe: TransitionRecipe?): PlannedTransition? {
+        val s = _state.value
+        val n = nextIndex(s, userAction = false) ?: error("Nothing queued after the current track")
+        val t = s.queue[n]
+        if (recipe == null) recipes.remove(t.key) else recipes[t.key] = recipe
+        preloadJob?.cancel()
+        val src = resolveStream(t)
+        val planned = planInto(t, force = recipe != null)
+        _planned.value = planned
+        engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
+        return planned
+    }
+
+    /** Stops an armed transition: the next track follows with the plain crossfade or gaplessly. */
+    fun cancelTransition() {
+        _state.value.let { s -> nextIndex(s, false)?.let { recipes.remove(s.queue[it].key) } }
+        _planned.value = null
+        engine.cancelTransition()
+    }
+
+    /** Live effect on the playing track (DJ EQ, filters, fader, echo). */
+    fun setFx(param: dev.schlubbe.musicagent.desktop.audio.FxParam, value: Double) = engine.setFx(param, value)
+    fun fxValue(param: dev.schlubbe.musicagent.desktop.audio.FxParam) = engine.fxValue(param)
+    val canSync: Boolean get() = engine.canSync
+
+    private fun mixInOf(t: TrackResultDto) =
+        if (settings.current.crossfadeSeconds > 0) store.current.analysis[t.key]?.mixInMs?.div(1000.0) ?: 0.0 else 0.0
+
+    /**
+     * Plans the transition from the current track into [t]: with a recipe set for [t],
+     * or with the "DJ-Übergänge" setting. Missing analyses are made first.
+     */
+    private suspend fun planInto(t: TrackResultDto, force: Boolean = false): PlannedTransition? {
+        val cur = _state.value.current ?: return null
+        val s = settings.current
+        val recipe = recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else return null
+        suspend fun analysisOf(x: TrackResultDto) = store.current.analysis[x.key]?.takeIf { it.upToDate } ?: analyze(x)
+        val a = analysisOf(cur) ?: return null
+        val b = analysisOf(t) ?: return null
+        val e = engine.state.value
+        return runCatching {
+            TransitionPlanner.plan(a, b, t.key, recipe, e.positionSec, e.durationSec, engine.canSync)
+        }.onFailure { if (force) throw it }.getOrNull()
+    }
+
     fun setVolume(v: Float) {
         engine.volume = v.coerceIn(0f, 1f)
         settings.update { it.copy(volume = engine.volume) }
@@ -304,6 +364,7 @@ class PlayerController(
             if (idx >= 0) _state.update { it.copy(index = idx, playingLocalCopy = "://" !in source.url) }
         }
         val t = _state.value.current ?: return
+        if (automatic) { recipes.remove(t.key); _planned.value = null }
         store.recordPlay(t)
         engine.mixOutSec = store.current.analysis[t.key]?.mixOutMs?.div(1000.0)
         schedulePreload()
@@ -319,8 +380,9 @@ class PlayerController(
         preloadJob = scope.launch {
             delay(1500) // let the current track settle; quick skips don't resolve needlessly
             val src = runCatching { resolveStream(t) }.getOrNull() ?: return@launch
-            val mixIn = if (settings.current.crossfadeSeconds > 0) store.current.analysis[t.key]?.mixInMs?.div(1000.0) ?: 0.0 else 0.0
-            engine.preloadNext(src.copy(startSec = mixIn))
+            val planned = runCatching { planInto(t) }.getOrNull()
+            _planned.value = planned
+            engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
         }
     }
 

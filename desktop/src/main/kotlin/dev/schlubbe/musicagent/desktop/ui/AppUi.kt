@@ -111,7 +111,7 @@ class AppUi(val graph: AppGraph) {
             var last: TrackAnalysis? = null
             tracks.forEach { t -> graph.analyze(t)?.let { last = it; ok++ } }
             toast(when {
-                tracks.size == 1 && ok == 1 -> last?.grid?.let { "Übergänge analysiert · ${it.bpm.roundToInt()} BPM" } ?: "Übergänge analysiert"
+                tracks.size == 1 && ok == 1 -> last?.grid?.let { "Übergänge analysiert · ${it.bpm.roundToInt()} BPM" + (last?.key?.let { k -> " · ${k.name} (${k.camelot})" } ?: "") } ?: "Übergänge analysiert"
                 ok == 0 -> "Analyse nicht möglich (Titel zu kurz oder nicht ladbar)"
                 else -> "$ok von ${tracks.size} Titeln analysiert"
             })

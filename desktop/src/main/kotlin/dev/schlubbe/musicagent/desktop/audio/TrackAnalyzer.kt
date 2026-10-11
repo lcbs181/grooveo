@@ -29,7 +29,7 @@ object TrackAnalyzer {
     /** Bass envelope resolution for placing the grid on the kick. */
     private const val BASS_FRAME_MS = 5
 
-    data class Result(val mix: MixPoints?, val grid: BeatGrid?)
+    data class Result(val mix: MixPoints?, val grid: BeatGrid?, val structure: TrackStructure? = null, val key: MusicalKey? = null)
 
     /**
      * Decodes the whole track once (mono, 22.05 kHz) and derives the mix points from
@@ -75,16 +75,28 @@ object TrackAnalyzer {
         var lp1 = 0.0; var lp2 = 0.0
         var bAcc = 0.0
         var bCnt = 0
+        // hi-hats and cymbals: what is left above a 3 kHz one-pole low-pass
+        val high = ArrayList<Float>()
+        val hpA = 1.0 - exp(-2.0 * PI * 3000.0 / RATE)
+        var lpHigh = 0.0
+        var hAcc = 0.0
+        val keys = KeyDetector(RATE)
         val tracker = if (BeatTracker.available) runCatching { BeatTracker(RATE) }.getOrNull() else null
         try {
             feed { chunk, n ->
                 tracker?.process(chunk, n)
+                keys.process(chunk, n)
                 for (i in 0 until n) {
                     val v = chunk[i].toDouble()
                     acc += v * v
                     total++
                     cnt++
-                    if (total >= (env.size + 1) * frameSamples) { env += sqrt(acc / cnt).toFloat(); acc = 0.0; cnt = 0 }
+                    lpHigh += hpA * (v - lpHigh)
+                    hAcc += (v - lpHigh) * (v - lpHigh)
+                    if (total >= (env.size + 1) * frameSamples) {
+                        env += sqrt(acc / cnt).toFloat(); high += sqrt(hAcc / cnt).toFloat()
+                        acc = 0.0; hAcc = 0.0; cnt = 0
+                    }
                     // two one-pole low-passes at 120 Hz: kick and bass only
                     lp1 += lpA * (v - lp1); lp2 += lpA * (lp1 - lp2)
                     bAcc += lp2 * lp2
@@ -93,11 +105,16 @@ object TrackAnalyzer {
                 }
             }
             val mix = mixPointsFromEnvelope(env)
-            val grid = tracker?.let { tr ->
-                val onset = FloatArray(bass.size) { k -> if (k == 0) 0f else (bass[k] - bass[k - 1]).coerceAtLeast(0f) }
-                BeatTracker.fitGrid(tr.beatsMs(), tr.confidence(), onset, BASS_FRAME_MS.toDouble())
+            val onset = FloatArray(bass.size) { k -> if (k == 0) 0f else (bass[k] - bass[k - 1]).coerceAtLeast(0f) }
+            val grid = tracker?.let { tr -> BeatTracker.fitGrid(tr.beatsMs(), tr.confidence(), onset, BASS_FRAME_MS.toDouble()) }
+            val structure = grid?.let {
+                val envs = StructureAnalyzer.Envelopes(
+                    env.toFloatArray(), high.toFloatArray(), FRAME_MS.toDouble(),
+                    bass.toFloatArray(), onset, BASS_FRAME_MS.toDouble(),
+                )
+                runCatching { StructureAnalyzer.analyze(it, total * 1000.0 / RATE, envs) }.getOrNull()
             }
-            return Result(mix, grid)
+            return Result(mix, grid, structure, keys.result())
         } finally {
             tracker?.close()
         }

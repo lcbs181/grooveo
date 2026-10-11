@@ -29,9 +29,10 @@ desktop.
 
 ## Requirements
 
-You need JDK 21, CMake and a C compiler (gcc or clang; MSVC on Windows) to
-build. The C compiler builds the aubio beat tracker; Gradle downloads aubio's
-release tarball and checks its SHA-256. The packaged app bundles its own runtime. The
+You need JDK 21, CMake and a C/C++ compiler (gcc or clang; MSVC on Windows)
+to build. The compiler builds `libgrooveo_native` (aubio beat tracking and
+Signalsmith Stretch time-stretching); Gradle downloads their release tarballs
+and checks each SHA-256. The packaged app bundles its own runtime. The
 Android SDK is optional: without one, Gradle leaves out `:app` and builds only
 the desktop app (it compiles the shared sources straight from `app/src`).
 
@@ -54,8 +55,9 @@ does this on a GitHub Windows runner). The FFmpeg natives are picked for the
 building OS (`nativePlatform` in `desktop/build.gradle.kts`). Nothing needs to
 be installed on the system. Decoding and resampling use the bundled FFmpeg
 libraries (JavaCV). The equalizer, limiter and reverb are pure Kotlin. Beat
-tracking uses `libgrooveo_aubio`, which the `buildAubio` task compiles for the
-building OS and ships as an app resource.
+tracking and time-stretching use `libgrooveo_native` (`desktop/native/`),
+which the `buildNative` task compiles for the building OS and ships as an app
+resource. Without it the app still plays; it then has no BPM and no tempo sync.
 
 ## Architecture
 
@@ -89,10 +91,10 @@ fails.
 ### Audio engine
 
 ```
-FfmpegDeck A ─┐                               ┌─ SpectrumAnalyzer (visualizer, EQ overlay)
-              ├─ mixer ─ EqProcessor ─ 3D-Sound ─ volume ─ soft clip ─ JavaSoundSink
-FfmpegDeck B ─┘  (gapless hand-over,
-                  equal-power crossfade)
+FfmpegDeck A ─ stretch ─ DeckFx ─┐                               ┌─ SpectrumAnalyzer (visualizer, EQ overlay)
+                                 ├─ mixer ─ EqProcessor ─ 3D-Sound ─ volume ─ soft clip ─ JavaSoundSink
+FfmpegDeck B ─ stretch ─ DeckFx ─┘  (gapless hand-over, crossfade,
+                                     beat-synced DJ transitions)
 ```
 
 * **Decks** (`FfmpegDeck`): libavformat/libavcodec through JavaCV decode
@@ -164,6 +166,38 @@ FfmpegDeck B ─┘  (gapless hand-over,
   estimate. On test tracks the BPM is within 0.2 BPM of published values
   (Around the World 121.29, One More Time 122.88). The player shows the BPM,
   and the MCP tools expose it, with bar and beat positions.
+* **Structure, cues and key** (`StructureAnalyzer.kt`, `KeyDetector.kt`): every
+  bar gets loudness, bass, highs and kick strength. Section boundaries go on
+  4-bar steps where these change most, 8-bar steps preferred, at least 8 bars
+  apart. Each section is labelled intro, build, drop, breakdown, groove, main
+  or outro. The cues are mix_in, drop, breakdown, build, outro_start, mix_out
+  and last_beat. The key comes from a chromagram of tonal peaks matched to the
+  Krumhansl-Kessler profiles, and is reported with its Camelot code.
+* **DJ transitions** (`DeckChain.kt`, `DjFx.kt`, `Transition.kt`,
+  `playback/TransitionPlanner.kt`): each deck runs through a chain:
+  - a time-stretcher ([Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch),
+    MIT; the pitch is kept, with an optional transposition for harmonic
+    mixing);
+  - a DJ-mixer isolator EQ (Linkwitz-Riley 24 dB/oct at 200 Hz and 2.5 kHz;
+    the bands sum flat, and a killed band is gone);
+  - resonant high- and low-pass filters;
+  - a fader;
+  - a beat-synced echo, which keeps ringing after the deck stops.
+
+  A `TransitionPlan` automates these per deck as lanes over beats of the
+  outgoing track. Lane values change every 64 samples and are smoothed per
+  sample. The incoming deck is primed so that its cue sounds exactly on the
+  planned downbeat. A phase-locked loop then holds it on the outgoing beat;
+  tests measure 0.1 ms of beat error at a 5 % tempo change. Afterwards the
+  incoming track glides back to its own tempo. When the stretcher is no
+  longer needed, it hands over to a dry signal that is delayed by the
+  stretcher's latency, so no audio skips. `TransitionPlanner` builds plans
+  from the analyses in these styles: blend, bass_swap, filter, echo_out, cut,
+  fade, or auto. It handles half and double tempo, tempo jumps over 8 %
+  (no sync, then echo out), and harmonic transposition. Two places use it:
+  - the "DJ-Übergänge" setting, which analyses tracks automatically;
+  - the MCP tools `set_transition`, `transition_now` and `set_deck_fx`, which
+    also take custom automation lanes.
 
 Earlier prototypes used mpv over IPC (about 3 s of EQ latency, because mpv
 buffers that much audio when it writes PCM to a pipe) and then FFmpeg

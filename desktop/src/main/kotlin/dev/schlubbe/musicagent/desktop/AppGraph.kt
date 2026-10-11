@@ -64,6 +64,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
         recommend = { recent, exclude, limit -> feed.predictNext(recent, exclude, limit) },
         store = store,
         settings = settings,
+        analyze = { t -> analyze(t) },
     )
 
     init {
@@ -91,7 +92,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
             .getOrNull() ?: return null
         val r = TrackAnalyzer.analyze(src.url, src.headers) ?: return null
         if (r.mix == null && r.grid == null) return null
-        return TrackAnalysis(r.mix?.mixInMs, r.mix?.mixOutMs, grid = r.grid)
+        return TrackAnalysis(r.mix?.mixInMs, r.mix?.mixOutMs, grid = r.grid, structure = r.structure, key = r.key, version = TrackAnalysis.CURRENT_VERSION)
             .also { store.putAnalysis(t.key, it) }
     }
 

@@ -1,6 +1,8 @@
 package dev.schlubbe.musicagent.desktop.data
 
 import dev.schlubbe.musicagent.desktop.audio.BeatGrid
+import dev.schlubbe.musicagent.desktop.audio.MusicalKey
+import dev.schlubbe.musicagent.desktop.audio.TrackStructure
 
 import com.google.gson.reflect.TypeToken
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
@@ -78,7 +80,19 @@ data class TrackAnalysis(
     val mixOutMs: Long?,
     val analyzedAt: Long = System.currentTimeMillis(),
     val grid: BeatGrid? = null,
-)
+    /** Sections and cue points (needs the grid). */
+    val structure: TrackStructure? = null,
+    val key: MusicalKey? = null,
+    /** [CURRENT_VERSION] when made by the current analyzer; older analyses lack fields. */
+    val version: Int = 0,
+) {
+    val upToDate: Boolean get() = version >= CURRENT_VERSION
+
+    companion object {
+        /** 1: mix points, 2: + beat grid, 3: + structure, cues and key */
+        const val CURRENT_VERSION = 3
+    }
+}
 
 /** Weekly listening time is accumulated per ISO day ("2026-10-01") in seconds. */
 data class LibraryData(

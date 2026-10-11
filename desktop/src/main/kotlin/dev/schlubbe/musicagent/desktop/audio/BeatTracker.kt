@@ -1,8 +1,5 @@
 package dev.schlubbe.musicagent.desktop.audio
 
-import com.sun.jna.Library
-import com.sun.jna.Native
-import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import kotlin.math.PI
 import kotlin.math.abs
@@ -33,12 +30,12 @@ data class BeatGrid(
 }
 
 /**
- * Beat tracking with aubio (specflux onsets + autocorrelation tempo), loaded from
- * the bundled libgrooveo_aubio through JNA. [available] is false when the native
+ * Beat tracking with aubio (specflux onsets + autocorrelation tempo), from the
+ * bundled libgrooveo_native (see NativeDsp). [available] is false when the native
  * library is missing, e.g. on an OS it was not built for; callers then skip BPM.
  */
 class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseable {
-    private val lib = AubioNative.lib ?: error("libgrooveo_aubio not loaded")
+    private val lib = NativeDsp.lib ?: error("libgrooveo_native not loaded")
     private var handle: Pointer? = lib.grooveo_beats_new(sampleRate, win, hop) ?: error("aubio tempo init failed")
     private var out = DoubleArray(64)
     private val beats = ArrayList<Double>()
@@ -65,7 +62,7 @@ class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseab
         /** 1024/256 at 22.05 kHz: same 11.6 ms hop as aubio's 44.1 kHz default, finer bass resolution. */
         const val WIN = 1024
         const val HOP = 256
-        val available: Boolean get() = AubioNative.lib != null
+        val available: Boolean get() = NativeDsp.lib != null
 
         /** Beats this close to the grid count as on-grid. */
         const val ON_GRID_MS = 40.0
@@ -172,28 +169,5 @@ class BeatTracker(sampleRate: Int, win: Int = WIN, hop: Int = HOP) : AutoCloseab
             val d = if (a - 2 * b + c != 0.0) 0.5 * (a - c) / (a - 2 * b + c) else 0.0
             return phase + (peak + 0.5 + d) / bins * period
         }
-    }
-}
-
-@Suppress("FunctionName")
-internal interface AubioLib : Library {
-    fun grooveo_beats_new(samplerate: Int, win: Int, hop: Int): Pointer?
-    fun grooveo_beats_process(handle: Pointer, samples: FloatArray, n: Int, beats: DoubleArray, maxBeats: Int): Int
-    fun grooveo_beats_bpm(handle: Pointer): Float
-    fun grooveo_beats_confidence(handle: Pointer): Float
-    fun grooveo_beats_free(handle: Pointer)
-}
-
-internal object AubioNative {
-    /**
-     * Packaged app: jpackage's app resources dir (compose.application.resources.dir).
-     * Tests: grooveo.native.dir, set by Gradle to the freshly built library.
-     */
-    val lib: AubioLib? by lazy {
-        listOfNotNull(System.getProperty("grooveo.native.dir"), System.getProperty("compose.application.resources.dir"))
-            .forEach { NativeLibrary.addSearchPath("grooveo_aubio", it) }
-        runCatching { Native.load("grooveo_aubio", AubioLib::class.java) }
-            .onFailure { java.util.logging.Logger.getLogger("BeatTracker").warning("beat tracking unavailable: ${it.message}") }
-            .getOrNull()
     }
 }

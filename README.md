@@ -166,6 +166,6 @@ Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup
 
 ## License
 
-GPL-3.0-or-later — see [`LICENSE`](LICENSE). This is inherited from the [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) (GPL-3.0-or-later) dependency used for YouTube Music extraction: distributing a build of this app is subject to GPL-3.0's copyleft terms.
+GPL-3.0-or-later — see [`LICENSE`](LICENSE). The desktop app also builds in [aubio](https://aubio.org) (GPL-3.0) and [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) / [Linear](https://github.com/Signalsmith-Audio/linear) (MIT). This is inherited from the [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) (GPL-3.0-or-later) dependency used for YouTube Music extraction: distributing a build of this app is subject to GPL-3.0's copyleft terms.
 
 <div align="right"><a href="#contents">back to top ↑</a></div>

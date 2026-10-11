@@ -272,7 +272,7 @@ private fun TrackInfo() {
             }
             ActionChip(PhosphorIcons.Regular.ShareNetwork, "Teilen", false) { ui.copyLink(t.webpageUrl) }
             ActionChip(PhosphorIcons.Regular.PlusCircle, "Zu Playlist", false) { ui.addToPlaylist = listOf(t) }
-            ActionChip(PhosphorIcons.Regular.Waveform, analysis?.grid?.let { "${"%.0f".format(it.bpm)} BPM" } ?: if (analysed) "Übergänge analysiert" else "Übergänge analysieren", analysed) { ui.analyze(listOf(t)) }
+            ActionChip(PhosphorIcons.Regular.Waveform, analysis?.grid?.let { "${"%.0f".format(it.bpm)} BPM" + (analysis.key?.let { k -> " · ${k.camelot}" } ?: "") } ?: if (analysed) "Übergänge analysiert" else "Übergänge analysieren", analysed) { ui.analyze(listOf(t)) }
         }
     }
 }

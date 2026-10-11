@@ -116,6 +116,19 @@ class McpServiceTest {
         assertTrue("playing" in now["text"].asString)
     }
 
+    @Test fun `dj tools describe themselves and need a queued track`() {
+        connect()
+        val tools = toolNames()
+        assertTrue(listOf("set_transition", "transition_now", "get_transition", "cancel_transition", "set_deck_fx", "get_transition_styles").all { it in tools })
+        val styles = JsonParser.parseString(call("get_transition_styles", "{}").second).asJsonObject
+        assertTrue(styles.getAsJsonObject("styles").has("bass_swap"))
+        val (ok, msg) = call("set_transition", """{"style":"blend"}""")
+        assertFalse(ok); assertTrue("Nothing queued" in msg, msg)
+        assertTrue(call("set_deck_fx", """{"param":"lowpass","value":800}""").first)
+        assertEquals(800.0, graph.player.fxValue(dev.schlubbe.musicagent.desktop.audio.FxParam.LOWPASS))
+        assertFalse(call("set_deck_fx", """{"param":"nope","value":1}""").first)
+    }
+
     @Test fun `read-only mode offers no tool that changes anything`() {
         mcp.setReadOnly(true)
         connect()

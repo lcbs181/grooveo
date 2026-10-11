@@ -23,47 +23,66 @@ val nativePlatform = System.getProperty("os.name").lowercase().let { os ->
     }
 }
 
-// aubio (beat tracking, GPL-3.0) is built from its release tarball together with
-// native/aubio/grooveo_aubio.c into one shared library per OS and shipped as an app
-// resource; Kotlin loads it through JNA (see audio/BeatTracker.kt). Needs CMake and a
-// C compiler (gcc/clang, or MSVC on Windows).
-val aubioVersion = "0.4.9"
-val aubioSha256 = "d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da"
+// Native DSP (native/CMakeLists.txt), built per OS into one shared library shipped
+// as an app resource and loaded through JNA (audio/NativeDsp.kt):
+//  - aubio 0.4.9 (beat tracking, GPL-3.0)
+//  - Signalsmith Stretch 1.4.0 + Signalsmith Linear 0.6.4 (time-stretching, MIT)
+// Release tarballs are downloaded and checked against their SHA-256. Needs CMake and
+// a C/C++ compiler (gcc/clang, or MSVC on Windows).
+data class NativeSource(val dir: String, val url: String, val sha256: String)
+val nativeSources = mapOf(
+    "AUBIO_SRC" to NativeSource("aubio-0.4.9", "https://aubio.org/pub/aubio-0.4.9.tar.bz2",
+        "d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da"),
+    "STRETCH_SRC" to NativeSource("signalsmith-stretch-1.4.0", "https://github.com/Signalsmith-Audio/signalsmith-stretch/archive/refs/tags/1.4.0.tar.gz",
+        "077235709ecf2a358545e3ca7bdf32859f70f5c9afb4493e078bd753c9aff284"),
+    "LINEAR_SRC" to NativeSource("linear-0.6.4", "https://github.com/Signalsmith-Audio/linear/archive/refs/tags/0.6.4.tar.gz",
+        "2cb10d84b96c626255ab46c4aa4c80f64ae532be487063cff6a08903c1445a56"),
+)
 val composeResourceOs = nativePlatform.replace("x86_64", "x64").replace("macosx", "macos")
 val isWindows = nativePlatform.startsWith("windows")
-val aubioDir = layout.buildDirectory.dir("aubio")
-val downloadAubio by tasks.registering {
-    val archive = aubioDir.map { it.file("aubio-$aubioVersion.tar.bz2") }
-    outputs.file(archive)
+val nativeDir = layout.buildDirectory.dir("native")
+val downloadNativeSources by tasks.registering {
+    val dl = nativeDir.map { it.dir("download") }
+    inputs.property("sources", nativeSources.values.map { it.sha256 })
+    outputs.dir(dl)
     doLast {
-        val f = archive.get().asFile
-        f.parentFile.mkdirs()
-        uri("https://aubio.org/pub/aubio-$aubioVersion.tar.bz2").toURL().openStream().use { s -> f.outputStream().use { s.copyTo(it) } }
-        val sha = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
-        if (sha != aubioSha256) { f.delete(); throw GradleException("aubio-$aubioVersion.tar.bz2: SHA-256 $sha, expected $aubioSha256") }
+        nativeSources.values.forEach { src ->
+            val f = dl.get().file(src.url.substringAfterLast('/').let { "${src.dir}-$it" }).asFile
+            f.parentFile.mkdirs()
+            if (!f.isFile) uri(src.url).toURL().openStream().use { s -> f.outputStream().use { s.copyTo(it) } }
+            val sha = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+            if (sha != src.sha256) { f.delete(); throw GradleException("${f.name}: SHA-256 $sha, expected ${src.sha256}") }
+        }
     }
 }
-val unpackAubio by tasks.registering(Sync::class) {
-    from(downloadAubio.map { tarTree(resources.bzip2(it.outputs.files.singleFile)) })
-    into(aubioDir.map { it.dir("src") })
+val unpackNativeSources by tasks.registering(Sync::class) {
+    dependsOn(downloadNativeSources)
+    nativeSources.values.forEach { src ->
+        val name = "${src.dir}-${src.url.substringAfterLast('/')}"
+        from(nativeDir.map { d ->
+            val f = d.file("download/$name").asFile
+            tarTree(if (name.endsWith(".bz2")) resources.bzip2(f) else resources.gzip(f))
+        })
+    }
+    into(nativeDir.map { it.dir("src") })
 }
-val buildAubio by tasks.registering {
-    val srcDir = project.file("native/aubio")
-    val cmakeDir = aubioDir.map { it.dir("cmake") }
-    val outDir = aubioDir.map { it.dir("resources/$composeResourceOs") }
-    dependsOn(unpackAubio)
+val buildNative by tasks.registering {
+    val srcDir = project.file("native")
+    val cmakeDir = nativeDir.map { it.dir("cmake") }
+    val outDir = nativeDir.map { it.dir("resources/$composeResourceOs") }
+    dependsOn(unpackNativeSources)
     inputs.dir(srcDir)
-    inputs.files(unpackAubio)
+    inputs.files(unpackNativeSources)
     outputs.dir(outDir)
     doLast {
-        val aubioSrc = aubioDir.get().dir("src/aubio-$aubioVersion").asFile
         val build = cmakeDir.get().asFile
-        providers.exec { commandLine("cmake", "-S", srcDir, "-B", build, "-DAUBIO_SRC=$aubioSrc", "-DCMAKE_BUILD_TYPE=Release") }.result.get()
+        val defs = nativeSources.map { (k, v) -> "-D$k=${nativeDir.get().dir("src/${v.dir}").asFile}" }
+        providers.exec { commandLine(listOf("cmake", "-S", srcDir.path, "-B", build.path, "-DCMAKE_BUILD_TYPE=Release") + defs) }.result.get()
         providers.exec { commandLine("cmake", "--build", build, "--config", "Release") }.result.get()
         val name = when {
-            isWindows -> "grooveo_aubio.dll"
-            nativePlatform.startsWith("macosx") -> "libgrooveo_aubio.dylib"
-            else -> "libgrooveo_aubio.so"
+            isWindows -> "grooveo_native.dll"
+            nativePlatform.startsWith("macosx") -> "libgrooveo_native.dylib"
+            else -> "libgrooveo_native.so"
         }
         val lib = build.walkTopDown().first { it.name == name }
         val out = outDir.get().asFile
@@ -177,8 +196,8 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
-    dependsOn(buildAubio)
-    systemProperty("grooveo.native.dir", aubioDir.get().dir("resources/$composeResourceOs").asFile.absolutePath)
+    dependsOn(buildNative)
+    systemProperty("grooveo.native.dir", nativeDir.get().dir("resources/$composeResourceOs").asFile.absolutePath)
 }
 
 compose.desktop {
@@ -187,7 +206,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.AppImage, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi)
             packageName = "Grooveo"
-            appResourcesRootDir.set(buildAubio.map { aubioDir.get().dir("resources") })
+            appResourcesRootDir.set(buildNative.map { nativeDir.get().dir("resources") })
             // from `./gradlew :desktop:suggestRuntimeModules`; jdk.security.auth is needed by dbus-java (MPRIS)
             modules("java.instrument", "java.management", "java.net.http", "java.sql", "jdk.dynalink", "jdk.httpserver", "jdk.security.auth", "jdk.unsupported")
             packageVersion = versionName

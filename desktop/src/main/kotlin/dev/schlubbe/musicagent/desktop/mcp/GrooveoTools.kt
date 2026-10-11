@@ -6,6 +6,16 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.desktop.AppGraph
 import dev.schlubbe.musicagent.desktop.audio.BeatGrid
+import dev.schlubbe.musicagent.desktop.audio.Curve
+import dev.schlubbe.musicagent.desktop.audio.DeckRole
+import dev.schlubbe.musicagent.desktop.audio.FxParam
+import dev.schlubbe.musicagent.desktop.audio.Lane
+import dev.schlubbe.musicagent.desktop.audio.LanePoint
+import dev.schlubbe.musicagent.desktop.audio.MusicalKey
+import dev.schlubbe.musicagent.desktop.audio.TransitionStatus
+import dev.schlubbe.musicagent.desktop.playback.PlannedTransition
+import dev.schlubbe.musicagent.desktop.playback.TransitionPlanner
+import dev.schlubbe.musicagent.desktop.playback.TransitionRecipe
 import dev.schlubbe.musicagent.desktop.audio.BeatTracker
 import dev.schlubbe.musicagent.desktop.audio.Sound3dPreset
 import dev.schlubbe.musicagent.desktop.data.FollowedArtist
@@ -40,6 +50,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
@@ -72,6 +83,7 @@ class GrooveoTools(
         registerSound(server)
         registerSettings(server)
         registerAnalysis(server)
+        registerDj(server)
         registerResources(server)
         registerPrompts(server)
     }
@@ -145,6 +157,9 @@ class GrooveoTools(
             "repeat" to q.repeat.name.lowercase(),
             "sleep_timer_ends_at" to q.sleepTimerEndAt?.let { java.time.Instant.ofEpochMilli(it).toString() },
             "beat" to q.current?.let { t -> g.store.current.analysis[t.key]?.grid?.let { beatPosition(it, e.positionSec * 1000) } },
+            "transition" to g.player.transition.value.let { st ->
+                if (st.phase == TransitionStatus.Phase.NONE) null else mapOf("phase" to st.phase.name.lowercase(), "style" to st.plan?.style, "beat" to round2(st.beat))
+            },
             "queue_index" to q.index,
             "queue_length" to q.queue.size,
             "error" to q.error,
@@ -393,7 +408,7 @@ class GrooveoTools(
             coroutineScope {
                 tracks.map { t ->
                     async(Dispatchers.IO) {
-                        val stored = g.store.current.analysis[t.key]?.takeIf { !force && it.grid != null }
+                        val stored = g.store.current.analysis[t.key]?.takeIf { !force && it.upToDate }
                         val r = stored ?: gate.withPermit { g.analyze(t) }
                         r?.let { analysisView(t.key, it) } ?: mapOf("track_id" to t.key, "error" to "Could not load or analyse this track")
                     }
@@ -412,9 +427,16 @@ class GrooveoTools(
             s, "find_tracks_by_bpm",
             "Analysed tracks whose tempo fits a range, sorted by closeness to its middle. With allow_half_double, a track at half or double " +
                 "the tempo also matches (e.g. 70 BPM for 140), since those mix on the beat as well. Only tracks analysed before are searched.",
-            props = mapOf("min_bpm" to num(""), "max_bpm" to num(""), "allow_half_double" to bool("Default true"), "limit" to int("Default 50")),
+            props = mapOf(
+                "min_bpm" to num(""), "max_bpm" to num(""), "allow_half_double" to bool("Default true"), "limit" to int("Default 50"),
+                "camelot" to str("Only keys that mix harmonically with this Camelot code (same, ±1 hour, or relative major/minor), e.g. '8A'"),
+                "compatible_with" to str("Only keys that mix harmonically with this track's key (track id)"),
+            ),
             required = listOf("min_bpm", "max_bpm"),
         ) { a ->
+            val keyRef = a.string("camelot") ?: a.string("compatible_with")?.let { id ->
+                g.store.current.analysis[id]?.key?.camelot ?: error("Track '$id' has no key yet - analyze_tracks first")
+            }
             val lo = a.double("min_bpm")!!
             val hi = a.double("max_bpm")!!
             require(lo in 1.0..hi) { "Need 0 < min_bpm <= max_bpm" }
@@ -422,14 +444,144 @@ class GrooveoTools(
             val mid = (lo + hi) / 2
             g.store.current.analysis.mapNotNull { (id, an) ->
                 val bpm = an.grid?.bpm ?: return@mapNotNull null
+                if (keyRef != null && (an.key?.camelot?.let { MusicalKey.camelotDistance(it, keyRef) } ?: 99) > 1) return@mapNotNull null
                 val fit = factors.map { bpm * it }.filter { it in lo..hi }.minByOrNull { abs(it - mid) } ?: return@mapNotNull null
                 Triple(id, an, abs(fit - mid))
             }.sortedBy { it.third }.take(a.int("limit") ?: 50).map { (id, an, _) ->
                 val t = runCatching { track(id) }.getOrNull()
-                mapOf("track" to (t?.let(::view) ?: mapOf("id" to id)), "bpm" to round2(an.grid!!.bpm))
+                mapOf("track" to (t?.let(::view) ?: mapOf("id" to id)), "bpm" to round2(an.grid!!.bpm), "key" to an.key?.name, "camelot" to an.key?.camelot)
             }
         }
     }
+
+    // ---------------------------------------------------------------- DJ
+
+    private fun registerDj(s: Server) {
+        val fxParams = FxParam.entries.map { it.key }
+        tool(s, "get_transition_styles", "How transitions work: styles, cue names, automatable deck parameters and curves, with their ranges.") {
+            mapOf(
+                "styles" to TransitionPlanner.STYLES,
+                "out_cues" to listOf("mix_out", "outro_start", "breakdown", "drop", "build", "bar:N", "next_bar", "next_phrase"),
+                "in_cues" to listOf("mix_in", "first_beat", "drop", "breakdown", "build", "bar:N"),
+                "lane_params" to FxParam.entries.map { mapOf("param" to it.key, "neutral" to it.neutral, "min" to it.min, "max" to it.max, "meaning" to it.description) },
+                "curves" to Curve.entries.map { it.key },
+                "lanes" to "Each lane automates one parameter of the outgoing ('out') or incoming ('in') deck. Points are " +
+                    "{beat, value, curve}: beat counts from the transition start in beats of the outgoing track (4 per bar); the curve " +
+                    "shapes the segment ending at that point. A lane replaces the style's lane for the same deck and parameter. " +
+                    "Incoming lanes that end off neutral return to neutral over one bar.",
+                "tempo" to "With tempo=sync the incoming track is time-stretched (pitch kept) to the outgoing tempo and phase-locked to its " +
+                    "beats; afterwards it glides back to its own tempo over release_bars, or keeps the mixed tempo with keep_tempo=true. " +
+                    "Tempos more than ${(TransitionPlanner.MAX_STRETCH * 100).toInt()} % apart (after half/double) are not synced.",
+                "sync_available" to g.player.canSync,
+            )
+        }
+        val recipeProps = mapOf(
+            "style" to enum(TransitionPlanner.STYLES.keys.toList(), "Default auto"),
+            "bars" to int("Length in bars; default fits the outro and intro"),
+            "out_cue" to str("Where the playing track starts the transition (see get_transition_styles); default mix_out"),
+            "in_cue" to str("Where the next track is heard from; default mix_in"),
+            "tempo" to enum(listOf("sync", "none"), "Default sync"),
+            "keep_tempo" to bool("Keep the mixed tempo afterwards (for a set at one tempo)"),
+            "release_bars" to int("Bars to glide back to the track's own tempo afterwards; default 8"),
+            "harmonic" to bool("Transpose the next track up to 2 semitones if the keys clash"),
+            "semitones" to int("Explicit transposition of the next track, -6..6"),
+            "echo_beats" to num("Echo delay in beats, default 0.75"),
+            "lanes" to buildJsonObject {
+                put("type", "array")
+                put("description", "Custom automation, see get_transition_styles")
+                putJsonObject("items") {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        put("deck", enum(listOf("out", "in"), ""))
+                        put("param", enum(fxParams, ""))
+                        putJsonObject("points") {
+                            put("type", "array")
+                            putJsonObject("items") {
+                                put("type", "object")
+                                putJsonObject("properties") { put("beat", num("")); put("value", num("")); put("curve", enum(Curve.entries.map { it.key }, "Default linear")) }
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        tool(
+            s, "set_transition",
+            "Plans how the playing track mixes into the next queued track: style, length, cue points, tempo sync, key shift and " +
+                "optional custom automation of fader, 3-band EQ, filters and echo per deck. Both tracks are analysed first if needed. " +
+                "Returns what was planned (start time, bars, tempos). Applies to the next transition only; call again after it ran.",
+            props = recipeProps, mutates = true,
+        ) { a -> plannedView(g.player.setTransition(recipe(a))) }
+        tool(
+            s, "transition_now",
+            "Starts a transition into the next queued track at the next bar (or next 8-bar phrase): a live DJ move. Same options as set_transition.",
+            props = recipeProps + ("at" to enum(listOf("next_bar", "next_phrase"), "Default next_bar")), mutates = true,
+        ) { a -> plannedView(g.player.setTransition(recipe(a).copy(outCue = a.string("at") ?: "next_bar"))) }
+        tool(s, "get_transition", "The planned or running transition: phase (none/armed/running/releasing), beat, rates, beat-sync error and the plan.") {
+            val st = g.player.transition.value
+            mapOf(
+                "phase" to st.phase.name.lowercase(),
+                "beat" to round2(st.beat),
+                "bar" to if (st.phase == TransitionStatus.Phase.NONE) null else Math.floorDiv(st.beat.toLong(), 4L) + 1,
+                "length_beats" to st.plan?.lengthBeats,
+                "style" to st.plan?.style,
+                "incoming_rate" to round2(st.rate * 1000) / 1000,
+                "sync_error_ms" to st.syncErrorMs?.let(::round2),
+                "planned" to g.player.planned.value?.summary,
+            )
+        }
+        tool(s, "cancel_transition", "Drops the planned transition; the next track follows with the normal crossfade or gaplessly.", mutates = true) {
+            g.player.cancelTransition(); "Cancelled"
+        }
+        tool(
+            s, "set_deck_fx",
+            "Live effect on the playing track, like turning a knob on a DJ mixer: ${FxParam.entries.joinToString { "${it.key} (${it.description})" }}. " +
+                "Stays until changed or the track changes; running transitions automate these themselves.",
+            props = mapOf("param" to enum(fxParams, ""), "value" to num("")), required = listOf("param", "value"), mutates = true,
+        ) { a ->
+            val p = FxParam.byKey(a.string("param")!!) ?: error("Unknown param")
+            g.player.setFx(p, a.double("value")!!)
+            mapOf("param" to p.key, "value" to g.player.fxValue(p))
+        }
+        tool(s, "get_deck_fx", "Current effect settings of the playing track.") {
+            FxParam.entries.associate { it.key to g.player.fxValue(it) }
+        }
+    }
+
+    private fun recipe(a: Args): TransitionRecipe = TransitionRecipe(
+        style = a.string("style") ?: "auto",
+        bars = a.int("bars"),
+        outCue = a.string("out_cue"),
+        inCue = a.string("in_cue"),
+        tempo = a.string("tempo") ?: "sync",
+        keepTempo = a.bool("keep_tempo") == true,
+        releaseBars = a.int("release_bars") ?: 8,
+        harmonic = a.bool("harmonic") == true,
+        semitones = a.int("semitones"),
+        echoBeats = a.double("echo_beats") ?: 0.75,
+        lanes = (a.raw("lanes") as? JsonArray)?.map { el ->
+            val o = el as? JsonObject ?: error("Each lane must be an object")
+            val deck = when ((o["deck"] as? JsonPrimitive)?.content) { "out" -> DeckRole.OUT; "in" -> DeckRole.IN; else -> error("Lane deck must be 'out' or 'in'") }
+            val param = (o["param"] as? JsonPrimitive)?.content?.let(FxParam::byKey) ?: error("Unknown lane param ${o["param"]}")
+            val points = (o["points"] as? JsonArray ?: error("Lane needs points")).map { p ->
+                when (p) {
+                    is JsonArray -> LanePoint((p[0] as JsonPrimitive).double, (p[1] as JsonPrimitive).double)
+                    is JsonObject -> LanePoint(
+                        (p["beat"] as? JsonPrimitive)?.doubleOrNull ?: error("Point needs beat"),
+                        (p["value"] as? JsonPrimitive)?.doubleOrNull ?: error("Point needs value"),
+                        (p["curve"] as? JsonPrimitive)?.content?.let { Curve.byKey(it) ?: error("Unknown curve $it") } ?: Curve.LINEAR,
+                    )
+                    else -> error("Bad point $p")
+                }
+            }
+            require(points.isNotEmpty()) { "Lane ${param.key} has no points" }
+            Lane(deck, param, points.map { it.copy(value = it.value.coerceIn(param.min, param.max)) })
+        } ?: emptyList(),
+    )
+
+    private fun plannedView(p: PlannedTransition?): Any = p?.let {
+        it.summary + ("lanes" to it.plan.lanes.map { l -> mapOf("deck" to l.deck.name.lowercase(), "param" to l.param.key, "points" to l.points.map { pt -> listOf(pt.beat, pt.value, pt.curve.key) }) })
+    } ?: "No beat-synced plan: a track has no beat grid (analyze_tracks), or nothing is queued next. The normal crossfade applies."
 
     /** MCP resources: the same data as the read tools, for clients that browse resources. */
     private fun registerResources(s: Server) {
@@ -466,6 +618,15 @@ class GrooveoTools(
             "tempo_confidence" to grid?.let { round2(it.confidence.toDouble()) },
             "grid_stability" to grid?.let { round2(it.stability) },
             "beats_ms" to grid?.beatsMs?.takeIf { includeBeats },
+            "key" to a.key?.name,
+            "camelot" to a.key?.camelot,
+            "key_confidence" to a.key?.confidence,
+            // a one-hour DJ set has hundreds of sections; its start and end are what mixing needs
+            "sections" to a.structure?.sections?.let { s -> if (s.size > MAX_SECTIONS) s.take(MAX_SECTIONS / 2) + s.takeLast(MAX_SECTIONS / 2) else s }
+                ?.map { mapOf("label" to it.label, "start_bar" to it.startBar, "bars" to it.bars, "start_ms" to it.startMs, "energy" to it.energy) },
+            "sections_omitted" to a.structure?.sections?.size?.let { it - MAX_SECTIONS }?.takeIf { it > 0 },
+            "cues" to a.structure?.cues?.let { c -> if (c.size > MAX_SECTIONS) c.take(MAX_SECTIONS / 2) + c.takeLast(MAX_SECTIONS / 2) else c }
+                ?.map { mapOf("name" to it.name, "bar" to it.bar, "ms" to it.ms) },
             "note" to when {
                 grid == null -> "No steady beat found (or analysed by an older version - analyze_tracks with force=true)"
                 grid.stability < BeatTracker.KEEP_BEATS_BELOW ->
@@ -569,8 +730,10 @@ class GrooveoTools(
                     "Be my DJ in Grooveo for about $minutes minutes: $mood. Look at my likes and history (get_library) for taste, " +
                         "find tracks with search/get_trending/get_recommendations, analyse them (analyze_tracks) and order them by energy " +
                         "and tempo so the set builds and releases without big BPM jumps (find_tracks_by_bpm helps), " +
-                        "set a fitting crossfade (update_settings crossfadeSeconds) and EQ, then start it with play_tracks. " +
-                        "Save the set as a playlist too.",
+                        "favour keys that mix harmonically (camelot), then start it with play_tracks. Mix every track in like a DJ: " +
+                        "for each next track call set_transition (style, bars, cues; vary styles to fit the music, e.g. blend for long intros, " +
+                        "echo_out for big tempo jumps, filter for breakdowns), watch get_now_playing and get_transition, and use " +
+                        "transition_now or set_deck_fx for live moves. Save the set as a playlist too.",
                 ))),
             )
         }
@@ -673,6 +836,7 @@ class GrooveoTools(
 
     companion object {
         private const val MAX_ANALYZE = 25
+        private const val MAX_SECTIONS = 40
         private const val ANALYZE_PARALLEL = 3
         private fun round2(v: Double) = Math.round(v * 100) / 100.0
 

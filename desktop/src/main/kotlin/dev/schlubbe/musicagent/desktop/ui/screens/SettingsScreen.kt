@@ -124,6 +124,19 @@ fun SettingsScreen() {
                 SettingsRow("Überblendung", if (s.crossfadeSeconds == 0) "Aus – Titel folgen lückenlos" else "${s.crossfadeSeconds} s weiche Übergänge zwischen Titeln") {
                     SettingsSegmented(CROSSFADE_OPTIONS.map { it to if (it == 0) "Aus" else "$it s" }, s.crossfadeSeconds) { v -> set { it.copy(crossfadeSeconds = v) } }
                 }
+                SettingsSwitchRow(
+                    "DJ-Übergänge",
+                    "Beat-synchrone Übergänge wie ein DJ: Tempo angleichen, Bässe tauschen, Filter und Echo. Titel werden dafür automatisch analysiert; ohne erkannten Beat gilt die Überblendung.",
+                    s.djTransitions,
+                ) { v -> set { it.copy(djTransitions = v) } }
+                if (s.djTransitions) {
+                    SettingsRow("Übergangsstil", dev.schlubbe.musicagent.desktop.playback.TransitionPlanner.STYLES[s.djStyle], wide = true) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            DJ_STYLES.forEach { (k, label) -> Pill(label, s.djStyle == k) { set { it.copy(djStyle = k) } } }
+                        }
+                    }
+                    SettingsSwitchRow("Harmonisch mischen", "Transponiert den nächsten Titel um bis zu 2 Halbtöne, wenn die Tonarten nicht zueinander passen", s.djHarmonic) { v -> set { it.copy(djHarmonic = v) } }
+                }
                 SettingsRow("Wiedergabestil", "Darstellung der Fortschrittsleiste") {
                     SettingsSegmented(listOf("waveform" to "Waveform", "bars" to "Balken"), s.playerStyle) { v -> set { it.copy(playerStyle = v) } }
                 }
@@ -416,6 +429,11 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
         Column { content() }
     }
 }
+
+private val DJ_STYLES = listOf(
+    "auto" to "Automatisch", "blend" to "Blend", "bass_swap" to "Bass-Tausch", "filter" to "Filter",
+    "echo_out" to "Echo-Out", "cut" to "Schnitt", "fade" to "Überblenden",
+)
 
 @Composable
 internal fun SettingsRow(title: String, subtitle: String?, wide: Boolean = false, control: @Composable () -> Unit) {

@@ -41,6 +41,12 @@ data class Settings(
     val themeMode: String = "system",
     val queuePanelOpen: Boolean = true,
     val minimizeToTray: Boolean = true,
+    /** "DJ-Übergänge": beat-synced transitions planned from the track analyses. */
+    val djTransitions: Boolean = false,
+    /** TransitionPlanner style for DJ transitions ("auto", "blend", ...). */
+    val djStyle: String = "auto",
+    /** Transpose the incoming track when the keys clash. */
+    val djHarmonic: Boolean = false,
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized(): Settings {
@@ -62,6 +68,7 @@ data class Settings(
             crossfadeSeconds = crossfadeSeconds.coerceIn(0, 12),
             volume = if (volume.isNaN()) d.volume else volume.coerceIn(0f, 1f),
             loudnessNormalization = loudnessNormalization ?: true,
+            djStyle = djStyle ?: d.djStyle,
         )
     }
 
