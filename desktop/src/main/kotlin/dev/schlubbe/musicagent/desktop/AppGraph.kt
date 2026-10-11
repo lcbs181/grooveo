@@ -116,6 +116,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     fun close() {
         if (aiLazy.isInitialized()) ai.close()
         mcp.shutdown()
+        sync.shutdown()
         settings.flush()
         player.close()
     }

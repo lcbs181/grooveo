@@ -11,8 +11,8 @@ import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
-import java.security.MessageDigest
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 /** Persistent sync state: the pairing key stays the same across restarts, [enabled] is what the user switched on. */
 data class SyncState(val key: String = "", val enabled: Boolean = false)
@@ -20,10 +20,11 @@ data class SyncState(val key: String = "", val enabled: Boolean = false)
 /**
  * Sync endpoint for the phone, reachable in the local network only while the user has it
  * switched on (and again after a restart, when it was on). The phone POSTs its library to
- * `/sync` with the pairing key; the PC merges it with its own ([SyncMerge]), applies the result and
- * answers with the same merged library, so both end up identical. A UDP responder lets the phone
- * find this PC by [SyncProtocol.deviceId] when its address changed ([SyncProtocol] documents the
- * protocol). Wrong keys are rate limited with a growing lock-out.
+ * `/sync`, encrypted and signed with keys derived from the pairing key ([SyncProtocol]); the PC
+ * merges it with its own ([SyncMerge]), applies the result and answers with the same merged
+ * library, so both end up identical. A UDP responder (and `/sync/hello`) lets the phone check that
+ * this PC holds the key before it sends anything. Only peers in the local network are answered;
+ * bad signatures are rate limited per address with a growing lock-out.
  */
 class SyncServer(private val backup: BackupManager, private val stateFile: File, private val port: Int = SyncProtocol.PORT, private val discoveryPort: Int = SyncProtocol.DISCOVERY_PORT) {
     private var http: HttpServer? = null
@@ -31,8 +32,14 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     private var state: SyncState = (readJson<SyncState>(stateFile, SyncState::class.java) ?: SyncState()).let {
         if (SyncProtocol.normalizeKey(it.key) == null) it.copy(key = SyncProtocol.newKey()).also(::save) else it
     }
-    @Volatile private var failures = 0
-    @Volatile private var lockedUntil = 0L
+    private var derived: Pair<String, SyncProtocol.Keys>? = null
+    private class Strikes(var count: Int = 0, var lockedUntil: Long = 0)
+    private val strikes = object : LinkedHashMap<String, Strikes>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Strikes>?) = size > 256
+    }
+    private val seenNonces = object : LinkedHashMap<String, Long>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 4096
+    }
     @Volatile var lastSyncAt: Long? = null
         private set
     private var boundPort = port
@@ -41,7 +48,7 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     /** The user wants the server on (it starts again with the app). */
     val enabled: Boolean get() = state.enabled
     val key: String get() = state.key
-    val deviceId: String get() = SyncProtocol.deviceId(state.key)
+    val deviceId: String get() = keys().deviceId
     val boundPortOrDefault: Int get() = boundPort
     val discoveryPortBound: Int get() = udp?.localPort ?: -1
     /** Content of the QR code. */
@@ -49,10 +56,17 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
 
     private fun save(s: SyncState) { state = s; writeJson(stateFile, s) }
 
+    @Synchronized private fun keys(): SyncProtocol.Keys {
+        val k = state.key
+        derived?.let { (forKey, keys) -> if (forKey == k) return keys }
+        return SyncProtocol.keys(k).also { derived = k to it }
+    }
+
     @Synchronized fun start() {
         if (http != null) return
+        keys()
         val s = HttpServer.create(InetSocketAddress(port), 0)
-        s.createContext("/sync") { ex -> runCatching { handle(ex) }.onFailure { reply(ex, 500, "error") } }
+        s.createContext(SyncProtocol.SYNC_PATH) { ex -> runCatching { handle(ex) }.onFailure { runCatching { reply(ex, 500, "error") } } }
         s.executor = Executors.newSingleThreadExecutor { r -> Thread(r, "sync-server").apply { isDaemon = true } }
         s.start()
         http = s
@@ -85,45 +99,77 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
                 runCatching {
                     val p = DatagramPacket(buf, buf.size)
                     sock.receive(p)
-                    if (String(p.data, 0, p.length, Charsets.UTF_8).trim() == SyncProtocol.DISCOVERY_REQUEST) {
-                        val r = SyncProtocol.discoveryReply(state.key, boundPort).toByteArray()
-                        sock.send(DatagramPacket(r, r.size, p.address, p.port))
-                    }
+                    if (!SyncProtocol.isLocalAddress(p.address)) return@runCatching
+                    val nonce = SyncProtocol.parseDiscoveryRequest(String(p.data, 0, p.length, Charsets.UTF_8)) ?: return@runCatching
+                    val r = SyncProtocol.discoveryReply(keys(), nonce, boundPort).toByteArray()
+                    sock.send(DatagramPacket(r, r.size, p.address, p.port))
                 }
             }
         }, "sync-discovery").apply { isDaemon = true; start() }
     }
 
     private fun handle(ex: HttpExchange) {
+        val from = ex.remoteAddress.address
+        if (!SyncProtocol.isLocalAddress(from)) return reply(ex, 403, "local network only")
+        val ip = from.hostAddress
+        if (isLocked(ip)) return reply(ex, 429, "locked")
+        if (ex.requestHeaders.getFirst(SyncProtocol.VERSION_HEADER) != SyncProtocol.VERSION.toString()) return reply(ex, 426, SyncProtocol.UPDATE_BOTH)
+        val nonce = ex.requestHeaders.getFirst(SyncProtocol.NONCE_HEADER)?.takeIf { SyncProtocol.isNonce(it) }
+            ?: return reply(ex, 400, "bad nonce")
+        when (ex.requestURI.path) {
+            SyncProtocol.HELLO_PATH -> reply(ex, 200, SyncProtocol.discoveryReply(keys(), nonce, boundPort))
+            SyncProtocol.SYNC_PATH -> sync(ex, ip, nonce)
+            else -> reply(ex, 404, "not found")
+        }
+    }
+
+    private fun sync(ex: HttpExchange, ip: String, nonce: String) {
         if (ex.requestMethod != "POST") return reply(ex, 405, "POST only")
-        if (System.currentTimeMillis() < lockedUntil) return reply(ex, 429, "locked")
-        val given = ex.requestHeaders.getFirst(SyncProtocol.KEY_HEADER).orEmpty()
-        if (!MessageDigest.isEqual(given.toByteArray(), state.key.toByteArray())) {
-            if (++failures >= MAX_FAILURES) lockedUntil = System.currentTimeMillis() + LOCK_MS * (1L shl minOf(failures - MAX_FAILURES, 6))
+        val time = ex.requestHeaders.getFirst(SyncProtocol.TIME_HEADER)?.toLongOrNull() ?: return reply(ex, 400, "bad time")
+        val body = ex.requestBody.readNBytes(SyncProtocol.MAX_SEALED + 1)
+        if (body.size > SyncProtocol.MAX_SEALED) return reply(ex, 413, "too large")
+        val keys = keys()
+        val expected = SyncProtocol.requestMac(keys, ex.requestMethod, SyncProtocol.SYNC_PATH, time, nonce, body)
+        if (!SyncProtocol.macEquals(ex.requestHeaders.getFirst(SyncProtocol.AUTH_HEADER), expected)) {
+            strike(ip)
             return reply(ex, 401, "wrong key")
         }
-        failures = 0
-        val body = ex.requestBody.readNBytes(MAX_BODY + 1)
-        if (body.size > MAX_BODY) return reply(ex, 413, "too large")
-        val theirs = runCatching { gson.fromJson(String(body, Charsets.UTF_8), BackupPayload::class.java) }.getOrNull()
+        if (abs(System.currentTimeMillis() - time) > SyncProtocol.TIME_WINDOW_MS || !firstUse(nonce, time)) return reply(ex, 403, "stale request")
+        synchronized(strikes) { strikes.remove(ip) }
+        val json = runCatching { SyncProtocol.open(keys, body, SyncProtocol.requestAad(nonce)) }.getOrNull()
+            ?: return reply(ex, 400, "bad payload")
+        val theirs = runCatching { gson.fromJson(String(json, Charsets.UTF_8), BackupPayload::class.java) }.getOrNull()
             ?: return reply(ex, 400, "bad payload")
         val merged = synchronized(this) {
             SyncMerge.merge(backup.payload(), theirs).also { backup.applySynced(it); lastSyncAt = System.currentTimeMillis() }
         }
-        reply(ex, 200, gson.toJson(merged), "application/json")
+        val out = SyncProtocol.seal(keys, gson.toJson(merged).toByteArray(Charsets.UTF_8), SyncProtocol.responseAad(nonce))
+        ex.responseHeaders.add(SyncProtocol.AUTH_HEADER, SyncProtocol.responseMac(keys, 200, nonce, out))
+        send(ex, 200, out, "application/octet-stream")
     }
 
-    private fun reply(ex: HttpExchange, code: Int, text: String, type: String = "text/plain") {
-        val b = text.toByteArray(Charsets.UTF_8)
-        ex.responseHeaders.add("Content-Type", "$type; charset=utf-8")
-        ex.sendResponseHeaders(code, b.size.toLong())
+    private fun isLocked(ip: String) = synchronized(strikes) { (strikes[ip]?.lockedUntil ?: 0) > System.currentTimeMillis() }
+
+    private fun strike(ip: String) = synchronized(strikes) {
+        val s = strikes.getOrPut(ip) { Strikes() }
+        if (++s.count >= MAX_FAILURES) s.lockedUntil = System.currentTimeMillis() + LOCK_MS * (1L shl minOf(s.count - MAX_FAILURES, 6))
+    }
+
+    /** False when [nonce] was used before (a replayed request). */
+    private fun firstUse(nonce: String, time: Long) = synchronized(seenNonces) { seenNonces.putIfAbsent(nonce, time) == null }
+
+    private fun reply(ex: HttpExchange, code: Int, text: String) = send(ex, code, text.toByteArray(Charsets.UTF_8), "text/plain; charset=utf-8")
+
+    private fun send(ex: HttpExchange, code: Int, b: ByteArray, type: String) {
+        ex.responseHeaders.add("Content-Type", type)
+        ex.responseHeaders.add(SyncProtocol.VERSION_HEADER, SyncProtocol.VERSION.toString())
+        ex.sendResponseHeaders(code, if (b.isEmpty()) -1 else b.size.toLong())
         ex.responseBody.use { it.write(b) }
     }
 
     companion object {
         const val MAX_FAILURES = 5
         const val LOCK_MS = 30_000L
-        const val MAX_BODY = 32 * 1024 * 1024
 
         /** First private IPv4 address of this machine (the one the phone can reach). */
         fun localAddress(): String? = runCatching {

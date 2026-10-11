@@ -105,6 +105,8 @@ class LoudnessMeter(private val fs: Double) {
  * BS.1770 measurement of the current track, starting from the previous track's
  * gain and gliding slowly so the change is not heard. Boost is capped at
  * [maxBoostDb]; the limiter after the EQ catches any peaks the boost causes.
+ * [makeupDb] is applied on top as its own gain, whether normalisation is on or not
+ * and from the first sample of a track; changes to it glide over ~50 ms.
  *
  * [startTrack] may be called from any thread; it takes effect with the next block.
  */
@@ -120,10 +122,12 @@ class LoudnessNormalizer(fs: Double) {
     private var known: Double? = null
     private var latched: Double? = null // measurement frozen once the track was heard long enough: no drifting level mid-song
     private var gainDb = 0.0
+    private var appliedMakeupDb = 0.0
     private var linDb = 0.0
     private var lin = 1f
     private val slewPerSample = SLEW_DB_PER_S / fs
     private val fastSlewPerSample = 12.0 / 0.05 / fs // a known value is reached within ~50 ms
+    private val makeupSmooth = 1.0 - kotlin.math.exp(-1.0 / (MAKEUP_SMOOTH_S * fs))
 
     /** Id of the track being measured. */
     var trackId: String? = null
@@ -135,8 +139,8 @@ class LoudnessNormalizer(fs: Double) {
     /** Loudness measured for the current track so far, once enough was heard to trust it. */
     fun measuredLufs(): Double? = if (meter.seconds >= MIN_SECONDS_TO_STORE) meter.integrated() else null
 
-    /** Current applied gain in dB (for tests and display). */
-    val currentGainDb: Double get() = gainDb
+    /** Current applied gain in dB, normalisation plus makeup (for tests, display and the limiter). */
+    val currentGainDb: Double get() = gainDb + appliedMakeupDb
 
     fun process(buf: FloatArray, frames: Int) {
         pending.getAndSet(null)?.let { (id, k) -> trackId = id; known = k; latched = null; meter.reset() }
@@ -146,13 +150,19 @@ class LoudnessNormalizer(fs: Double) {
         val target = when {
             !enabled -> 0.0
             loudness == null -> gainDb // keep the previous track's gain until measured
-            else -> (targetLufs + makeupDb - loudness).coerceIn(-MAX_CUT_DB, maxBoostDb + makeupDb)
+            else -> (targetLufs - loudness).coerceIn(-MAX_CUT_DB, maxBoostDb)
         }
         val step = if (known != null && enabled) fastSlewPerSample else slewPerSample
+        val makeup = makeupDb
         for (i in 0 until frames) {
             if (gainDb != target) gainDb = if (gainDb < target) minOf(target, gainDb + step) else maxOf(target, gainDb - step)
-            if (gainDb == 0.0) continue
-            if (gainDb != linDb) { linDb = gainDb; lin = 10.0.pow(gainDb / 20).toFloat() }
+            if (appliedMakeupDb != makeup) {
+                appliedMakeupDb += (makeup - appliedMakeupDb) * makeupSmooth
+                if (kotlin.math.abs(makeup - appliedMakeupDb) < 1e-4) appliedMakeupDb = makeup
+            }
+            val db = gainDb + appliedMakeupDb
+            if (db == 0.0) continue
+            if (db != linDb) { linDb = db; lin = 10.0.pow(db / 20).toFloat() }
             buf[2 * i] *= lin; buf[2 * i + 1] *= lin
         }
     }
@@ -164,6 +174,7 @@ class LoudnessNormalizer(fs: Double) {
         const val SLEW_DB_PER_S = 2.0
         const val MIN_SECONDS_TO_ADAPT = 3.0
         const val MIN_SECONDS_TO_STORE = 20.0
+        const val MAKEUP_SMOOTH_S = 0.01 // time constant: settled within ~50 ms
     }
 }
 

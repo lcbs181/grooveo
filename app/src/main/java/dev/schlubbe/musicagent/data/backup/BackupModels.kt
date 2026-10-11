@@ -34,6 +34,8 @@ data class BackupTrackDto(
     val durationSec: Int?,
     val thumbnailUrl: String?,
     val webpageUrl: String,
+    /** When the track was liked (ISO-8601); only set in the likes list, null in older payloads. */
+    val likedAt: String? = null,
 )
 
 data class BackupPlaylistDto(
@@ -44,6 +46,11 @@ data class BackupPlaylistDto(
     val accentColorKey: String?,
     val moodTags: List<String>,
     val tracks: List<BackupTrackDto>,
+    /**
+     * Identity of the playlist across devices for the sync (see [SyncMerge.matchPlaylists]); null
+     * in older payloads, which then fall back to [id].
+     */
+    val syncId: String? = null,
 )
 
 data class BackupFollowedArtistDto(

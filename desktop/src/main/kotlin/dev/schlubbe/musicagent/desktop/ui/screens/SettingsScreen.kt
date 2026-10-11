@@ -474,7 +474,7 @@ fun SettingsScreen() {
                         progress = 0f
                         updateJob = scope.launch {
                             runCatching {
-                                val file = g.updates.download(asset) { p -> progress = p }
+                                val file = g.updates.download(u, asset) { p -> progress = p }
                                 progress = 1f
                                 g.updates.install(file)
                             }.onSuccess { quit ->

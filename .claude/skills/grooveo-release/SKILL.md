@@ -13,6 +13,7 @@ One release = one GitHub release on `lcbs181/grooveo` with these assets:
 | `Grooveo-<version>-windows-x64.msi` + `.zip` (portable) | GitHub Actions, `release.yml` (Windows runner) |
 | `Grooveo-<version>-linux-x64.tar.gz` + `.deb` | GitHub Actions, `release.yml` (Ubuntu runner) |
 | `grooveo-<version>-source.tar.gz` | locally, `git archive` |
+| `SHA256SUMS` (all other assets) | GitHub Actions, `release.yml` (`checksums` job, after the builds) |
 
 The release notes also explain how to build the Linux app from source.
 
@@ -29,6 +30,10 @@ The release notes also explain how to build the Linux app from source.
 - Create the release as a **draft** and publish only after all assets are
   uploaded: both updaters read `releases/latest` and would otherwise offer a
   release without files.
+- **`SHA256SUMS` must cover every asset.** The desktop updater verifies its
+  download against it and falls back to the browser when it is missing. It is
+  written last by the workflow; if an asset is replaced afterwards, rerun the
+  workflow (or recompute and `gh release upload ... SHA256SUMS --clobber`).
 - Push and publish only when the user asked for it.
 
 ## Steps
@@ -72,7 +77,7 @@ The release notes also explain how to build the Linux app from source.
    ```
    On failure: `gh run view <id> --log-failed`, fix, push, rerun.
 9. **Check and publish**: `gh release view v<code> --json assets,isDraft`
-   lists six assets, all `uploaded`. Then
+   lists seven assets (six files plus `SHA256SUMS`), all `uploaded`. Then
    `gh release edit v<code> --draft=false --latest`.
 10. Report the release URL to the user.
 

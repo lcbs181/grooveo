@@ -6,6 +6,7 @@ import dev.schlubbe.musicagent.data.backup.BackupPlaylistDto
 import dev.schlubbe.musicagent.data.backup.BackupSavedPlaylistDto
 import dev.schlubbe.musicagent.data.backup.BackupSettingsDto
 import dev.schlubbe.musicagent.data.backup.BackupTrackDto
+import dev.schlubbe.musicagent.data.backup.SyncMerge
 import dev.schlubbe.musicagent.data.backup.legacyPresetName
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
@@ -36,9 +37,9 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
         return BackupPayload(
             version = 1,
             createdAt = Instant.now().toString(),
-            likes = d.likes.map { it.track.toDto() },
+            likes = d.likes.map { it.track.toDto().copy(likedAt = Instant.ofEpochMilli(it.createdAt).toString()) },
             playlists = d.playlists.map { p ->
-                BackupPlaylistDto(p.id, p.name, Instant.ofEpochMilli(p.createdAt).toString(), p.description, p.accentColorKey, p.moodTags, p.tracks.map { it.track.toDto() })
+                BackupPlaylistDto(p.id, p.name, Instant.ofEpochMilli(p.createdAt).toString(), p.description, p.accentColorKey, p.moodTags, p.tracks.map { it.track.toDto() }, syncId = p.id)
             },
             followedArtists = d.followed.map { BackupFollowedArtistDto(it.source, it.sourceId, it.name, it.thumbnailUrl, Instant.ofEpochMilli(it.followedAt).toString()) },
             savedPlaylists = d.savedPlaylists.map { BackupSavedPlaylistDto(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, Instant.ofEpochMilli(it.savedAt).toString()) },
@@ -54,30 +55,44 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
 
     /**
      * Applies a synced library ([SyncMerge] result, a superset of what is here): adds what is
-     * missing and keeps existing playlist ids, covers and settings.
+     * missing and keeps existing playlist ids, covers and settings. Playlists are matched by sync
+     * id (which is the playlist id here), so same-named playlists stay apart.
      */
     fun applySynced(p: BackupPayload) {
         fun ts(iso: String?) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
         store.mutate { d ->
+            val now = System.currentTimeMillis()
             val known = d.likes.map { it.track.source to it.track.sourceId }.toSet()
             val newLikes = p.likes.orEmpty().filter { (it.source to it.sourceId) !in known }
-                .mapIndexed { i, t -> LikedTrack(t.toTrack(), System.currentTimeMillis() - i) }
-            val byName = d.playlists.associateBy { it.name.trim().lowercase() }
-            val merged = d.playlists.map { mine ->
-                val theirs = p.playlists.orEmpty().firstOrNull { it.name.trim().lowercase() == mine.name.trim().lowercase() } ?: return@map mine
-                val have = mine.tracks.map { it.track.source to it.track.sourceId }.toSet()
-                mine.copy(tracks = mine.tracks + theirs.tracks.orEmpty().filter { (it.source to it.sourceId) !in have }
-                    .map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
-            }
-            val created = p.playlists.orEmpty().filter { it.name.trim().lowercase() !in byName }.map { b ->
-                Playlist(name = b.name, createdAt = ts(b.createdAt), description = b.description, accentColorKey = b.accentColorKey,
-                    moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
+                .mapIndexed { i, t -> LikedTrack(t.toTrack(), likedAt(t.likedAt) ?: (now - i)) }
+            val incoming = p.playlists.orEmpty()
+            val matches = SyncMerge.matchPlaylists(d.playlists.map { SyncMerge.Local(it.id, it.name) }, incoming)
+            val folded = d.playlists.toMutableList()
+            val usedIds = d.playlists.map { it.id }.toMutableSet()
+            val created = ArrayList<Playlist>()
+            incoming.forEachIndexed { i, b ->
+                val at = matches[i]
+                if (at != null) {
+                    val mine = folded[at]
+                    val have = mine.tracks.map { it.track.source to it.track.sourceId }.toSet()
+                    folded[at] = mine.copy(tracks = mine.tracks + b.tracks.orEmpty().filter { (it.source to it.sourceId) !in have }
+                        .map { PlaylistTrack(it.toTrack(), now) })
+                } else {
+                    val key = SyncMerge.syncKey(b)
+                    val existing = created.indexOfFirst { it.id == key }
+                    if (existing >= 0) return@forEachIndexed
+                    // the sync id becomes the id here, so the next sync finds it again
+                    val id = key.takeIf { it.isNotBlank() && it !in usedIds } ?: java.util.UUID.randomUUID().toString()
+                    usedIds += id
+                    created += Playlist(id = id, name = b.name, createdAt = ts(b.createdAt), description = b.description, accentColorKey = b.accentColorKey,
+                        moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().map { PlaylistTrack(it.toTrack(), now) })
+                }
             }
             val fKnown = d.followed.map { it.source to it.sourceId }.toSet()
             val sKnown = d.savedPlaylists.map { it.source to it.sourceId }.toSet()
             d.copy(
-                likes = newLikes + d.likes,
-                playlists = merged + created,
+                likes = (newLikes + d.likes).sortedByDescending { it.createdAt },
+                playlists = folded + created,
                 followed = d.followed + p.followedArtists.orEmpty().filter { (it.source to it.sourceId) !in fKnown }
                     .map { FollowedArtist(it.source, it.sourceId, it.name, it.thumbnailUrl, ts(it.followedAt)) },
                 savedPlaylists = d.savedPlaylists + p.savedPlaylists.orEmpty().filter { (it.source to it.sourceId) !in sKnown }
@@ -93,7 +108,7 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
         fun ts(iso: String?) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
         store.mutate { d ->
             d.copy(
-                likes = p.likes.orEmpty().mapIndexed { i, t -> LikedTrack(t.toTrack(), System.currentTimeMillis() - i) },
+                likes = p.likes.orEmpty().mapIndexed { i, t -> LikedTrack(t.toTrack(), likedAt(t.likedAt) ?: (System.currentTimeMillis() - i)) },
                 playlists = p.playlists.orEmpty().map { b ->
                     Playlist(name = b.name, createdAt = ts(b.createdAt), description = b.description, accentColorKey = b.accentColorKey,
                         moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
@@ -120,6 +135,7 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
 
     companion object {
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC)
+        private fun likedAt(iso: String?) = iso?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
         private fun TrackResultDto.toDto() = BackupTrackDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl)
         private fun BackupTrackDto.toTrack() = TrackResultDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl ?: "")
     }

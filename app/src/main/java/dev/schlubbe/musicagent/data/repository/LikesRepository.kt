@@ -30,9 +30,10 @@ class LikesRepository @Inject constructor(
         return likes
     }
 
-    suspend fun like(track: TrackResultDto) {
+    /** [likedAt] keeps the original date of a like that comes from a sync or a backup. */
+    suspend fun like(track: TrackResultDto, likedAt: String? = null) {
         val trackId = "${track.source}:${track.sourceId}"
-        likeDao.insert(LikeEntity(trackId, track.toLocalTrackEntity(), nowIso()))
+        likeDao.insert(LikeEntity(trackId, track.toLocalTrackEntity(), likedAt ?: nowIso()))
         // .update{} rather than a read-modify-write of .value: two concurrent
         // like()/unlike() calls (e.g. liking two different tracks from two rows in
         // quick succession) could otherwise both snapshot the same old set and the
