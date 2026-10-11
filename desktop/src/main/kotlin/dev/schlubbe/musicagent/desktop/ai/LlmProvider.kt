@@ -1,7 +1,11 @@
 package dev.schlubbe.musicagent.desktop.ai
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -22,8 +26,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.BufferedReader
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.coroutineContext
 
 /** A conversation turn in a provider-neutral form. */
 data class Msg(val role: Role, val blocks: List<Block>) {
@@ -32,7 +36,8 @@ data class Msg(val role: Role, val blocks: List<Block>) {
 
 sealed interface Block {
     data class Text(val text: String) : Block
-    data class ToolUse(val id: String, val name: String, val input: JsonObject) : Block
+    /** [broken]: why the arguments cannot be used (invalid JSON, cut off); the tool must not run then. */
+    data class ToolUse(val id: String, val name: String, val input: JsonObject, val broken: String? = null) : Block
     data class ToolResult(val id: String, val content: String, val isError: Boolean) : Block
 }
 
@@ -42,6 +47,9 @@ data class ToolSpec(val name: String, val description: String, val schema: JsonO
 /** A chat model that streams text and asks for tool calls. */
 interface LlmProvider {
     val label: String
+
+    /** How much conversation history (in characters, a rough proxy for tokens) to resend. */
+    val maxHistoryChars: Int get() = 60_000
 
     /** Sends the conversation; [onText] gets text as it streams. Returns the complete assistant message. */
     suspend fun complete(system: String, messages: List<Msg>, tools: List<ToolSpec>, onText: (String) -> Unit): Msg
@@ -65,10 +73,29 @@ internal val localLlmHttp: OkHttpClient by lazy {
         override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
     }
     val ssl = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, arrayOf(trustAll), java.security.SecureRandom()) }
-    llmHttp.newBuilder().sslSocketFactory(ssl.socketFactory, trustAll).hostnameVerifier { host, _ -> isLoopback(host) }.build()
+    llmHttp.newBuilder().sslSocketFactory(ssl.socketFactory, trustAll).hostnameVerifier { host, _ -> isLoopback(host) }
+        // a redirect could lead away from this PC while any certificate is still trusted
+        .followRedirects(false).followSslRedirects(false)
+        .build()
 }
 
-internal fun isLoopback(host: String) = host == "localhost" || host == "::1" || host == "[::1]" || host.startsWith("127.")
+private val IPV4_LITERAL = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
+private val IPV6_LITERAL = Regex("""^[0-9a-fA-F:.]+$""")
+
+/** "localhost" or a loopback IP literal; never a DNS lookup, so "127.evil.com" is not loopback. */
+internal fun isLoopback(host: String): Boolean {
+    val h = host.removePrefix("[").removeSuffix("]")
+    if (h.equals("localhost", ignoreCase = true)) return true
+    val bytes = IPV4_LITERAL.matchEntire(h)?.let { m ->
+        val parts = m.groupValues.drop(1).map { it.toInt() }
+        if (parts.any { it > 255 }) return false
+        ByteArray(4) { parts[it].toByte() }
+    } ?: if (':' in h && IPV6_LITERAL.matches(h)) {
+        // only hex digits, ':' and '.': parsed as an IPv6 literal, not looked up
+        runCatching { InetAddress.getByName(h).address }.getOrNull() ?: return false
+    } else return false
+    return runCatching { InetAddress.getByAddress(bytes).isLoopbackAddress }.getOrDefault(false)
+}
 
 /** The client for [baseUrl]: the lenient local one only for this PC. */
 internal fun httpFor(baseUrl: String): OkHttpClient =
@@ -76,27 +103,39 @@ internal fun httpFor(baseUrl: String): OkHttpClient =
 private val json = Json { ignoreUnknownKeys = true }
 private val JSON_TYPE = "application/json".toMediaType()
 
-/** Posts [body] and feeds every `data:` line of the server-sent event stream to [onData]. */
-private suspend fun postSse(http: OkHttpClient, url: String, headers: Map<String, String>, body: JsonObject, onData: (String) -> Unit) = withContext(Dispatchers.IO) {
+/**
+ * Posts [body] and feeds every `data:` line of the server-sent event stream to [onData].
+ * Cancelling the coroutine cancels the HTTP call at once, also while it waits for the next line.
+ */
+internal suspend fun postSse(http: OkHttpClient, url: String, headers: Map<String, String>, body: JsonObject, onData: (String) -> Unit) {
     val req = Request.Builder().url(url).post(body.toString().toRequestBody(JSON_TYPE)).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
     val call = http.newCall(req)
-    val ctx = coroutineContext
-    call.execute().use { resp ->
-        if (!resp.isSuccessful) {
-            val text = resp.body?.string().orEmpty()
-            val msg = runCatching { json.parseToJsonElement(text).jsonObject["error"]?.let { e -> (e as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull ?: e.toString() } }.getOrNull()
-            throw LlmException("HTTP ${resp.code}: ${msg ?: text.take(300)}")
-        }
-        val reader: BufferedReader = resp.body!!.charStream().buffered()
-        while (true) {
-            if (!ctx.isActiveSafe()) { call.cancel(); break }
-            val line = reader.readLine() ?: break
-            if (line.startsWith("data:")) onData(line.removePrefix("data:").trim())
+    coroutineScope {
+        val watcher = launch { try { awaitCancellation() } finally { call.cancel() } }
+        try {
+            withContext(Dispatchers.IO) {
+                call.execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        val text = resp.body?.string().orEmpty()
+                        val msg = runCatching { json.parseToJsonElement(text).jsonObject["error"]?.let { e -> (e as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull ?: e.toString() } }.getOrNull()
+                        throw LlmException("HTTP ${resp.code}: ${msg ?: text.take(300)}")
+                    }
+                    val reader: BufferedReader = resp.body!!.charStream().buffered()
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (line.startsWith("data:")) onData(line.removePrefix("data:").trim())
+                    }
+                }
+            }
+        } catch (e: java.io.IOException) {
+            // the call was cancelled because the coroutine was: report that, not the closed socket
+            currentCoroutineContext().ensureActive()
+            throw e
+        } finally {
+            watcher.cancel()
         }
     }
 }
-
-private fun kotlin.coroutines.CoroutineContext.isActiveSafe() = runCatching { ensureActive(); true }.getOrDefault(false)
 
 /** Claude over the Anthropic Messages API (streaming, tool use). */
 class AnthropicProvider(
@@ -106,6 +145,7 @@ class AnthropicProvider(
     private val baseUrl: String = "https://api.anthropic.com",
 ) : LlmProvider {
     override val label = "Anthropic · $model"
+    override val maxHistoryChars = 200_000
 
     override suspend fun complete(system: String, messages: List<Msg>, tools: List<ToolSpec>, onText: (String) -> Unit): Msg {
         val body = buildJsonObject {
@@ -152,6 +192,7 @@ internal class AnthropicStream(private val onText: (String) -> Unit) {
     private val blocks = sortedMapOf<Int, Any>() // StringBuilder for text, ToolAcc for tool use
     private class ToolAcc(val id: String, val name: String, val input: StringBuilder = StringBuilder())
     private var error: String? = null
+    private var stopReason: String? = null
 
     fun onData(data: String) {
         val e = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return
@@ -172,16 +213,20 @@ internal class AnthropicStream(private val onText: (String) -> Unit) {
                     "input_json_delta" -> d["partial_json"]?.jsonPrimitive?.contentOrNull?.let { (blocks[i] as? ToolAcc)?.input?.append(it) }
                 }
             }
+            "message_delta" -> ((e["delta"] as? JsonObject)?.get("stop_reason") as? JsonPrimitive)?.contentOrNull?.let { stopReason = it }
             "error" -> error = e["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull ?: data
         }
     }
 
     fun result(): Msg {
         error?.let { throw LlmException(it) }
-        return Msg(Msg.Role.ASSISTANT, blocks.values.mapNotNull { b ->
+        val lastTool = blocks.entries.lastOrNull { it.value is ToolAcc }?.key
+        return Msg(Msg.Role.ASSISTANT, blocks.mapNotNull { (i, b) ->
             when (b) {
                 is StringBuilder -> b.toString().takeIf { it.isNotBlank() }?.let { Block.Text(it) }
-                is ToolAcc -> Block.ToolUse(b.id, b.name, parseArgs(b.input.toString()))
+                // at max_tokens the last tool call may be cut off, even if what arrived happens to parse
+                is ToolAcc -> if (stopReason == "max_tokens" && i == lastTool) Block.ToolUse(b.id, b.name, JsonObject(emptyMap()), CUT_OFF)
+                    else toolUse(b.id, b.name, b.input.toString())
                 else -> null
             }
         })
@@ -203,7 +248,7 @@ class OpenAiProvider(
     private var resolved: String? = model.ifBlank { null }
 
     override suspend fun complete(system: String, messages: List<Msg>, tools: List<ToolSpec>, onText: (String) -> Unit): Msg {
-        val m = resolved ?: (runCatching { listModels(baseUrl, http).firstOrNull() }.getOrNull() ?: "default").also { resolved = it }
+        val m = resolved ?: (runCatching { listModels(baseUrl, apiKey, http).firstOrNull() }.getOrNull() ?: "default").also { resolved = it }
         val body = buildJsonObject {
             put("model", m)
             put("stream", true)
@@ -248,8 +293,9 @@ class OpenAiProvider(
 
     companion object {
         /** Model ids the server offers (GET /models), those that report tool calling first. */
-        suspend fun listModels(baseUrl: String, http: OkHttpClient = httpFor(baseUrl)): List<String> = withContext(Dispatchers.IO) {
-            http.newCall(Request.Builder().url(baseUrl.trimEnd('/') + "/models").build()).execute().use { r ->
+        suspend fun listModels(baseUrl: String, apiKey: String? = null, http: OkHttpClient = httpFor(baseUrl)): List<String> = withContext(Dispatchers.IO) {
+            val req = Request.Builder().url(baseUrl.trimEnd('/') + "/models").apply { apiKey?.let { header("Authorization", "Bearer $it") } }.build()
+            http.newCall(req).execute().use { r ->
                 if (!r.isSuccessful) throw LlmException("HTTP ${r.code}")
                 val data = json.parseToJsonElement(r.body!!.string()).jsonObject["data"]?.jsonArray ?: return@use emptyList()
                 data.mapNotNull { e ->
@@ -268,12 +314,15 @@ internal class OpenAiStream(private val onText: (String) -> Unit) {
     private val text = StringBuilder()
     private class Call(var id: String = "", var name: String = "", val args: StringBuilder = StringBuilder())
     private val calls = sortedMapOf<Int, Call>()
+    private var finish: String? = null
 
     fun onData(data: String) {
         if (data == "[DONE]") return
         val e = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return
         e["error"]?.let { throw LlmException((it as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull ?: it.toString()) }
-        val delta = (e["choices"] as? JsonArray)?.firstOrNull()?.jsonObject?.get("delta") as? JsonObject ?: return
+        val choice = (e["choices"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return
+        (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull?.let { finish = it }
+        val delta = choice["delta"] as? JsonObject ?: return
         (delta["content"] as? JsonPrimitive)?.contentOrNull?.let { if (it.isNotEmpty()) { text.append(it); onText(it) } }
         (delta["tool_calls"] as? JsonArray)?.forEach { tc ->
             val o = tc.jsonObject
@@ -289,13 +338,29 @@ internal class OpenAiStream(private val onText: (String) -> Unit) {
     fun result(): Msg {
         val blocks = ArrayList<Block>()
         // some local models put their reasoning in <think>…</think>; it is not part of the answer
-        val visible = text.toString().replace(Regex("(?s)<think>.*?</think>"), "").trim()
+        val visible = stripThink(text.toString())
         if (visible.isNotEmpty()) blocks += Block.Text(visible)
-        calls.values.forEachIndexed { i, c -> if (c.name.isNotBlank()) blocks += Block.ToolUse(c.id.ifBlank { "call_$i" }, c.name, parseArgs(c.args.toString())) }
+        val named = calls.values.filter { it.name.isNotBlank() }
+        named.forEachIndexed { i, c ->
+            val id = c.id.ifBlank { "call_$i" }
+            blocks += if (finish == "length" && i == named.lastIndex) Block.ToolUse(id, c.name, JsonObject(emptyMap()), CUT_OFF)
+            else toolUse(id, c.name, c.args.toString())
+        }
         return Msg(Msg.Role.ASSISTANT, blocks)
     }
 }
 
-/** Tool arguments as an object; a model that sends broken JSON gets an empty object (the tool then reports what is missing). */
-internal fun parseArgs(s: String): JsonObject =
-    if (s.isBlank()) JsonObject(emptyMap()) else runCatching { json.parseToJsonElement(s).jsonObject }.getOrDefault(JsonObject(emptyMap()))
+/** Tool arguments as an object, or null when they are not a JSON object (e.g. a stream that was cut off). */
+internal fun parseArgs(s: String): JsonObject? =
+    if (s.isBlank()) JsonObject(emptyMap()) else runCatching { json.parseToJsonElement(s) as? JsonObject }.getOrNull()
+
+private const val CUT_OFF = "The answer was cut off (output limit) inside this tool call, so the tool did NOT run. Call it again, with shorter arguments if needed."
+
+/** A tool call; broken arguments become an empty object marked [Block.ToolUse.broken], so the tool does not run. */
+private fun toolUse(id: String, name: String, args: String): Block.ToolUse =
+    parseArgs(args)?.let { Block.ToolUse(id, name, it) }
+        ?: Block.ToolUse(id, name, JsonObject(emptyMap()), "The arguments were not valid JSON, so the tool did NOT run. Call it again with a valid JSON object.")
+
+/** Removes a local model's <think>…</think> reasoning, also an unclosed one at the end. */
+internal fun stripThink(raw: String): String =
+    raw.replace(Regex("(?s)<think>.*?</think>"), "").replace(Regex("(?s)<think>.*$"), "").trim()

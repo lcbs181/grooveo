@@ -45,7 +45,15 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
@@ -133,7 +141,9 @@ fun AiPanel(modifier: Modifier = Modifier) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(st.provider.ifBlank { ai.providerLabel() }, style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.weight(1f))
-                if (st.canUndo && !st.running) TextButton({ ai.undoLast() }) { Text("Letzte Antwort rückgängig", color = c.accent, style = MaterialTheme.typography.labelMedium) }
+                if (st.canUndo && !st.running) TextButton({ ai.undoLast() }) {
+                    Text(st.undoFor?.let { "„$it“ rückgängig" } ?: "Letzte Antwort rückgängig", color = c.accent, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
@@ -151,7 +161,10 @@ private fun AiItemView(item: AiItem, answer: (Long, Boolean) -> Unit) {
         }
         is AiItem.Reply -> if (item.text.isEmpty() && item.streaming) {
             CircularProgressIndicator(Modifier.size(16.dp), color = c.accent, strokeWidth = 2.dp)
-        } else Text(item.text, style = MaterialTheme.typography.bodyMedium, color = c.text)
+        } else {
+            val codeBg = c.accentSoft
+            Text(remember(item.text, codeBg) { markdown(item.text, codeBg) }, style = MaterialTheme.typography.bodyMedium, color = c.text)
+        }
         is AiItem.Action -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when (item.status) {
                 AiItem.Action.Status.RUNNING -> CircularProgressIndicator(Modifier.size(14.dp), color = c.accent, strokeWidth = 2.dp)
@@ -185,4 +198,43 @@ private fun AiItemView(item: AiItem, answer: (Long, Boolean) -> Unit) {
         }
         is AiItem.Notice -> Text(item.text, style = MaterialTheme.typography.bodySmall, color = if (item.error) c.accent2 else c.textMuted)
     }
+}
+
+private val INLINE = Regex("""\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)""")
+private val BULLET = Regex("""^(\s*)[-*+]\s+(.*)$""")
+private val NUMBERED = Regex("""^(\s*)(\d+)[.)]\s+(.*)$""")
+private val HEADING = Regex("""^#{1,6}\s+(.*)$""")
+
+/**
+ * The simple Markdown models write in replies: **bold**, *italic*, `code`, "- " bullets,
+ * numbered lists and headings. Anything else stays as written.
+ */
+internal fun markdown(text: String, codeBackground: Color = Color.Unspecified): AnnotatedString = buildAnnotatedString {
+    text.lines().forEachIndexed { i, line ->
+        if (i > 0) append('\n')
+        val bullet = BULLET.matchEntire(line)
+        val numbered = NUMBERED.matchEntire(line)
+        val heading = HEADING.matchEntire(line)
+        when {
+            bullet != null -> { append(bullet.groupValues[1] + "• "); inline(bullet.groupValues[2], codeBackground) }
+            numbered != null -> { append("${numbered.groupValues[1]}${numbered.groupValues[2]}. "); inline(numbered.groupValues[3], codeBackground) }
+            heading != null -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { inline(heading.groupValues[1], codeBackground) }
+            else -> inline(line, codeBackground)
+        }
+    }
+}
+
+private fun AnnotatedString.Builder.inline(s: String, codeBackground: Color) {
+    var at = 0
+    for (m in INLINE.findAll(s)) {
+        append(s.substring(at, m.range.first))
+        val g = m.groupValues
+        when {
+            g[1].isNotEmpty() || g[2].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { inline(g[1].ifEmpty { g[2] }, codeBackground) }
+            g[3].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)) { append(g[3]) }
+            else -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { inline(g[4].ifEmpty { g[5] }, codeBackground) }
+        }
+        at = m.range.last + 1
+    }
+    append(s.substring(at))
 }

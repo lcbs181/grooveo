@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.desktop.mcp
 
 import dev.schlubbe.musicagent.desktop.data.gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -38,7 +39,11 @@ class ToolDef(
         }
         return result.fold(
             onSuccess = { true to if (it is String) it else gson.toJson(it) },
-            onFailure = { false to (it.message ?: it.javaClass.simpleName) },
+            onFailure = {
+                // a stopped turn must stop here, not report the cancellation as a tool error
+                if (it is CancellationException) throw it
+                false to (it.message ?: it.javaClass.simpleName)
+            },
         )
     }
 }

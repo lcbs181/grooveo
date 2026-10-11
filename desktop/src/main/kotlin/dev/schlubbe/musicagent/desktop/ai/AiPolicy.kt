@@ -3,6 +3,7 @@ package dev.schlubbe.musicagent.desktop.ai
 import dev.schlubbe.musicagent.desktop.audio.FxUnitSpec
 import dev.schlubbe.musicagent.desktop.data.Settings
 import dev.schlubbe.musicagent.desktop.mcp.ToolDef
+import dev.schlubbe.musicagent.playback.eq.EqProfile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -28,22 +29,31 @@ class AiPolicy {
     /** Loudness changes the user already allowed, by tool and value. */
     private val approved = HashSet<String>()
 
-    fun kindOf(def: ToolDef, args: JsonObject): Kind? {
+    fun kindOf(def: ToolDef, args: JsonObject, s: Settings? = null): Kind? {
         if (!def.mutates) return null
+        val patch = args["settings"] as? JsonObject
         return when {
             def.destructive || def.name in DELETE_TOOLS -> Kind.DELETE
             def.name in FX_TOOLS -> Kind.FX
             def.name in LOUDNESS_TOOLS -> Kind.LOUDNESS
             def.name == "set_deck_fx" -> if (args.str("param") in LOUDNESS_FX) Kind.LOUDNESS else Kind.FX
-            def.name == "update_settings" && (args["settings"] as? JsonObject)?.keys?.any { it in LOUDNESS_SETTINGS } == true -> Kind.LOUDNESS
-            def.name == "update_settings" && (args["settings"] as? JsonObject)?.keys?.any { it in FX_SETTINGS } == true -> Kind.FX
+            def.name == "update_settings" && patch != null && s != null && removesFromList(patch, s) -> Kind.DELETE
+            def.name == "update_settings" && patch?.keys?.any { it in LOUDNESS_SETTINGS } == true -> Kind.LOUDNESS
+            def.name == "update_settings" && patch?.keys?.any { it in FX_SETTINGS } == true -> Kind.FX
             else -> Kind.OTHER
         }
     }
 
+    /** Whether a settings patch drops entries from a list setting (e.g. preferred artists). */
+    private fun removesFromList(patch: JsonObject, s: Settings): Boolean = patch.entries.any { (k, v) ->
+        val now = LIST_SETTINGS[k]?.invoke(s) ?: return@any false
+        val next = (v as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.toSet() ?: emptySet()
+        now.any { it !in next }
+    }
+
     /** The question to ask before [def] runs with [args], or null to run it directly. */
     fun check(def: ToolDef, args: JsonObject, s: Settings): Ask? {
-        val kind = kindOf(def, args) ?: return null
+        val kind = kindOf(def, args, s) ?: return null
         val on = when (kind) {
             Kind.DELETE -> s.aiAskDelete
             Kind.FX -> s.aiAskFx
@@ -71,7 +81,9 @@ class AiPolicy {
     /** A request that would not change anything (e.g. the volume it already has) needs no question. */
     private fun unchanged(def: ToolDef, args: JsonObject, s: Settings): Boolean = when (def.name) {
         "set_volume" -> args.num("volume")?.let { kotlin.math.abs(it - s.volume) < 0.005 } == true
-        "apply_eq_preset" -> args.str("name")?.equals(s.eq.name, ignoreCase = true) == true && s.eq.enabled
+        // a saved preset may have a built-in's name with other content: compare what would be set
+        "apply_eq_preset" -> args.str("name")?.let { n -> (s.eqUserPresets + EqProfile.PRESETS).firstOrNull { it.name.equals(n, ignoreCase = true) } }
+            ?.let { p -> s.eq.enabled && p.copy(enabled = true).normalized() == s.eq.normalized() } == true
         else -> false
     }
 
@@ -116,6 +128,11 @@ class AiPolicy {
         val LOUDNESS_FX = setOf("volume", "eq_low", "eq_mid", "eq_high")
         val LOUDNESS_SETTINGS = setOf("volume", "loudnessNormalization", "eq")
         val FX_SETTINGS = setOf("fxChain", "sound3dPreset")
+        /** List settings update_settings may change; dropping an entry counts as deleting. */
+        private val LIST_SETTINGS: Map<String, (Settings) -> List<String>> = mapOf(
+            "preferredGenres" to { it.preferredGenres },
+            "preferredArtists" to { it.preferredArtists },
+        )
     }
 }
 
