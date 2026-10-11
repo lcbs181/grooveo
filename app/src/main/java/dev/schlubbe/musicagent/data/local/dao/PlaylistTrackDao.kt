@@ -9,6 +9,9 @@ import dev.schlubbe.musicagent.data.local.entity.PlaylistTrackEntity
 
 @Dao
 interface PlaylistTrackDao {
+    @Query("SELECT * FROM playlist_tracks")
+    suspend fun getAll(): List<PlaylistTrackEntity>
+
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position ASC")
     suspend fun getForPlaylist(playlistId: String): List<PlaylistTrackEntity>
 

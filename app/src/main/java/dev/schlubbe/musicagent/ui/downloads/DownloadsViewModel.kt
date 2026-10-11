@@ -17,7 +17,9 @@ import dev.schlubbe.musicagent.playback.PlayerController
 import dev.schlubbe.musicagent.ui.library.DownloadUiItem
 import dev.schlubbe.musicagent.ui.library.toTrackResultDto
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -67,6 +69,18 @@ class DownloadsViewModel @Inject constructor(
             StorageInfo(usedBytes = used, totalBytes = deviceTotalBytes())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StorageInfo(0L, 0L))
+
+    private val _found = MutableStateFlow<String?>(null)
+    /** What the last scan of the phone added ("3 Downloads auf dem Handy gefunden"). */
+    val found: StateFlow<String?> = _found.asStateFlow()
+
+    /** Looks for downloaded files on the phone that the list does not show yet. */
+    fun scanDevice() {
+        viewModelScope.launch {
+            val n = runCatching { downloadRepository.scanDevice() }.getOrDefault(0)
+            if (n > 0) _found.value = if (n == 1) "1 Download auf dem Handy gefunden" else "$n Downloads auf dem Handy gefunden"
+        }
+    }
 
     fun setDataSaverMode(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setDataSaverMode(enabled) }

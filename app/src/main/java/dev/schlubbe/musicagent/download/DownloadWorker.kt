@@ -127,9 +127,7 @@ class DownloadWorker @AssistedInject constructor(
                 // kept on failure so a retry can go straight back to finalizing
                 // instead of re-downloading the whole track.
                 try {
-                    val displayName = sanitizeFileName(
-                        if (artist.isBlank()) title else "$artist - $title",
-                    ) + extensionFor(outcome.mimeType)
+                    val displayName = DeviceDownloads.baseName(artist, title) + extensionFor(outcome.mimeType)
 
                     val uri = MediaStoreWriter(applicationContext).write(
                         displayName = displayName,

@@ -62,6 +62,33 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
     val downloads by viewModel.downloads.collectAsState()
     val dataSaver by viewModel.dataSaverMode.collectAsState()
     val storage by viewModel.storage.collectAsState()
+    val found by viewModel.found.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audioPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        android.Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        android.Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    fun hasAudioAccess() = androidx.core.content.ContextCompat.checkSelfPermission(context, audioPermission) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    var audioAccess by remember { mutableStateOf(hasAudioAccess()) }
+    val askAudio = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        audioAccess = granted
+        viewModel.scanDevice()
+    }
+    // Downloads made before a reinstall are still on the phone: find them every time the tab opens.
+    // Reading files of an earlier install needs the audio permission, asked once by itself.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("downloads_scan", android.content.Context.MODE_PRIVATE)
+        if (!audioAccess && !prefs.getBoolean("asked", false)) {
+            prefs.edit().putBoolean("asked", true).apply()
+            askAudio.launch(audioPermission)
+        } else {
+            viewModel.scanDevice()
+        }
+    }
 
     val queue = downloads.filter { it.entity.state != DownloadState.COMPLETED }
     var query by rememberSaveable { mutableStateOf("") }
@@ -101,6 +128,39 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
                     color = Canopy.text,
                     modifier = Modifier.padding(bottom = 16.dp),
                 )
+            }
+
+            found?.let { msg ->
+                item {
+                    Text(msg, style = MaterialTheme.typography.bodySmall, color = Canopy.accent, modifier = Modifier.padding(bottom = 12.dp))
+                }
+            }
+            if (!audioAccess) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                            .clip(CanopyShapes.medium)
+                            .background(Canopy.surface)
+                            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text("Downloads auf dem Handy finden", style = MaterialTheme.typography.bodyMedium, color = Canopy.text)
+                        Text(
+                            "Titel, die Grooveo früher heruntergeladen hat (z. B. vor einer Neuinstallation), liegen noch in Musik/ und Download/. " +
+                                "Mit Zugriff auf Audiodateien zeigt Grooveo sie hier wieder an.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Canopy.neutral500,
+                        )
+                        dev.schlubbe.musicagent.ui.components.CanopyButton(
+                            text = "Zugriff erlauben",
+                            onClick = { askAudio.launch(audioPermission) },
+                            variant = CanopyButtonVariant.Secondary,
+                        )
+                    }
+                }
             }
 
             item {
