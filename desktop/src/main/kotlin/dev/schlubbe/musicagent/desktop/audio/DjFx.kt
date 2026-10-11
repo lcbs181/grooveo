@@ -122,6 +122,8 @@ internal class Isolator {
     private val ap2 = Biquad()
     private val g = DoubleArray(3) { 1.0 }
     private val target = DoubleArray(3) { 1.0 }
+    /** Share of the filtered signal: 0 = bypassed (dry), 1 = filtered; fades between the two (see [BYPASS_FADE]). */
+    private var wet = 0.0
 
     init {
         val q = 1 / sqrt(2.0)
@@ -136,27 +138,42 @@ internal class Isolator {
 
     val neutral: Boolean get() = (0..2).all { g[it] == 1.0 && target[it] == 1.0 }
 
-    /** Jumps to the target gains (no fade in). */
-    fun settle() { for (k in 0..2) g[k] = target[k] }
+    /** Not processing at all (neutral and faded out to the dry signal). */
+    val bypassed: Boolean get() = wet == 0.0 && neutral
 
+    /** Jumps to the target gains (no fade in). */
+    fun settle() { for (k in 0..2) g[k] = target[k]; wet = if (neutral) 0.0 else 1.0 }
+
+    /**
+     * The band sum is an all-pass, not the dry signal, so switching between the two
+     * would click: entering and leaving bypass crossfades over [BYPASS_FADE].
+     */
     fun process(buf: FloatArray, from: Int, frames: Int) {
+        val on = !neutral
+        if (!on && wet == 0.0) return
+        if (on && wet == 0.0) clearState()
         for (i in from until from + frames) {
             for (k in 0..2) g[k] += (target[k] - g[k]) * SMOOTH
+            wet = if (on) minOf(1.0, wet + FADE_STEP) else maxOf(0.0, wet - FADE_STEP)
             for (ch in 0..1) {
                 val x = buf[2 * i + ch].toDouble()
                 val low = ap2.process(lp1[1].process(lp1[0].process(x, ch), ch), ch)
                 val rest = hp1[1].process(hp1[0].process(x, ch), ch)
                 val mid = lp2[1].process(lp2[0].process(rest, ch), ch)
                 val high = hp2[1].process(hp2[0].process(rest, ch), ch)
-                buf[2 * i + ch] = (low * g[0] + mid * g[1] + high * g[2]).toFloat()
+                val y = low * g[0] + mid * g[1] + high * g[2]
+                buf[2 * i + ch] = (if (wet >= 1.0) y else x + (y - x) * wet).toFloat()
             }
         }
         for (k in 0..2) if (kotlin.math.abs(g[k] - target[k]) < 1e-6) g[k] = target[k]
     }
 
+    private fun clearState() { (lp1 + hp1 + lp2 + hp2).forEach { it.reset() }; ap2.reset() }
+
     fun reset() {
-        (lp1 + hp1 + lp2 + hp2).forEach { it.reset() }; ap2.reset()
+        clearState()
         g.fill(1.0); target.fill(1.0)
+        wet = 0.0
     }
 
     companion object {
@@ -177,40 +194,54 @@ internal class SweepFilter(private val highpass: Boolean) {
     private var targetLog = logCut
     private val k = 1 / 0.85 // Q 0.85: a little resonance at the cutoff
     private val off: Double get() = if (highpass) FxParam.HIGHPASS.min else FxParam.LOWPASS.max
+    private val offLog = ln(off)
+    /** Share of the filtered signal: 0 = bypassed (dry), 1 = filtered; fades between the two (see [BYPASS_FADE]). */
+    private var wet = 0.0
 
     fun setCutoff(hz: Double) { targetLog = ln(hz.coerceIn(20.0, 20_000.0)) }
 
     /** Sets the cutoff without gliding there (a filter that starts in place). */
-    fun jumpTo(hz: Double) { setCutoff(hz); logCut = targetLog }
+    fun jumpTo(hz: Double) { setCutoff(hz); logCut = targetLog; wet = if (atOff) 0.0 else 1.0 }
 
-    val bypassed: Boolean get() = logCut == targetLog && logCut == ln(off)
+    private val atOff: Boolean get() = logCut == targetLog && logCut == offLog
 
+    val bypassed: Boolean get() = atOff && wet == 0.0
+
+    /**
+     * Even at its off cutoff the filter is not the dry signal (phase, resonance), so
+     * entering and leaving bypass crossfades over [BYPASS_FADE].
+     */
     fun process(buf: FloatArray, from: Int, frames: Int) {
         if (bypassed) return
+        if (wet == 0.0) { ic1.fill(0.0); ic2.fill(0.0) }
         var i = from
         while (i < from + frames) {
             val n = minOf(16, from + frames - i)
             logCut += (targetLog - logCut) * SMOOTH_16
             if (kotlin.math.abs(targetLog - logCut) < 1e-4) logCut = targetLog
+            val on = !atOff
             val g = tan(PI * exp(logCut).coerceAtMost(SAMPLE_RATE * 0.45) / SAMPLE_RATE)
             val a1 = 1 / (1 + g * (g + k))
             val a2 = g * a1
             val a3 = g * a2
-            for (j in i until i + n) for (ch in 0..1) {
-                val v0 = buf[2 * j + ch].toDouble()
-                val v3 = v0 - ic2[ch]
-                val v1 = a1 * ic1[ch] + a2 * v3
-                val v2 = ic2[ch] + a2 * ic1[ch] + a3 * v3
-                ic1[ch] = 2 * v1 - ic1[ch]
-                ic2[ch] = 2 * v2 - ic2[ch]
-                buf[2 * j + ch] = (if (highpass) v0 - k * v1 - v2 else v2).toFloat()
+            for (j in i until i + n) {
+                wet = if (on) minOf(1.0, wet + FADE_STEP) else maxOf(0.0, wet - FADE_STEP)
+                for (ch in 0..1) {
+                    val v0 = buf[2 * j + ch].toDouble()
+                    val v3 = v0 - ic2[ch]
+                    val v1 = a1 * ic1[ch] + a2 * v3
+                    val v2 = ic2[ch] + a2 * ic1[ch] + a3 * v3
+                    ic1[ch] = 2 * v1 - ic1[ch]
+                    ic2[ch] = 2 * v2 - ic2[ch]
+                    val y = if (highpass) v0 - k * v1 - v2 else v2
+                    buf[2 * j + ch] = (if (wet >= 1.0) y else v0 + (y - v0) * wet).toFloat()
+                }
             }
             i += n
         }
-        if (bypassed) { ic1.fill(0.0); ic2.fill(0.0) }
     }
 
-    fun reset() { ic1.fill(0.0); ic2.fill(0.0); logCut = ln(off); targetLog = logCut }
+    fun reset() { ic1.fill(0.0); ic2.fill(0.0); logCut = offLog; targetLog = logCut; wet = 0.0 }
 }
 
 /**
@@ -296,7 +327,7 @@ class DeckFx {
 
     /** Processes [frames] frames of [buf] in place (deck output to post-fader) and adds the echo into [mix]. */
     fun process(buf: FloatArray, mix: FloatArray, from: Int, frames: Int) {
-        if (!iso.neutral) iso.process(buf, from, frames)
+        iso.process(buf, from, frames)
         hpf.process(buf, from, frames)
         lpf.process(buf, from, frames)
         if (gain != 1.0 || gainTarget != 1.0) {
@@ -332,3 +363,6 @@ class DeckFx {
 /** One-pole smoothing per sample, ~5 ms at 48 kHz. */
 private val SMOOTH = 1 - exp(-1.0 / (0.005 * SAMPLE_RATE))
 private val SMOOTH_16 = 1 - exp(-16.0 / (0.005 * SAMPLE_RATE))
+/** Crossfade between a filter's dry and processed output when it enters or leaves bypass. */
+private const val BYPASS_FADE = 0.01
+private val FADE_STEP = 1 / (BYPASS_FADE * SAMPLE_RATE)

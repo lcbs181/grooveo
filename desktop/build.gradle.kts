@@ -28,7 +28,10 @@ val nativePlatform = System.getProperty("os.name").lowercase().let { os ->
 //  - aubio 0.4.9 (beat tracking, GPL-3.0)
 //  - Signalsmith Stretch 1.4.0 + Signalsmith Linear 0.6.4 (time-stretching, MIT)
 // Release tarballs are downloaded and checked against their SHA-256. Needs CMake and
-// a C/C++ compiler (gcc/clang, or MSVC on Windows).
+// a C/C++ compiler (gcc/clang, or MSVC on Windows); -Pgrooveo.cmake=<path> picks the
+// CMake binary. Packaging always builds it. For tests and `run` it is skipped with a
+// warning when CMake or the download is unavailable: the app then runs without BPM
+// detection and tempo sync, and the tests that need the library are skipped.
 data class NativeSource(val dir: String, val url: String, val sha256: String)
 val nativeSources = mapOf(
     "AUBIO_SRC" to NativeSource("aubio-0.4.9", "https://aubio.org/pub/aubio-0.4.9.tar.bz2",
@@ -41,22 +44,79 @@ val nativeSources = mapOf(
 val composeResourceOs = nativePlatform.replace("x86_64", "x64").replace("macosx", "macos")
 val isWindows = nativePlatform.startsWith("windows")
 val nativeDir = layout.buildDirectory.dir("native")
+val nativeLibName = when {
+    isWindows -> "grooveo_native.dll"
+    nativePlatform.startsWith("macosx") -> "libgrooveo_native.dylib"
+    else -> "libgrooveo_native.so"
+}
+val nativeOutDir = nativeDir.map { it.dir("resources/$composeResourceOs") }
+val cmake = providers.gradleProperty("grooveo.cmake").getOrElse("cmake")
+val cmakeAvailable by lazy {
+    runCatching {
+        val p = ProcessBuilder(cmake, "--version").redirectErrorStream(true).start()
+        p.inputStream.readAllBytes()
+        p.waitFor() == 0
+    }.getOrDefault(false)
+}
+/** A packaging task runs: then a missing CMake, download or compiler fails the build. */
+var nativeRequired = false
+gradle.taskGraph.whenReady {
+    nativeRequired = allTasks.any { it.project == project && (it.name.startsWith("package") || it.name.contains("Distributable")) }
+}
+/** Why the native library is not built in this run (tests and `run` only), or null. */
+var nativeSkipped: String? = null
+/** Records [reason] (rethrows [e] when packaging) and warns once. */
+fun skipNative(reason: String, e: Exception? = null) {
+    if (nativeRequired) throw e ?: GradleException(reason)
+    if (nativeSkipped != null) return
+    nativeSkipped = reason
+    logger.warn("WARNING: native DSP library not built: $reason\n  The app runs without BPM detection and tempo sync, tests that need the library are skipped. Packaging requires it.")
+}
+fun nativeWanted(): Boolean {
+    if (nativeSkipped == null && !nativeRequired && !cmakeAvailable) skipNative("'$cmake' not found (install CMake and a C/C++ compiler, or set -Pgrooveo.cmake=<path>)")
+    return nativeSkipped == null
+}
+fun nativeSourceFile(dl: Directory, src: NativeSource) = dl.file("${src.dir}-${src.url.substringAfterLast('/')}").asFile
 val downloadNativeSources by tasks.registering {
     val dl = nativeDir.map { it.dir("download") }
     inputs.property("sources", nativeSources.values.map { it.sha256 })
     outputs.dir(dl)
+    outputs.upToDateWhen { nativeSources.values.all { nativeSourceFile(dl.get(), it).isFile } }
+    onlyIf { nativeWanted() }
     doLast {
-        nativeSources.values.forEach { src ->
-            val f = dl.get().file(src.url.substringAfterLast('/').let { "${src.dir}-$it" }).asFile
-            f.parentFile.mkdirs()
-            if (!f.isFile) uri(src.url).toURL().openStream().use { s -> f.outputStream().use { s.copyTo(it) } }
-            val sha = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
-            if (sha != src.sha256) { f.delete(); throw GradleException("${f.name}: SHA-256 $sha, expected ${src.sha256}") }
+        try {
+            nativeSources.values.forEach { src ->
+                val f = nativeSourceFile(dl.get(), src)
+                f.parentFile.mkdirs()
+                if (!f.isFile) {
+                    val part = File(f.path + ".part")
+                    try {
+                        val c = uri(src.url).toURL().openConnection().apply { connectTimeout = 30_000; readTimeout = 60_000 }
+                        c.getInputStream().use { s -> part.outputStream().use { s.copyTo(it) } }
+                    } catch (e: java.io.IOException) {
+                        part.delete()
+                        throw GradleException("Download of ${src.url} failed ($e). Check the network connection or proxy settings.", e)
+                    }
+                    part.renameTo(f)
+                }
+                val sha = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+                if (sha != src.sha256) {
+                    f.delete()
+                    throw GradleException(
+                        "${src.url}: SHA-256 $sha, expected ${src.sha256}. Either the download was corrupted or replaced, " +
+                            "or GitHub regenerated the archive tarball with a different checksum (this happens). " +
+                            "Verify the source before updating the hash in desktop/build.gradle.kts."
+                    )
+                }
+            }
+        } catch (e: GradleException) {
+            skipNative(e.message ?: e.toString(), e)
         }
     }
 }
 val unpackNativeSources by tasks.registering(Sync::class) {
     dependsOn(downloadNativeSources)
+    onlyIf { nativeWanted() }
     nativeSources.values.forEach { src ->
         val name = "${src.dir}-${src.url.substringAfterLast('/')}"
         from(nativeDir.map { d ->
@@ -69,25 +129,26 @@ val unpackNativeSources by tasks.registering(Sync::class) {
 val buildNative by tasks.registering {
     val srcDir = project.file("native")
     val cmakeDir = nativeDir.map { it.dir("cmake") }
-    val outDir = nativeDir.map { it.dir("resources/$composeResourceOs") }
     dependsOn(unpackNativeSources)
     inputs.dir(srcDir)
     inputs.files(unpackNativeSources)
-    outputs.dir(outDir)
+    outputs.dir(nativeOutDir)
+    outputs.upToDateWhen { nativeOutDir.get().file(nativeLibName).asFile.isFile }
+    onlyIf { nativeWanted() }
     doLast {
         val build = cmakeDir.get().asFile
         val defs = nativeSources.map { (k, v) -> "-D$k=${nativeDir.get().dir("src/${v.dir}").asFile}" }
-        providers.exec { commandLine(listOf("cmake", "-S", srcDir.path, "-B", build.path, "-DCMAKE_BUILD_TYPE=Release") + defs) }.result.get()
-        providers.exec { commandLine("cmake", "--build", build, "--config", "Release") }.result.get()
-        val name = when {
-            isWindows -> "grooveo_native.dll"
-            nativePlatform.startsWith("macosx") -> "libgrooveo_native.dylib"
-            else -> "libgrooveo_native.so"
+        try {
+            providers.exec { commandLine(listOf(cmake, "-S", srcDir.path, "-B", build.path, "-DCMAKE_BUILD_TYPE=Release") + defs) }.result.get()
+            providers.exec { commandLine(cmake, "--build", build, "--config", "Release") }.result.get()
+        } catch (e: Exception) {
+            skipNative("CMake build failed: ${e.message}", e)
+            return@doLast
         }
-        val lib = build.walkTopDown().first { it.name == name }
-        val out = outDir.get().asFile
+        val lib = build.walkTopDown().first { it.name == nativeLibName }
+        val out = nativeOutDir.get().asFile
         out.deleteRecursively(); out.mkdirs()
-        lib.copyTo(out.resolve(name))
+        lib.copyTo(out.resolve(nativeLibName))
     }
 }
 
@@ -197,7 +258,10 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     dependsOn(buildNative)
-    systemProperty("grooveo.native.dir", nativeDir.get().dir("resources/$composeResourceOs").asFile.absolutePath)
+    systemProperty("grooveo.native.dir", nativeOutDir.get().asFile.absolutePath)
+    // tests that need the native library skip themselves only when it could not be built
+    inputs.property("nativeBuilt", provider { nativeOutDir.get().file(nativeLibName).asFile.isFile })
+    doFirst { if (!nativeOutDir.get().file(nativeLibName).asFile.isFile) systemProperty("grooveo.native.skipped", "true") }
 }
 
 compose.desktop {

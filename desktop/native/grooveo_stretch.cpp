@@ -67,6 +67,19 @@ GROOVEO_API void grooveo_stretch_process(void *h, const float *in, int in_frames
     for (int c = 0; c < ch; c++) out[i * ch + c] = st->out[c][i];
 }
 
+/**
+ * After the last input: writes the remaining out_frames interleaved frames (the
+ * latency's worth of output still inside the stretcher) at the given rate.
+ */
+GROOVEO_API void grooveo_stretch_flush(void *h, float *out, int out_frames, float rate) {
+  auto *st = (Stretch *)h;
+  int ch = st->channels;
+  st->ensure(0, out_frames);
+  st->s.flush(st->outPtr.data(), out_frames, rate);
+  for (int i = 0; i < out_frames; i++)
+    for (int c = 0; c < ch; c++) out[i * ch + c] = st->out[c][i];
+}
+
 GROOVEO_API void grooveo_stretch_reset(void *h) { ((Stretch *)h)->s.reset(); }
 
 GROOVEO_API void grooveo_stretch_free(void *h) { delete (Stretch *)h; }

@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.audio
 
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.sqrt
 
 /** One effect in an [FxChain]: a [type] from [FxUnitSpec.ALL] with its numeric [params] (and a 3D-Sound [preset] for "room"). */
@@ -50,19 +51,20 @@ class MasterFx {
     private interface Stage { fun process(buf: FloatArray, frames: Int) }
 
     @Volatile private var stages: List<Stage> = emptyList()
-    @Volatile private var pending: List<Stage>? = null
+    /** Chain to crossfade to; cleared by the mixer only if no newer one arrived meanwhile. */
+    private val pending = AtomicReference<List<Stage>?>(null)
     /** Beat length of the playing track, for the echo. */
     @Volatile var beatSec: Double = 0.5
     private val tmp = FloatArray(AudioEngine.BLOCK * 2)
 
     fun set(chain: FxChain?) {
-        pending = (chain?.units ?: emptyList()).mapNotNull { stageFor(it) }
+        pending.set((chain?.units ?: emptyList()).mapNotNull { stageFor(it) })
     }
 
-    val active: Boolean get() = stages.isNotEmpty() || pending != null
+    val active: Boolean get() = stages.isNotEmpty() || pending.get() != null
 
     fun process(buf: FloatArray, frames: Int) {
-        val next = pending
+        val next = pending.get()
         if (next == null) { for (s in stages) s.process(buf, frames); return }
         System.arraycopy(buf, 0, tmp, 0, frames * 2)
         for (s in stages) s.process(buf, frames)
@@ -73,7 +75,7 @@ class MasterFx {
             buf[2 * i + 1] = buf[2 * i + 1] * (1 - t) + tmp[2 * i + 1] * t
         }
         stages = next
-        pending = null
+        pending.compareAndSet(next, null)
     }
 
     private fun stageFor(u: FxUnit): Stage? {
