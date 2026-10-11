@@ -53,7 +53,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     val backup = BackupManager(store, settings, File(dataDir, "backups"))
     val sync = dev.schlubbe.musicagent.desktop.data.SyncServer(backup, File(dataDir, "sync.json"))
         .also { if (it.enabled) runCatching { it.start() } }
-    val updates = UpdateChecker(http, APP_VERSION)
+    val updates = UpdateChecker(http, APP_VERSION, File(dataDir, "updates"))
     val player = PlayerController(
         AudioEngine({ FfmpegDeck(it) }, JavaSoundSink()).apply { loudnessCache = LoudnessCache(File(dataDir, "loudness.json")) },
         resolveRemote = { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec) },

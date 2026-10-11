@@ -19,6 +19,9 @@ val localProperties = Properties().apply {
 }
 
 android {
+    // Native libraries compressed in the APK (~9 MB smaller download): Android unpacks
+    // only the device's ABI at install, so the space used on the phone shrinks as well.
+    packaging { jniLibs { useLegacyPackaging = true } }
     // Deliberately NOT changed: every .kt file in this source tree still declares
     // `package dev.schlubbe.musicagent...`, and AndroidManifest.xml's component
     // entries (e.g. ".MainActivity") resolve against `namespace`, not applicationId.
@@ -52,7 +55,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 only drops unused library code (see proguard-rules.pro: the app's own
+            // classes are kept as they are), unused resources go too.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Signed with the same debug keystore the published debug APKs used, so
             // this installs as an in-place update over them. The point of release
             // over debug is debuggable=false: a debuggable build runs mostly in the

@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -108,6 +109,8 @@ fun SettingsScreen() {
     var confirmRestore by remember { mutableStateOf<File?>(null) }
     var checking by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    var progress by remember { mutableStateOf<Float?>(null) }
+    var updateJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var cacheBytes by remember { mutableStateOf<Long?>(null) }
     fun set(f: (Settings) -> Settings) = g.settings.update(f)
     LaunchedEffect(Unit) { cacheBytes = withContext(Dispatchers.IO) { settingsDirSize(imageCacheDir()) } }
@@ -318,23 +321,55 @@ fun SettingsScreen() {
         )
     }
     update?.let { u ->
+        val asset = remember(u) { g.updates.assetFor(u) }
         AlertDialog(
-            onDismissRequest = { update = null },
+            onDismissRequest = { if (progress == null) update = null },
             title = { Text("Ein Update ist verfügbar") },
             text = {
                 Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Grooveo ${u.version} (installiert: $APP_VERSION)", fontWeight = FontWeight.SemiBold)
+                    progress?.let { p ->
+                        Text(if (p < 1f) "Wird heruntergeladen … ${(p * 100).toInt()} %" else "Wird installiert …", style = MaterialTheme.typography.bodySmall)
+                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth(), color = c.accent2)
+                    }
                     if (u.notes.isNotBlank()) Text(u.notes, style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
-                TextButton({
-                    update = null
-                    runCatching { Desktop.getDesktop().browse(URI(u.url.ifBlank { "https://github.com/lcbs181/grooveo/releases/latest" })) }
-                        .onFailure { ui.copyLink(u.url) }
-                }) { Text("Jetzt aktualisieren", color = c.accent2) }
+                TextButton(
+                    {
+                        if (asset == null) {
+                            update = null
+                            runCatching { Desktop.getDesktop().browse(URI(u.url.ifBlank { "https://github.com/lcbs181/grooveo/releases/latest" })) }
+                                .onFailure { ui.copyLink(u.url) }
+                            return@TextButton
+                        }
+                        progress = 0f
+                        updateJob = scope.launch {
+                            runCatching {
+                                val file = g.updates.download(asset) { p -> progress = p }
+                                progress = 1f
+                                g.updates.install(file)
+                            }.onSuccess { quit ->
+                                progress = null; update = null
+                                if (quit) {
+                                    g.close()
+                                    kotlin.system.exitProcess(0)
+                                } else ui.toast("Installer geöffnet – dort das Update bestätigen")
+                            }.onFailure { e ->
+                                progress = null
+                                if (e !is kotlinx.coroutines.CancellationException) ui.toast("Update fehlgeschlagen: ${e.message}")
+                            }
+                        }
+                    },
+                    enabled = progress == null,
+                ) { Text(if (asset == null) "Zur Download-Seite" else "Jetzt aktualisieren", color = c.accent2) }
             },
-            dismissButton = { TextButton({ update = null }) { Text("Später") } },
+            dismissButton = {
+                TextButton({
+                    updateJob?.cancel(); updateJob = null; progress = null; update = null
+                }) { Text(if (progress != null) "Abbrechen" else "Später") }
+            },
             containerColor = c.surface,
         )
     }
