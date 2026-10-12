@@ -804,7 +804,7 @@ class GrooveoTools(
             val name = a.string("name")!!
             val p = (g.settings.current.eqUserPresets + EqProfile.PRESETS).firstOrNull { it.name.equals(name, ignoreCase = true) }
                 ?: error("No preset '$name'")
-            ui { g.settings.update { it.copy(eq = p.copy(enabled = true)) } }
+            ui { g.settings.update { it.copy(eq = it.eq.withPreset(p)) } }
             "EQ: ${p.name}"
         }
         tool("save_eq_preset", "Save the current EQ as a user preset.", props = mapOf("name" to str("")), required = listOf("name"), mutates = true) { a ->

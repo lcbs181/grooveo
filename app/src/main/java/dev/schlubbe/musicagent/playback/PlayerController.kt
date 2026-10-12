@@ -131,6 +131,9 @@ data class PlaybackUiState(
             playerState != androidx.media3.common.Player.STATE_ENDED
 }
 
+/** Nothing can be played here (DRM-only track): only skipping moves on. After a playback error Play retries. */
+val PlaybackUiState.playBlocked: Boolean get() = isUnavailable && unavailableMessage != PLAYBACK_ERROR_MESSAGE
+
 /** Single shared [MediaController], connected lazily, that every screen plays through. */
 @Singleton
 class PlayerController @Inject constructor(
@@ -416,7 +419,10 @@ class PlayerController @Inject constructor(
                 // on the first one instead of letting the transition to newLogicalIndex
                 // happen; the real track ExoPlayer already moved to stays loaded
                 // (paused) there, ready for when the user manually skips past it.
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && newLogicalIndex > currentQueueIndex + 1) {
+                // only a real gap: every slot in between is unloaded (a shuffle jump is no gap)
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && newLogicalIndex > currentQueueIndex + 1 &&
+                    (currentQueueIndex + 1 until newLogicalIndex).all { exoIndexForLogical.getOrNull(it) == null }
+                ) {
                     val gapIndex = currentQueueIndex + 1
                     val gapTrack = currentQueue.getOrNull(gapIndex)
                     if (gapTrack != null) {

@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.playback.playBlocked
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
@@ -217,7 +218,8 @@ fun PlayerScreen(
     // Prefer the search result's own duration metadata: HLS-sourced streams (e.g.
     // SoundCloud) are proxied as an unbounded transcoded pipe, so ExoPlayer's own
     // duration never resolves for them.
-    val durationMs = playbackState.durationMs.takeIf { it > 0 } ?: polledDurationMs
+    // the stream's own length when known: search metadata can differ (e.g. a YouTube fallback)
+    val durationMs = polledDurationMs.takeIf { it > 0 } ?: playbackState.durationMs
     val progress = (positionMs.toFloat() / durationMs.coerceAtLeast(1L).toFloat()).coerceIn(0f, 1f)
 
     val upNext = if (playbackState.queueIndex >= 0) {
@@ -631,7 +633,7 @@ fun PlayerScreen(
                 // on that flag: there is nothing loaded to play/pause for a DRM-blocked
                 // track, only skip-back/skip-forward (unaffected above/below) can move
                 // the user off of it.
-                val transportEnabled = !playbackState.isUnavailable
+                val transportEnabled = !playbackState.playBlocked
                 // Disabled look comes from the colors, not Modifier.alpha: that adds a
                 // separate graphics layer, and on a real device the button was once
                 // composited without it - accent circle gone, glyph barely visible.
@@ -821,7 +823,7 @@ fun PlayerScreen(
                         (EqProfile.PRESETS + eqUserPresets).forEach { p ->
                             EqPresetMenuItem(p.name, eqProfile.enabled && eqProfile.name == p.name) {
                                 showEqMenu = false
-                                viewModel.setEqProfile(p.copy(enabled = true))
+                                viewModel.setEqProfile(eqProfile.withPreset(p))
                             }
                         }
                         EqPresetMenuItem("Aus", !eqProfile.enabled) {

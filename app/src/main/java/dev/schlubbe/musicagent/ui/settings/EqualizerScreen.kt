@@ -269,13 +269,13 @@ fun EqualizerScreen(
                     CanopySectionHeader(title = "Voreinstellungen", action = "Speichern", onActionClick = { showSave = true })
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         EqProfile.PRESETS.forEach { p ->
-                            CanopyChip(label = p.name, active = eq.name == p.name, onClick = { set(p.copy(enabled = true)); selected = 0 })
+                            CanopyChip(label = p.name, active = eq.name == p.name, onClick = { set(eq.withPreset(p)); selected = 0 })
                         }
                         uiState.eqUserPresets.forEach { p ->
                             CanopyChip(
                                 label = p.name,
                                 active = eq.name == p.name,
-                                onClick = { set(p.copy(enabled = true)); selected = 0 },
+                                onClick = { set(eq.withPreset(p)); selected = 0 },
                                 modifier = Modifier.combinedClickable(onClick = {}, onLongClick = {
                                     viewModel.onDeleteEqPreset(p.name)
                                     Toast.makeText(context, "„${p.name}“ gelöscht", Toast.LENGTH_SHORT).show()

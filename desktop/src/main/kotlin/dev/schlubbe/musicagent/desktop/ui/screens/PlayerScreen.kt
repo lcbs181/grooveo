@@ -366,7 +366,7 @@ private fun SoundCard() {
         Text("Equalizer: ${settings.eq.name}" + if (!settings.eq.enabled) " (aus)" else "", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             (EqProfile.PRESETS + settings.eqUserPresets).distinctBy { it.name }.forEach { p ->
-                SmallPill(p.name, settings.eq.enabled && settings.eq.name == p.name) { g.settings.update { it.copy(eq = p) } }
+                SmallPill(p.name, settings.eq.enabled && settings.eq.name == p.name) { g.settings.update { it.copy(eq = it.eq.withPreset(p)) } }
             }
         }
         Text("3D-Sound: ${Sound3dPreset.of(settings.sound3dPreset).description}", style = MaterialTheme.typography.labelMedium, color = c.textMuted)

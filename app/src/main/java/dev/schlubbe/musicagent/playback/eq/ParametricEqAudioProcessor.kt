@@ -77,9 +77,12 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         // fresh filter/limiter state after a seek or format change, so no tail of the
         // previous position leaks into the new one
         val rate = inputAudioFormat.sampleRate
+        val old = eq
         eq = EqProcessor(rate.toDouble()).also {
             it.setProfile(profile)
             it.setVolume(volume)
+            // dynamic bass and de-esser keep their level across a seek instead of creeping back
+            old?.let(it::adoptDynamics)
         }
         if (normalizer == null || normalizerRate != rate) {
             normalizerRate = rate
@@ -118,7 +121,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         normalizer?.let { n ->
             n.allowBoost = p.limiterEnabled
             n.process(work, frames)
-            p.upstreamGainDb = n.currentGainDb
+            p.normalizing = n.enabled
         }
         p.process(work, frames)
         val out = replaceOutputBuffer(frames * channels * sampleBytes).order(ByteOrder.LITTLE_ENDIAN)

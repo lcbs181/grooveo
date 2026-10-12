@@ -84,8 +84,9 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        // anything but 16-bit stereo passes untouched (inactive) instead of failing playback (mono files, hi-res float)
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT || inputAudioFormat.channelCount != 2) {
-            throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+            return AudioProcessor.AudioFormat.NOT_SET
         }
         if (inputAudioFormat.sampleRate != sampleRate) {
             // A genuinely different sample rate invalidates every cached engine (an

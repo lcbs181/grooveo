@@ -561,7 +561,7 @@ class AudioEngine(
     private fun output(buf: FloatArray) {
         if (lastGain.isNaN()) lastGain = volume.coerceIn(0f, 1f).let { it * it * it }
         norms.forEach { it.allowBoost = equalizer.limiterEnabled }
-        equalizer.upstreamGainDb = norms.maxOf { it.currentGainDb }
+        equalizer.normalizing = norms[0].enabled
         equalizer.setVolume(volume)
         masterFx.process(buf, BLOCK)
         // the room comes before the EQ and its limiter, so the limiter also catches the reverb's peaks

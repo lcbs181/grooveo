@@ -168,10 +168,10 @@ fun EqualizerScreen() {
         Text("VOREINSTELLUNGEN", style = MaterialTheme.typography.labelSmall, color = c.textFaint)
         Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            EqProfile.PRESETS.forEach { p -> Pill(p.name, eq.name == p.name) { set(p.copy(enabled = true)); selected = 0 } }
+            EqProfile.PRESETS.forEach { p -> Pill(p.name, eq.name == p.name) { set(eq.withPreset(p)); selected = 0 } }
             settings.eqUserPresets.forEach { p ->
                 ContextMenuArea(items = { listOf(ContextMenuItem("Vorlage löschen") { g.settings.update { s -> s.copy(eqUserPresets = s.eqUserPresets - p) } }) }) {
-                    Pill("★ ${p.name}", eq.name == p.name) { set(p.copy(enabled = true)); selected = 0 }
+                    Pill("★ ${p.name}", eq.name == p.name) { set(eq.withPreset(p)); selected = 0 }
                 }
             }
             if (eq.name == "Eigen") Pill("Eigen", true) {}

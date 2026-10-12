@@ -83,7 +83,7 @@ class AiPolicy {
         "set_volume" -> args.num("volume")?.let { kotlin.math.abs(it - s.volume) < 0.005 } == true
         // a saved preset may have a built-in's name with other content: compare what would be set
         "apply_eq_preset" -> args.str("name")?.let { n -> (s.eqUserPresets + EqProfile.PRESETS).firstOrNull { it.name.equals(n, ignoreCase = true) } }
-            ?.let { p -> s.eq.enabled && p.copy(enabled = true).normalized() == s.eq.normalized() } == true
+            ?.let { p -> s.eq.enabled && s.eq.withPreset(p).normalized() == s.eq.normalized() } == true
         else -> false
     }
 

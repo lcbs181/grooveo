@@ -99,6 +99,12 @@ data class EqProfile(
 
     fun withAutoPreamp(): EqProfile = copy(preampDb = -(peakBoostDb().coerceAtLeast(0.0)))
 
+    /**
+     * [preset] switched on: its curve and sound (bands, preamp, bass and dynamic settings),
+     * while this profile's switches (limiter, subsonic, loudness) stay as the user set them.
+     */
+    fun withPreset(preset: EqProfile): EqProfile = preset.copy(enabled = true, limiter = limiter, subsonic = subsonic, loudness = loudness)
+
     /** Equalizer APO / AutoEQ "ParametricEQ.txt" format (steep passes become cascades). */
     fun toApoText(): String = buildString {
         appendLine("Preamp: ${fmt(preampDb)} dB")

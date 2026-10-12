@@ -39,10 +39,17 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
     @Volatile var limiterEnabled = true
         private set
 
-    /** Upstream gain (loudness normalisation) in dB; the limiter catches its peaks even with the EQ off. */
-    @Volatile var upstreamGainDb = 0.0
+    /** Loudness normalisation runs in front: the limiter stays in the path for its boosts even with the EQ off. */
+    @Volatile var normalizing = false
 
     fun setVolume(v: Float) { volume = v }
+
+    /** Takes over what the dynamic bands learned from [old] (a seek starts a fresh chain, not a fresh ear). */
+    fun adoptDynamics(old: EqProcessor) {
+        if (old.fs != fs) return
+        dynBass.adopt(old.dynBass)
+        tameHarsh.adopt(old.tameHarsh)
+    }
 
     /** Filter sections of the current settings (subsonic, bands, loudness), in processing order. */
     internal fun sectionsFor(p: EqProfile, vol: Float): List<Biquad> {
@@ -97,7 +104,9 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
         chain.commit()
         preamp = targetPre
         fadingOut = null
-        if (profile.limiter && (profile.enabled || upstreamGainDb > 0.05)) limiter.process(buf, frames) else limiter.reset()
+        // in the path while it may be needed (EQ on, or normalisation that can boost): its 5 ms
+        // look-ahead must not come and go with every track's gain (a jump in time is a click)
+        if (profile.limiter && (profile.enabled || normalizing)) limiter.process(buf, frames) else limiter.reset()
     }
 
     companion object {
@@ -225,11 +234,12 @@ class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 /
     private var count = 0
     private var n = 0L
 
-    fun process(buf: FloatArray, frames: Int) {
+    /** [active] false passes the signal through (still delayed by the look-ahead), releasing any reduction smoothly. */
+    fun process(buf: FloatArray, frames: Int, active: Boolean = true) {
         for (i in 0 until frames) {
             val l = buf[2 * i].toDouble(); val r = buf[2 * i + 1].toDouble()
             val peak = maxOf(abs(l), abs(r))
-            val need = if (peak > ceiling) ceiling / peak else 1.0
+            val need = if (active && peak > ceiling) ceiling / peak else 1.0
             val w = (n % size).toInt()
             delayL[w] = l; delayR[w] = r; req[w] = need
             while (count > 0 && dqVal[(head + count - 1) % dqIdx.size] >= need) count--
@@ -238,7 +248,7 @@ class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 /
             val target = dqVal[head]
             gain += (target - gain) * (if (target < gain) attack else release)
             val out = ((n + 1) % size).toInt() // written `look` samples ago
-            val g = if (n >= look) minOf(gain, req[out]) else 0.0
+            val g = if (n >= look) (if (active) minOf(gain, req[out]) else gain) else 0.0
             buf[2 * i] = (delayL[out] * g).toFloat()
             buf[2 * i + 1] = (delayR[out] * g).toFloat()
             n++
@@ -348,6 +358,13 @@ class DynamicEqBand(
     }
 
     private fun follow(env: Double, x: Double) = env + (x - env) * (if (x > env) attack else release)
+
+    /** Envelopes and gain of [o] (same kind of band); the filter starts from silence. */
+    internal fun adopt(o: DynamicEqBand) {
+        envBand = o.envBand; envFull = o.envFull; slowBand = o.slowBand; slowFull = o.slowFull
+        gainDb = o.gainDb; designedDb = o.designedDb; coef = o.coef
+        balanceDb = o.balanceDb; longTermBalanceDb = o.longTermBalanceDb
+    }
 
     private fun filter(x: Double, xs: DoubleArray, ys: DoubleArray): Double {
         val c = coef

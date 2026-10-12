@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.components
 
+import dev.schlubbe.musicagent.playback.playBlocked
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -94,7 +95,7 @@ fun MiniPlayerBar(
                     .reportConfettiAnchor { confetti.miniPlayAnchor = it }
                     .clip(CircleShape)
                     .background(Canopy.accent)
-                    .clickable(enabled = !playbackState.isUnavailable) {
+                    .clickable(enabled = !playbackState.playBlocked) {
                         haptic.performHapticFeedback(
                             if (playbackState.isPlaying) {
                                 HapticFeedbackType.ToggleOff

@@ -25,6 +25,13 @@ private const val RAMP_INTERVAL_MS = 50L
 
 private const val MIN_FADE_MS = 1_000L
 
+/** How long before the fade the tail player starts loading, and how long it may take at most. */
+private const val PREPARE_LEAD_MS = 2_500L
+private const val PREPARE_TIMEOUT_MS = 6_000L
+
+/** The main player may be this far past the hand-over point when the tail starts (one audio buffer or so). */
+private const val HANDOVER_SLACK_MS = 60L
+
 /** See [CrossfadeController.isOwnAdvance]. */
 private const val OWN_ADVANCE_GRACE_MS = 700L
 
@@ -160,15 +167,11 @@ class CrossfadeController(
             // see TrackAnalyzer) should never produce a negative/zero fade window.
             ?.coerceAtMost(duration - MIN_FADE_MS)
 
-        if (mixOutMs != null) {
-            if (position < mixOutMs) return
-            val fadeDurationMs = (duration - mixOutMs).coerceIn(MIN_FADE_MS, crossfadeDurationMs)
-            startFade(min(fadeDurationMs, remaining), mixInMs, onBeforeAdvance)
-            return
-        }
-
-        if (remaining > crossfadeDurationMs) return
-        startFade(remaining, mixInMs, onBeforeAdvance)
+        // the tail player is prepared PREPARE_LEAD_MS ahead, so it is ready (buffered) when the fade begins
+        val fadeAtMs = mixOutMs ?: (duration - crossfadeDurationMs)
+        if (position < fadeAtMs - PREPARE_LEAD_MS) return
+        val fadeDurationMs = (duration - fadeAtMs).coerceIn(MIN_FADE_MS, crossfadeDurationMs)
+        startFade(maxOf(fadeAtMs, position), fadeDurationMs, mixInMs, onBeforeAdvance)
     }
 
     /** The next window Media3 itself would advance to via [ExoPlayer.seekToNextMediaItem]
@@ -180,10 +183,17 @@ class CrossfadeController(
         return timeline.getNextWindowIndex(mainPlayer.currentMediaItemIndex, mainPlayer.repeatMode, mainPlayer.shuffleModeEnabled)
     }
 
-    private fun startFade(fadeDurationMs: Long, mixInMs: Long?, onBeforeAdvance: () -> Unit) {
+    /**
+     * Fades from the current track into the next one at [fadeAtMs] of the current track. A
+     * second player takes over the outgoing tail; it is prepared first and only once it is
+     * buffered and the main player has reached [fadeAtMs] does the main player move on to
+     * the next track - so the tail is heard from exactly where the main player left it,
+     * without a gap. If the tail cannot be made ready in time, nothing changes and the
+     * track plays to its end (gapless).
+     */
+    private fun startFade(fadeAtMs: Long, fadeDurationMs: Long, mixInMs: Long?, onBeforeAdvance: () -> Unit) {
         val uri = mainPlayer.currentMediaItem?.localConfiguration?.uri ?: return
-        val position = mainPlayer.currentPosition
-        mainPlayer.currentMediaItem?.mediaId?.takeIf { it.isNotEmpty() }?.let(onTailStarted)
+        val outgoingId = mainPlayer.currentMediaItem?.mediaId
 
         // Only the EQ is wired up here (see renderersFactory); the visualizer tap and
         // 3D-sound stay on the main player.
@@ -201,39 +211,69 @@ class CrossfadeController(
                 cancelFade()
             }
         })
-        // Published before prepare/play so an immediate load error's cancelFade() finds
+        // Published before prepare so an immediate load error's cancelFade() finds
         // and releases this player instead of leaving it running under a cancelled fade.
         secondaryPlayer = secondary
         secondary.setMediaItem(MediaItem.fromUri(uri))
-        secondary.seekTo(position)
+        secondary.playWhenReady = false
         secondary.volume = 1f
+        secondary.seekTo(fadeAtMs)
         secondary.prepare()
-        secondary.play()
-
-        // Marks the outgoing track completed *before* the seek below so the resulting
-        // onMediaItemTransition (reason SEEK, not AUTO) doesn't report it to analytics
-        // as a user skip.
-        onBeforeAdvance()
-        ownAdvanceAtMs = android.os.SystemClock.elapsedRealtime()
-        val nextIndex = nextWindowIndex()
-        if (mixInMs != null && nextIndex != C.INDEX_UNSET) {
-            mainPlayer.seekTo(nextIndex, mixInMs)
-        } else {
-            mainPlayer.seekToNextMediaItem()
-        }
-        mainPlayer.volume = 0f
 
         fadeJob = scope.launch {
             try {
+                var startAt = fadeAtMs
+                var tries = 0
+                while (true) {
+                    // buffered at the start point
+                    val readyBy = android.os.SystemClock.elapsedRealtime() + PREPARE_TIMEOUT_MS
+                    while (secondary.playbackState != Player.STATE_READY) {
+                        if (secondaryPlayer !== secondary || mainPlayer.currentMediaItem?.mediaId != outgoingId) return@launch
+                        if (android.os.SystemClock.elapsedRealtime() > readyBy) return@launch
+                        delay(10)
+                    }
+                    // wait for the main player to get there
+                    while (mainPlayer.currentPosition < startAt - 5) {
+                        if (secondaryPlayer !== secondary || mainPlayer.currentMediaItem?.mediaId != outgoingId || !mainPlayer.isPlaying) return@launch
+                        delay(5)
+                    }
+                    if (mainPlayer.currentPosition - startAt <= HANDOVER_SLACK_MS) break
+                    // it got there late (slow load): start the tail a little ahead again
+                    if (++tries > 2) return@launch
+                    startAt = mainPlayer.currentPosition + 300
+                    if (mainPlayer.duration != C.TIME_UNSET && mainPlayer.duration - startAt < MIN_FADE_MS) return@launch
+                    secondary.seekTo(startAt)
+                }
+                val fadeMs = if (mainPlayer.duration != C.TIME_UNSET) min(fadeDurationMs, mainPlayer.duration - startAt) else fadeDurationMs
+
+                outgoingId?.takeIf { it.isNotEmpty() }?.let(onTailStarted)
+                secondary.play()
+                // Marks the outgoing track completed *before* the seek below so the resulting
+                // onMediaItemTransition (reason SEEK, not AUTO) doesn't report it to analytics
+                // as a user skip.
+                onBeforeAdvance()
+                ownAdvanceAtMs = android.os.SystemClock.elapsedRealtime()
+                val nextIndex = nextWindowIndex()
+                mainPlayer.volume = 0f
+                if (mixInMs != null && nextIndex != C.INDEX_UNSET) {
+                    mainPlayer.seekTo(nextIndex, mixInMs)
+                } else {
+                    mainPlayer.seekToNextMediaItem()
+                }
+
+                // the ramp runs on the incoming track's progress: while it still buffers, nothing moves
                 var elapsed = 0L
-                while (elapsed < fadeDurationMs) {
+                var last = android.os.SystemClock.elapsedRealtime()
+                while (elapsed < fadeMs) {
                     delay(RAMP_INTERVAL_MS)
                     // The fade may have been cancelled (and this secondary released)
                     // while we were suspended - writing a volume to a released player
                     // throws on its dead internal thread.
                     if (secondaryPlayer !== secondary) return@launch
-                    elapsed += RAMP_INTERVAL_MS
-                    val t = (elapsed.toFloat() / fadeDurationMs).coerceIn(0f, 1f)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (mainPlayer.isPlaying) elapsed += now - last
+                    last = now
+                    val t = (elapsed.toFloat() / fadeMs).coerceIn(0f, 1f)
                     // Equal-power curve: sin^2 + cos^2 = 1 keeps combined loudness
                     // roughly constant through the middle of the fade, unlike a plain
                     // linear ramp on both players (which dips there).
