@@ -11,7 +11,15 @@ import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
-import java.util.concurrent.Executors
+import dev.schlubbe.musicagent.desktop.ai.tightenSecretFile
+import dev.schlubbe.musicagent.desktop.ai.writeSecretFile
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.Semaphore
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
 /**
@@ -36,13 +44,24 @@ data class SyncState(val key: String = "", val enabled: Boolean = false)
  * this PC holds the key before it sends anything. Only peers in the local network are answered;
  * bad signatures are rate limited per address with a growing lock-out. With a [remote], the
  * phone's "KI" tab can use the PC's assistant and tools over the same keys.
+ *
+ * Before anything is authenticated, a request costs little: oversized bodies are refused by
+ * their Content-Length, a malformed signature before the body is read, each address may
+ * have only a few requests open, and slow requests time out ([HTTP_TIMEOUTS]).
  */
 class SyncServer(private val backup: BackupManager, private val stateFile: File, private val port: Int = SyncProtocol.PORT, private val discoveryPort: Int = SyncProtocol.DISCOVERY_PORT) {
     private var http: HttpServer? = null
+    private var executor: ExecutorService? = null
     private var udp: DatagramSocket? = null
     private var state: SyncState = (readJson<SyncState>(stateFile, SyncState::class.java) ?: SyncState()).let {
+        // the file holds the pairing key: owner-only (older versions wrote it readable by all)
+        tightenSecretFile(stateFile)
         if (SyncProtocol.normalizeKey(it.key) == null) it.copy(key = SyncProtocol.newKey()).also(::save) else it
     }
+    /** Requests in progress per address. */
+    private val open = ConcurrentHashMap<String, AtomicInteger>()
+    /** Assistant and tool calls in progress (they may block for long, see [PhoneRemote]). */
+    private val remoteSlots = Semaphore(REMOTE_SLOTS)
     private var derived: Pair<String, SyncProtocol.Keys>? = null
     private class Strikes(var count: Int = 0, var lockedUntil: Long = 0)
     private val strikes = object : LinkedHashMap<String, Strikes>(16, 0.75f, true) {
@@ -69,7 +88,7 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     /** Content of the QR code. */
     val pairingUri: String get() = SyncProtocol.pairingUri(localAddress(), boundPort, state.key)
 
-    private fun save(s: SyncState) { state = s; writeJson(stateFile, s) }
+    private fun save(s: SyncState) { state = s; writeSecretFile(stateFile, gson.toJson(s)) }
 
     @Synchronized private fun keys(): SyncProtocol.Keys {
         val k = state.key
@@ -82,10 +101,13 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         keys()
         val s = HttpServer.create(InetSocketAddress(port), 0)
         s.createContext(SyncProtocol.SYNC_PATH) { ex -> runCatching { handle(ex) }.onFailure { runCatching { reply(ex, 500, "error") } } }
-        // a few threads: the assistant's long polls must not hold up a sync
-        s.executor = Executors.newFixedThreadPool(THREADS) { r -> Thread(r, "sync-server").apply { isDaemon = true } }
+        // threads on demand: the assistant's long polls (at most REMOTE_SLOTS) must not hold up a sync
+        val pool = ThreadPoolExecutor(THREADS, THREADS, 30, TimeUnit.SECONDS, LinkedBlockingQueue()) { r -> Thread(r, "sync-server").apply { isDaemon = true } }
+            .apply { allowCoreThreadTimeOut(true) }
+        s.executor = pool
         s.start()
         http = s
+        executor = pool
         boundPort = s.address.port
         startDiscovery()
         if (!state.enabled) save(state.copy(enabled = true))
@@ -101,6 +123,7 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     @Synchronized fun shutdown() {
         live?.revokeAll()
         http?.stop(0); http = null
+        executor?.shutdownNow(); executor = null
         udp?.close(); udp = null
     }
 
@@ -132,6 +155,16 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         if (isLocked(ip)) return reply(ex, 429, "locked")
         // the audio itself: a plain GET (the phone's player cannot sign), allowed by the ticket in the path
         if (ex.requestURI.path.startsWith(LiveStreamPrefix)) return serveLive(ex, ip)
+        val count = open.computeIfAbsent(ip) { AtomicInteger() }
+        try {
+            if (count.incrementAndGet() > PER_ADDRESS) return reply(ex, 429, "busy")
+            route(ex, ip)
+        } finally {
+            if (count.decrementAndGet() <= 0) open.remove(ip, count)
+        }
+    }
+
+    private fun route(ex: HttpExchange, ip: String) {
         if (ex.requestHeaders.getFirst(SyncProtocol.VERSION_HEADER) != SyncProtocol.VERSION.toString()) return reply(ex, 426, SyncProtocol.UPDATE_BOTH)
         val nonce = ex.requestHeaders.getFirst(SyncProtocol.NONCE_HEADER)?.takeIf { SyncProtocol.isNonce(it) }
             ?: return reply(ex, 400, "bad nonce")
@@ -160,9 +193,14 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
             SyncProtocol.AI_PATH, SyncProtocol.MCP_PATH -> {
                 val r = remote ?: return reply(ex, 404, "not found")
                 val path = ex.requestURI.path
-                sealed(ex, ip, nonce, path, SyncProtocol.MAX_SMALL_SEALED) { json ->
-                    val text = String(json, Charsets.UTF_8)
-                    (if (path == SyncProtocol.AI_PATH) r.ai(text) else r.mcp(text)).toByteArray(Charsets.UTF_8)
+                if (!remoteSlots.tryAcquire()) return reply(ex, 503, "busy")
+                try {
+                    sealed(ex, ip, nonce, path, SyncProtocol.MAX_SMALL_SEALED) { json ->
+                        val text = String(json, Charsets.UTF_8)
+                        (if (path == SyncProtocol.AI_PATH) r.ai(text) else r.mcp(text)).toByteArray(Charsets.UTF_8)
+                    }
+                } finally {
+                    remoteSlots.release()
                 }
             }
             else -> reply(ex, 404, "not found")
@@ -176,6 +214,13 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     private inline fun sealed(ex: HttpExchange, ip: String, nonce: String, path: String, maxBody: Int, handle: (ByteArray) -> ByteArray?) {
         if (ex.requestMethod != "POST") return reply(ex, 405, "POST only")
         val time = ex.requestHeaders.getFirst(SyncProtocol.TIME_HEADER)?.toLongOrNull() ?: return reply(ex, 400, "bad time")
+        // cheap checks before the body is read
+        val length = ex.requestHeaders.getFirst("Content-Length")?.toLongOrNull()
+        if (length != null && length > maxBody) return reply(ex, 413, "too large")
+        if (ex.requestHeaders.getFirst(SyncProtocol.AUTH_HEADER)?.matches(MAC_FORMAT) != true) {
+            strike(ip)
+            return reply(ex, 401, "wrong key")
+        }
         val body = ex.requestBody.readNBytes(maxBody + 1)
         if (body.size > maxBody) return reply(ex, 413, "too large")
         val keys = keys()
@@ -243,10 +288,26 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     companion object {
         const val MAX_FAILURES = 5
         const val LOCK_MS = 30_000L
-        const val THREADS = 4
+        const val THREADS = 16
+        /** Assistant/tool requests at once; the rest of the pool stays free for syncs. */
+        const val REMOTE_SLOTS = 4
+        /** Requests one address may have open at once. */
+        const val PER_ADDRESS = 6
+        /** HMAC-SHA256 in hex, as [SyncProtocol.requestMac] makes it. */
+        private val MAC_FORMAT = Regex("[0-9a-fA-F]{64}")
         private const val LiveStreamPrefix = SyncProtocol.LIVE_PATH + "/"
         private val TICKET = Regex("[0-9a-f]{32}")
         private const val LIVE_LENGTH = 1L shl 52
+        /**
+         * Seconds the JDK server gives a client to send its request. Read once by the JDK's
+         * HttpServer, so it is set before the first server starts. There is deliberately no
+         * response limit (maxRspTime): the live stream's answer never ends.
+         */
+        private val HTTP_TIMEOUTS = mapOf("sun.net.httpserver.maxReqTime" to "30")
+
+        init {
+            HTTP_TIMEOUTS.forEach { (k, v) -> if (System.getProperty(k) == null) System.setProperty(k, v) }
+        }
 
         /** First private IPv4 address of this machine (the one the phone can reach). */
         fun localAddress(): String? = runCatching {

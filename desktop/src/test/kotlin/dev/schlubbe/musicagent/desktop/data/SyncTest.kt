@@ -157,6 +157,41 @@ class SyncTest {
         assertEquals(a.key, SyncServer(backup, f, port = 0, discoveryPort = 0).key)
     }
 
+    /** Status of [request] sent without its body: only the status line is read (the server waits for the body). */
+    private fun headStatus(server: SyncServer, request: String): Int = Socket().use { s ->
+        s.connect(InetSocketAddress("127.0.0.1", server.boundPortOrDefault), 2000)
+        s.soTimeout = 5000
+        s.getOutputStream().write(request.toByteArray())
+        s.getInputStream().bufferedReader().readLine().split(' ')[1].toInt()
+    }
+
+    private fun post(headers: String) =
+        "POST /sync HTTP/1.1\r\nHost: x\r\n${SyncProtocol.VERSION_HEADER}: ${SyncProtocol.VERSION}\r\n${SyncProtocol.NONCE_HEADER}: ${SyncProtocol.newNonce()}\r\n" +
+            "${SyncProtocol.TIME_HEADER}: ${System.currentTimeMillis()}\r\n${headers}Connection: close\r\n\r\n"
+
+    @Test fun `an oversized or unsigned request is refused before its body is read`() {
+        val (_, _, server) = pc()
+        server.start()
+        try {
+            // no body follows: the answer must come from the headers alone
+            val mac = "0".repeat(64)
+            assertEquals(413, headStatus(server, post("Content-Length: ${SyncProtocol.MAX_SEALED + 1L}\r\n${SyncProtocol.AUTH_HEADER}: $mac\r\n")))
+            assertEquals(401, headStatus(server, post("Content-Length: 1000\r\n${SyncProtocol.AUTH_HEADER}: not-a-mac\r\n")))
+        } finally { server.stop() }
+    }
+
+    @Test fun `the pairing key file is readable by its owner only`() {
+        val dir = Files.createTempDirectory("grooveo-sync").toFile()
+        val f = java.io.File(dir, "sync.json")
+        f.writeText("""{"key":"","enabled":false}""")
+        Files.setPosixFilePermissions(f.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-r--r--"))
+        val backup = BackupManager(LibraryStore(dir), SettingsRepository(java.io.File(dir, "settings.json")), dir)
+        val server = SyncServer(backup, f, port = 0, discoveryPort = 0)
+        assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(f.toPath())))
+        server.regenerateKey()
+        assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(f.toPath())))
+    }
+
     @Test fun `discovery finds the pc that proves the key and ignores the old request`() {
         val (_, _, server) = pc()
         server.start()
