@@ -28,12 +28,15 @@ import kotlinx.serialization.json.putJsonObject
  *  - [ai]: the phone drives the same assistant as the KI panel (one shared conversation, the
  *    PC's model and tools, the same questions before deleting, FX and loudness);
  *  - [mcp]: MCP tool calls (JSON-RPC `initialize`, `tools/list`, `tools/call`) for the phone's
- *    own controls. Destructive tools are left out there; they only run through the assistant,
- *    which asks first.
+ *    own controls. Whatever [AiPolicy] counts as deleting (destructive tools, removing from a
+ *    playlist, dropping entries from a list setting) is refused there; it only runs through
+ *    the assistant, which asks first.
  * Both only work while "KI vom Handy" is on in the PC's settings.
  */
 class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssistant = { g.ai }) : PhoneRemote {
     private val tools by lazy { GrooveoTools(g) }
+    /** Only its classification is used here (no questions, nothing remembered). */
+    private val policy = AiPolicy()
     private val revLock = Any()
     private var lastState: AiState? = null
     /** Starts at the clock, so a phone that saw the PC before a restart never mistakes an old revision for the current one. */
@@ -96,7 +99,7 @@ class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssist
             })
             "tools/list" -> rpcResult(id, buildJsonObject {
                 putJsonArray("tools") {
-                    tools.defs.filter { !it.destructive }.forEach { d ->
+                    tools.defs.filter { !it.destructive && it.name !in AiPolicy.DELETE_TOOLS }.forEach { d ->
                         addJsonObject {
                             put("name", d.name)
                             put("description", d.description)
@@ -113,8 +116,10 @@ class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssist
             "tools/call" -> {
                 val name = (params?.get("name") as? JsonPrimitive)?.contentOrNull
                 val def = name?.let(tools::def) ?: return rpcError(id, -32602, "Unknown tool '$name'")
-                val (ok, text) = if (def.destructive) false to "'$name' deletes data: from the phone it only runs through the assistant, which asks first."
-                else runBlocking { withTimeoutOrNull(TOOL_TIMEOUT_MS) { def.call(params["arguments"] as? JsonObject) } ?: (false to "Timed out") }
+                val args = params["arguments"] as? JsonObject
+                val deletes = policy.kindOf(def, args ?: JsonObject(emptyMap()), g.settings.current) == AiPolicy.Kind.DELETE
+                val (ok, text) = if (deletes) false to "'$name' deletes data: from the phone it only runs through the assistant, which asks first."
+                else runBlocking { withTimeoutOrNull(TOOL_TIMEOUT_MS) { def.call(args) } ?: (false to "Timed out") }
                 rpcResult(id, buildJsonObject {
                     putJsonArray("content") { addJsonObject { put("type", "text"); put("text", text) } }
                     put("isError", !ok)

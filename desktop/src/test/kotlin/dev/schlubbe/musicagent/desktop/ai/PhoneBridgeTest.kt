@@ -105,6 +105,16 @@ class PhoneBridgeTest {
         val del = mcp("tools/call", """{"name":"delete_playlist","arguments":{"playlist_id":"$id"}}""")["result"]!!.jsonObject
         assertTrue(del["isError"]!!.jsonPrimitive.boolean)
         assertEquals(1, graph.store.current.playlists.size)
+        // what the assistant would ask about as deleting is refused too
+        assertFalse("remove_from_playlist" in names)
+        graph.store.addToPlaylist(id, listOf(dev.schlubbe.musicagent.desktop.data.track("1")))
+        val rm = mcp("tools/call", """{"name":"remove_from_playlist","arguments":{"playlist_id":"$id","index":0}}""")["result"]!!.jsonObject
+        assertTrue(rm["isError"]!!.jsonPrimitive.boolean)
+        assertEquals(1, graph.store.current.playlists.single().tracks.size)
+        graph.settings.update { it.copy(preferredArtists = listOf("A", "B")) }
+        val shrink = mcp("tools/call", """{"name":"update_settings","arguments":{"settings":{"preferredArtists":["A"]}}}""")["result"]!!.jsonObject
+        assertTrue(shrink["isError"]!!.jsonPrimitive.boolean)
+        assertEquals(listOf("A", "B"), graph.settings.current.preferredArtists)
     }
 
     @Test fun `chats are saved, listed, opened again with their history and deleted`() {
