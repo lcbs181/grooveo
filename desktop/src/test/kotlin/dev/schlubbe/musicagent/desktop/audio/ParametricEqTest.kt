@@ -163,6 +163,25 @@ class EqProcessorTest {
         assertTrue(maxJump < 0.02f, "discontinuity $maxJump")
     }
 
+    @Test fun `limiter lets go quickly after a lone peak and slowly after sustained limiting`() {
+        val fs = 48000.0
+        fun gainAfter(overMs: Int): Double {
+            val lim = LookaheadLimiter(fs)
+            val n = (fs * 1.0).toInt()
+            val over = (fs * overMs / 1000).toInt()
+            val start = (fs * 0.1).toInt()
+            val buf = FloatArray(n * 2) { k -> val i = k / 2; if (i in start until start + over) 1.6f else 0.5f }
+            lim.process(buf, n)
+            // 230 ms after the overs end (+5 ms look-ahead): how much of the 0.5 tone is back
+            val i = start + over + (fs * 0.235).toInt()
+            return buf[2 * i] / 0.5
+        }
+        val lone = gainAfter(3)
+        val sustained = gainAfter(300)
+        assertTrue(lone > 0.97, "after a lone peak: $lone")
+        assertTrue(sustained < lone - 0.05, "sustained limiting releases slower: $sustained vs $lone")
+    }
+
     @Test fun `limiter keeps heavy bass boost below the ceiling without distortion`() {
         val eq = EqProcessor().apply { setProfile(EqProfile(bands = listOf(EqBand(FilterType.LOW_SHELF, 120.0, 12.0, 0.7)))) }
         var t = 0; var peak = 0.0

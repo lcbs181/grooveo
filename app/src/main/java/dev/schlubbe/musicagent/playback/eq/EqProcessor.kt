@@ -213,8 +213,10 @@ class BassEnhancer(private val fs: Double) {
 /**
  * Stereo-linked look-ahead peak limiter. Gain reduction is planned 5 ms ahead
  * (sliding-window minimum of the required gain) so it is fully in place when a
- * peak arrives — no clipping — then held 50 ms and released slowly (200 ms) so the limiter never
- * follows individual bass cycles, which is what makes cheap limiters distort bass.
+ * peak arrives — no clipping — then held 50 ms (longer than a bass cycle, so it never follows
+ * the waveform, which is what makes cheap limiters distort bass) and released program-dependently:
+ * after a lone peak within ~60 ms, after sustained limiting over ~250 ms. A single loud snare no
+ * longer pulls the level down for a quarter second (audible pumping).
  */
 class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 / 20)) {
     private val look = (fs * 0.005).toInt()
@@ -226,7 +228,12 @@ class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 /
     private val req = DoubleArray(size) { 1.0 }
     private var gain = 1.0
     private val attack = 1 - exp(-4.6 / look)
-    private val release = 1 - exp(-1 / (0.2 * fs))
+    private val releaseFast = 1 - exp(-1 / (0.06 * fs))
+    private val releaseSlow = 1 - exp(-1 / (0.25 * fs))
+    /** 0..1: how much limiting happened lately; rises within 50 ms of limiting, falls over 500 ms. */
+    private var busy = 0.0
+    private val busyUp = 1 / (0.05 * fs)
+    private val busyDown = 1 / (0.5 * fs)
     // sliding-window minimum: deque of absolute sample numbers with non-decreasing req
     private val dqIdx = LongArray(window + 1)
     private val dqVal = DoubleArray(window + 1)
@@ -246,6 +253,8 @@ class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 /
             dqIdx[(head + count) % dqIdx.size] = n; dqVal[(head + count) % dqIdx.size] = need; count++
             while (dqIdx[head] <= n - window) { head = (head + 1) % dqIdx.size; count-- }
             val target = dqVal[head]
+            busy = if (need < 0.999) minOf(1.0, busy + busyUp) else maxOf(0.0, busy - busyDown)
+            val release = releaseFast + (releaseSlow - releaseFast) * busy
             gain += (target - gain) * (if (target < gain) attack else release)
             val out = ((n + 1) % size).toInt() // written `look` samples ago
             val g = if (n >= look) (if (active) minOf(gain, req[out]) else gain) else 0.0
@@ -258,7 +267,7 @@ class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 /
     fun reset() {
         if (n == 0L) return
         delayL.fill(0.0); delayR.fill(0.0); req.fill(1.0)
-        gain = 1.0; head = 0; count = 0; n = 0
+        gain = 1.0; head = 0; count = 0; n = 0; busy = 0.0
     }
 }
 
