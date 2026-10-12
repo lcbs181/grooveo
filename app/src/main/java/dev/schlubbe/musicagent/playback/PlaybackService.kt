@@ -343,6 +343,8 @@ class PlaybackService : MediaLibraryService() {
             // phone call), instead of us hand-rolling AudioManager focus requests.
             .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true)
             .build()
+        // "Zur Warteschlange hinzufügen" stays the next track with shuffle on too
+        exoPlayer.setShuffleOrder(PlayNextShuffleOrder())
         player = exoPlayer
 
         // EQ, visualizer tap and 3D-sound are all in-process audio processors in the

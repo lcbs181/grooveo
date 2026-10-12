@@ -998,7 +998,7 @@ class HomeViewModel @Inject constructor(
             val tracks = runCatching { playlistRepository.get(playlistId) }.getOrNull()?.tracks
                 ?.map { it.track.toTrackResultDto() }
                 ?: return@launch
-            tracks.forEach { runCatching { playerController.addToQueue(it) } }
+            runCatching { playerController.addAllToQueue(tracks) }
         }
     }
 

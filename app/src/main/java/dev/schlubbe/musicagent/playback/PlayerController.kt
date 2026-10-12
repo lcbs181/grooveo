@@ -444,41 +444,17 @@ class PlayerController @Inject constructor(
 
                 // AUTO means ExoPlayer advanced on its own to the next item in *its own*
                 // (gapped) item list - since DRM-only logical slots were never loaded
-                // there in the first place, that native next item can correspond to a
-                // logical index further ahead than +1, meaning one or more unavailable
-                // tracks sit in between and were about to be skipped over silently. Land
-                // on the first one instead of letting the transition to newLogicalIndex
-                // happen; the real track ExoPlayer already moved to stays loaded
-                // (paused) there, ready for when the user manually skips past it.
-                // only a real gap: every slot in between is unloaded (a shuffle jump is no gap).
+                // there, that item can be further ahead than +1 in the logical queue.
+                // Playback goes on (stopping on a track that cannot play left the app and
+                // the notification showing different tracks); the skipped ones get named.
                 // With shuffle on the queue order is the player's own, which has no gaps.
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && controller?.shuffleModeEnabled != true &&
-                    newLogicalIndex > currentQueueIndex + 1 &&
-                    (currentQueueIndex + 1 until newLogicalIndex).all { exoIndexForLogical.getOrNull(it) == null }
+                    newLogicalIndex > currentQueueIndex + 1
                 ) {
-                    val gapIndex = currentQueueIndex + 1
-                    val gapTrack = currentQueue.getOrNull(gapIndex)
-                    if (gapTrack != null) {
-                        controller?.pause()
-                        currentTrack?.let { previous ->
-                            if (!currentTrackCompleted) eventReporter.playComplete(previous, (previous.durationSec ?: 0) * 1000L)
-                        }
-                        currentTrack = gapTrack
-                        currentTrackCompleted = false
-                        currentQueueIndex = gapIndex
-                        _playbackState.value = _playbackState.value.copy(
-                            isPlaying = false,
-                            title = gapTrack.title,
-                            artist = gapTrack.artist,
-                            artworkUrl = gapTrack.thumbnailUrl,
-                            durationMs = (gapTrack.durationSec ?: 0) * 1000L,
-                            currentTrackId = "${gapTrack.source}:${gapTrack.sourceId}",
-                            queueIndex = gapIndex,
-                            isUnavailable = true,
-                            unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
-                        )
-                        return
-                    }
+                    val skipped = (currentQueueIndex + 1 until newLogicalIndex)
+                        .filter { exoIndexForLogical.getOrNull(it) == null }
+                        .mapNotNull { currentQueue.getOrNull(it) }
+                    if (skipped.isNotEmpty()) showToast(skippedMessage(skipped))
                 }
 
                 val newTrack = currentQueue.getOrNull(newLogicalIndex) ?: return
@@ -1000,6 +976,17 @@ class PlayerController @Inject constructor(
         }
     }
 
+    /** Queues [tracks], in order, right after the current track (or plays them if nothing is playing). */
+    suspend fun addAllToQueue(tracks: List<TrackResultDto>) {
+        if (tracks.isEmpty()) return
+        if (currentTrack == null) {
+            playQueue(tracks, 0)
+            return
+        }
+        // each one goes right after the current track, so the last one is added first
+        tracks.asReversed().forEach { runCatching { addToQueue(it) } }
+    }
+
     /** Inserts [track] to play right after the current one, without disturbing current
      * playback -- used by other screens' "Zur Warteschlange hinzufügen" action, which
      * is meant to queue a track "up next", not last. If nothing is currently playing,
@@ -1034,6 +1021,8 @@ class PlayerController @Inject constructor(
         // player's own currentMediaItemIndex - the real track ExoPlayer already
         // auto-advanced to and is paused on - is the right anchor instead.
         val insertExoIndex = (exoIndexForLogical.getOrNull(currentQueueIndex) ?: mediaController.currentMediaItemIndex) + 1
+        // with shuffle on it would otherwise land anywhere in the shuffle order
+        PlayNextShuffleOrder.playNextAt(insertExoIndex)
         mediaController.addMediaItem(insertExoIndex, buildMediaItem(track, resolved))
 
         val insertLogicalIndex = currentQueueIndex + 1
@@ -1141,29 +1130,46 @@ class PlayerController @Inject constructor(
     /** Next/previous/jump-to-index all navigate the *logical* queue (see
      * [currentQueue]'s kdoc) via [moveToLogicalIndex], not MediaController's own
      * seekToNextMediaItem()/hasNextMediaItem()/seekTo(index) - those only know about
-     * the shorter, gapped item list actually loaded there, which would either skip
-     * straight past a SoundCloudDrmOnlyException slot (defeating the point of
-     * keeping it around - see [PlaybackUiState.isUnavailable]) or, for
-     * skipToQueueIndex, misinterpret a logical index as an Exo one once the two can
-     * diverge. */
-    suspend fun skipToNext() {
-        ensureConnectedOrReportError() ?: return
-        nextLogicalIndex()?.let { moveToLogicalIndex(it) }
-    }
+     * the shorter, gapped item list actually loaded there, so a slot the background
+     * fill has not reached yet would be passed over, and skipToQueueIndex would
+     * misinterpret a logical index as an Exo one once the two diverge. */
+    suspend fun skipToNext() = skip(forward = true)
 
-    suspend fun skipToPrevious() {
-        ensureConnectedOrReportError() ?: return
-        previousLogicalIndex()?.let { moveToLogicalIndex(it) }
+    suspend fun skipToPrevious() = skip(forward = false)
+
+    /** Moves one track on in the play order, past any that cannot play (named in a toast). */
+    private suspend fun skip(forward: Boolean) {
+        val mediaController = ensureConnectedOrReportError() ?: return
+        val skipped = ArrayList<TrackResultDto>()
+        var candidate = if (forward) nextLogicalIndex() else previousLogicalIndex()
+        val tried = HashSet<Int>()
+        while (candidate != null && tried.add(candidate)) {
+            if (moveToLogicalIndex(candidate)) break
+            currentQueue.getOrNull(candidate)?.let(skipped::add)
+            // shuffle order only holds loaded items, so a failed move there ends the walk
+            if (mediaController.shuffleModeEnabled) break
+            val repeat = QueueNavigation.navigationRepeatMode(mediaController.repeatMode)
+            candidate = if (forward) QueueNavigation.logicalNext(candidate, currentQueue.size, repeat)
+            else QueueNavigation.logicalPrevious(candidate, currentQueue.size, repeat)
+            if (candidate == currentQueueIndex) break
+        }
+        if (skipped.isNotEmpty()) showToast(skippedMessage(skipped))
     }
 
     suspend fun skipToQueueIndex(index: Int) {
         ensureConnectedOrReportError() ?: return
-        moveToLogicalIndex(index)
+        if (!moveToLogicalIndex(index)) {
+            currentQueue.getOrNull(index)?.let { showToast("„${it.title}“ lässt sich nicht abspielen.") }
+        }
     }
+
+    private fun skippedMessage(tracks: List<TrackResultDto>): String =
+        if (tracks.size == 1) "„${tracks[0].title}“ lässt sich nicht abspielen und wurde übersprungen."
+        else "${tracks.size} Titel lassen sich nicht abspielen und wurden übersprungen."
 
     // With shuffle on these follow the player's own shuffle order, so the in-app buttons
     // land on the same track the notification's buttons and the crossfade would; with
-    // shuffle off they walk the logical queue (DRM gaps included) as before. See
+    // shuffle off they walk the logical queue (unloaded slots included). See
     // QueueNavigation.
     private fun nextLogicalIndex(): Int? {
         val mediaController = controller
@@ -1229,9 +1235,9 @@ class PlayerController @Inject constructor(
      * already advanced to under the hood, in which case a same-index seek fires no
      * transition and state is updated directly here instead). For a
      * SoundCloudDrmOnlyException slot (see [currentQueue]'s kdoc) there is nothing to
-     * seek to - this just pauses and shows the "Titel nicht verfügbar" state. */
-    private suspend fun moveToLogicalIndex(newLogicalIndex: Int) {
-        val track = currentQueue.getOrNull(newLogicalIndex) ?: return
+     * seek to - playback stays where it is and this returns false. */
+    private suspend fun moveToLogicalIndex(newLogicalIndex: Int): Boolean {
+        val track = currentQueue.getOrNull(newLogicalIndex) ?: return false
         resetPlaybackErrorState()
         val mediaController = ensureConnected()
         val exoIndex = exoIndexForLogical.getOrNull(newLogicalIndex)
@@ -1242,30 +1248,10 @@ class PlayerController @Inject constructor(
             val result = resolvePreferLocal(track)
             val resolved = result.getOrNull()
             if (resolved != null && insertResolved(track, resolved) != null) {
-                moveToLogicalIndex(newLogicalIndex)
-                return
+                return moveToLogicalIndex(newLogicalIndex)
             }
-            if (result.exceptionOrNull() !is SoundCloudDrmOnlyException) {
-                showToast(resolveFailureMessage(track.title, result.exceptionOrNull()))
-                return
-            }
-            currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
-            mediaController.pause()
-            currentTrack = track
-            currentTrackCompleted = false
-            currentQueueIndex = newLogicalIndex
-            _playbackState.value = _playbackState.value.copy(
-                isPlaying = false,
-                title = track.title,
-                artist = track.artist,
-                artworkUrl = track.thumbnailUrl,
-                durationMs = (track.durationSec ?: 0) * 1000L,
-                currentTrackId = "${track.source}:${track.sourceId}",
-                queueIndex = newLogicalIndex,
-                isUnavailable = true,
-                unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
-            )
-            refreshShuffledUpNext()
+            Log.i(TAG, "Cannot play ${track.title}", result.exceptionOrNull())
+            return false
         } else if (exoIndex == mediaController.currentMediaItemIndex) {
             currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
             currentTrack = track
@@ -1304,6 +1290,7 @@ class PlayerController @Inject constructor(
             mediaController.play()
             // onMediaItemTransition (reason SEEK) handles the rest of the state update.
         }
+        return true
     }
 
     /** Seeks to [positionMs] within the current track. Both sources are now genuinely

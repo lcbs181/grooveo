@@ -140,13 +140,12 @@ class RemotePlaylistDetailViewModel @Inject constructor(
     }
 
     // Playlist-level parity with the per-track "Zur Warteschlange hinzufügen" action -
-    // appends every track in order via the same single-track PlayerController.addToQueue
-    // used elsewhere, rather than a dedicated batch API.
+    // queues every track, in order, after the current one.
     fun onAddAllToQueueClicked() {
         val tracks = _uiState.value.detail?.tracks ?: return
         if (tracks.isEmpty()) return
         viewModelScope.launch {
-            tracks.forEach { track -> runCatching { playerController.addToQueue(track) } }
+            runCatching { playerController.addAllToQueue(tracks) }
         }
         _uiState.value = _uiState.value.copy(queueMessage = "${tracks.size} Titel zur Warteschlange hinzugefügt")
     }
