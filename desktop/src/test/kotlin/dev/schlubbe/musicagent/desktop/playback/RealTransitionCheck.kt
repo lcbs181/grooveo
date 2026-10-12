@@ -30,6 +30,7 @@ class RealTransitionCheck {
         override fun write(buf: FloatArray, frames: Int) {
             for (i in 0 until frames) { acc += (buf[2 * i] * buf[2 * i]).toDouble(); if (++n == 4800) { rms += sqrt(acc / n); acc = 0.0; n = 0 } }
             this.frames.addAndGet(frames.toLong())
+            Thread.sleep(1) // about 20x real time: the analysis must get a chance to finish before the track does
         }
         override fun start() {}
         override fun stop() {}

@@ -3,13 +3,13 @@ package dev.schlubbe.musicagent.desktop.audio
 import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.FFmpegLogCallback
-import java.nio.ShortBuffer
+import java.nio.FloatBuffer
 import java.util.logging.Logger
 
 /**
  * A [Deck] decoding with FFmpeg (libavformat/libavcodec via JavaCV) on its own
  * thread: HTTP(S), HLS, Opus/WebM, AAC/M4A, MP3, FLAC, local files. Output is
- * resampled by FFmpeg to 48 kHz s16 stereo and queued in a [PcmRing]; the full ring
+ * resampled by FFmpeg to 48 kHz 32-bit float stereo and queued in a [PcmRing]; the full ring
  * blocks the decoder, so it decodes only as fast as the mixer consumes.
  */
 class FfmpegDeck(private val name: String) : Deck {
@@ -54,7 +54,9 @@ class FfmpegDeck(private val name: String) : Deck {
             grabber = FFmpegFrameGrabber(src.url).apply {
                 sampleRate = SAMPLE_RATE.toInt()
                 audioChannels = 2
-                sampleFormat = avutil.AV_SAMPLE_FMT_S16
+                // float, as the codecs decode: no 16-bit rounding before EQ and normalisation,
+                // and decoder overs above 0 dBFS survive until normalisation turns them down
+                sampleFormat = avutil.AV_SAMPLE_FMT_FLT
                 if (src.url.startsWith("http")) {
                     setOption("reconnect", "1")
                     setOption("reconnect_streamed", "1")
@@ -84,15 +86,17 @@ class FfmpegDeck(private val name: String) : Deck {
                     if (session == mySession) decoderDone = false
                     continue
                 }
-                val sb = frame.samples?.firstOrNull() as? ShortBuffer ?: continue
-                val n = sb.remaining()
-                if (bytes.size < n * 2) bytes = ByteArray(n * 2)
+                val fb = frame.samples?.firstOrNull() as? FloatBuffer ?: continue
+                val n = fb.remaining()
+                if (bytes.size < n * 4) bytes = ByteArray(n * 4)
                 for (i in 0 until n) {
-                    val v = sb.get(sb.position() + i).toInt()
-                    bytes[i * 2] = v.toByte()
-                    bytes[i * 2 + 1] = (v shr 8).toByte()
+                    val v = java.lang.Float.floatToRawIntBits(fb.get(fb.position() + i))
+                    bytes[i * 4] = v.toByte()
+                    bytes[i * 4 + 1] = (v shr 8).toByte()
+                    bytes[i * 4 + 2] = (v shr 16).toByte()
+                    bytes[i * 4 + 3] = (v shr 24).toByte()
                 }
-                ring.write(bytes, n * 2, gen)
+                ring.write(bytes, n * 4, gen)
             }
         } catch (_: InterruptedException) {
         } catch (e: Exception) {
@@ -136,9 +140,10 @@ class FfmpegDeck(private val name: String) : Deck {
         val want = minOf(frames, out.size / 2, scratch.size / BYTES_PER_FRAME)
         val got = ring.read(scratch, want * BYTES_PER_FRAME) / BYTES_PER_FRAME
         for (i in 0 until got * 2) {
-            val lo = scratch[i * 2].toInt() and 0xff
-            val hi = scratch[i * 2 + 1].toInt()
-            out[i] = ((hi shl 8) or lo).toShort() / 32768f
+            val b = i * 4
+            val bits = (scratch[b].toInt() and 0xff) or ((scratch[b + 1].toInt() and 0xff) shl 8) or
+                ((scratch[b + 2].toInt() and 0xff) shl 16) or (scratch[b + 3].toInt() shl 24)
+            out[i] = java.lang.Float.intBitsToFloat(bits)
         }
         framesRead += got
         return got
@@ -149,7 +154,7 @@ class FfmpegDeck(private val name: String) : Deck {
     override fun close() = stop()
 
     companion object {
-        const val BYTES_PER_FRAME = 4
+        const val BYTES_PER_FRAME = 8 // stereo float
 
         init {
             avutil.av_log_set_level(avutil.AV_LOG_ERROR)

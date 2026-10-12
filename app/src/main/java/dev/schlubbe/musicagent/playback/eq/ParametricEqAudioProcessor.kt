@@ -124,14 +124,29 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
             p.normalizing = n.enabled
         }
         p.process(work, frames)
+        // samples the EQ or the normaliser changed get TPDF dither on the way back to 16 bit;
+        // untouched ones stay bit-exact
+        val dither = !float && (profile.enabled || (normalizer?.currentGainDb ?: 0.0) != 0.0)
         val out = replaceOutputBuffer(frames * channels * sampleBytes).order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until frames) {
             for (ch in 0 until channels) {
                 val v = work[2 * i + ch]
-                if (float) out.putFloat(v) else out.putShort(toPcm16(v))
+                if (float) out.putFloat(v) else out.putShort(if (dither) toPcm16Dithered(v) else toPcm16(v))
             }
         }
         out.flip()
+    }
+
+    private var rng = 0x2545F4914F6CDD1DL
+
+    /** +-1 LSB triangular (TPDF) dither: two uniform values from a xorshift generator. */
+    private fun toPcm16Dithered(v: Float): Short {
+        fun uniform(): Float {
+            rng = rng xor (rng shl 13); rng = rng xor (rng ushr 7); rng = rng xor (rng shl 17)
+            return (rng ushr 40).toFloat() / (1 shl 24)
+        }
+        val d = uniform() - uniform()
+        return Math.round(v * 32768f + d).coerceIn(-32768, 32767).toShort()
     }
 
     private fun passThrough(inputBuffer: ByteBuffer) {
