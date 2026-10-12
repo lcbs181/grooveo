@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pre-Android-12 (fullBackupContent) copy of data_extraction_rules.xml - see there
+     for why each file is excluded. Keep the two in sync. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="sync_pairing.xml" />
+    <exclude domain="sharedpref" path="auth_prefs.xml" />
+    <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+</full-backup-content>

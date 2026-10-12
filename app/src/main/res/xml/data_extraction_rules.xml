@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (API 31) backup rules - backup_rules.xml is the pre-12 copy and must
+     stay in sync with this one.
+     sync_pairing.xml holds the desktop pairing secret: a cloud backup or a transfer
+     to a new phone must never carry it along, the new device pairs fresh instead.
+     auth_prefs.xml and the security-crypto keyset file are EncryptedSharedPreferences,
+     encrypted with a Keystore key that never leaves this device - restored anywhere
+     else they can't be decrypted and crash AuthTokenHolder on startup. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="sync_pairing.xml" />
+        <exclude domain="sharedpref" path="auth_prefs.xml" />
+        <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="sync_pairing.xml" />
+        <exclude domain="sharedpref" path="auth_prefs.xml" />
+        <exclude domain="sharedpref" path="__androidx_security_crypto_encrypted_prefs__.xml" />
+    </device-transfer>
+</data-extraction-rules>

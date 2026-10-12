@@ -28,6 +28,7 @@ import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
@@ -166,12 +167,26 @@ class PlaybackService : MediaLibraryService() {
      * reconstructing a track from the session's own MediaItem/MediaMetadata, which
      * doesn't carry every field (e.g. webpageUrl) DownloadRepository's caching wants. */
     private val sessionCallback = object : MediaLibrarySession.Callback {
+        /** The session is exported, so any installed app can bind and connect a
+         * controller. Only [isTrustedController]s - System UI, the notification,
+         * Android Auto, the Assistant and this app's own PlayerController - get full
+         * player control, the like/download commands and the browse tree (likes,
+         * playlists, downloads, search). Anyone else gets what Media3 itself grants an
+         * untrusted controller (read-only player state, which is also what this
+         * returned for them before), minus the read-only library commands Media3 would
+         * add on top for a MediaLibrarySession - otherwise any app could read the
+         * user's likes and playlists through the browse tree. */
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            if (!isTrustedController(session, controller)) {
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+                    .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_COMMANDS)
+                    .build()
+            }
+            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SessionCommand(ACTION_LIKE, Bundle.EMPTY))
                 .add(SessionCommand(ACTION_DOWNLOAD, Bundle.EMPTY))
                 .build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
                 .setCustomLayout(listOf(likeButton(isCurrentTrackLiked()), downloadButton()))
                 .build()
@@ -183,6 +198,11 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            // Media3 already refuses commands onConnect didn't grant; checked again here
+            // so a later change to onConnect can't silently open these up.
+            if (!isTrustedController(session, controller)) {
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+            }
             when (customCommand.customAction) {
                 ACTION_LIKE -> serviceScope.launch {
                     playerController.nowPlayingTrack()?.let { likesRepository.toggle(it) }
@@ -199,8 +219,13 @@ class PlaybackService : MediaLibraryService() {
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?,
-        ): ListenableFuture<LibraryResult<MediaItem>> = serviceScope.future {
-            LibraryResult.ofItem(browseTree.libraryRoot(), params)
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            // Same belt-and-braces check as onCustomCommand; every other browse call
+            // needs a root first, so gating this one closes the whole tree.
+            if (!isTrustedController(session, browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_PERMISSION_DENIED))
+            }
+            return serviceScope.future { LibraryResult.ofItem(browseTree.libraryRoot(), params) }
         }
 
         override fun onGetItem(
@@ -277,6 +302,20 @@ class PlaybackService : MediaLibraryService() {
             if (mediaItems.all { it.localConfiguration != null }) return Futures.immediateFuture(mediaItems)
             return serviceScope.future { browseTree.resolvePlayable(mediaItems).toMutableList() }
         }
+    }
+
+    /** This app's own MediaController and Media3's notification controller, anything
+     * the system vouches for ([MediaSession.ControllerInfo.isTrusted]: holders of
+     * MEDIA_CONTENT_CONTROL such as System UI's media controls), Android Auto /
+     * Automotive, and the Google packages that drive voice and car playback. A
+     * package name alone is only trusted if it really belongs to the connecting uid. */
+    private fun isTrustedController(session: MediaSession, controller: MediaSession.ControllerInfo): Boolean {
+        if (controller.isTrusted) return true
+        if (session.isMediaNotificationController(controller)) return true
+        if (session.isAutomotiveController(controller) || session.isAutoCompanionController(controller)) return true
+        val pkg = controller.packageName
+        if (pkg != packageName && pkg !in TRUSTED_CONTROLLER_PACKAGES) return false
+        return packageManager.getPackagesForUid(controller.uid)?.contains(pkg) == true
     }
 
     override fun onCreate() {
@@ -579,5 +618,12 @@ class PlaybackService : MediaLibraryService() {
         private const val CROSSFADE_POLL_INTERVAL_MS = 200L
         private const val ACTION_LIKE = "dev.schlubbe.musicagent.ACTION_LIKE"
         private const val ACTION_DOWNLOAD = "dev.schlubbe.musicagent.ACTION_DOWNLOAD"
+
+        /** See [isTrustedController]. */
+        private val TRUSTED_CONTROLLER_PACKAGES = setOf(
+            "com.google.android.projection.gearhead", // Android Auto
+            "com.google.android.googlequicksearchbox", // Google Assistant
+            "com.android.systemui",
+        )
     }
 }
