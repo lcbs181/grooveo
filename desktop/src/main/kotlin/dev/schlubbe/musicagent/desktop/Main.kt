@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop
 
+import dev.schlubbe.musicagent.desktop.ui.TypingFocus
 import dev.schlubbe.musicagent.desktop.data.imageCacheDir
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
@@ -99,17 +100,17 @@ fun main() {
                 if (graph.settings.current.lastSeenVersion != APP_VERSION && graph.settings.current.onboardingDone) ui.showWhatsNew = true
             }
             CompositionLocalProvider(LocalUi provides ui) {
-                GrooveoTheme(settings.themeMode) { AppShell() }
+                GrooveoTheme(settings.themeMode) { TypingFocus.Track { AppShell() } }
             }
         }
     }
 }
 
-/** Global keyboard shortcuts. Text fields keep plain keys (space, arrows) for themselves. */
+/** Global keyboard shortcuts. Text fields keep plain keys (space, arrows) for themselves ([TypingFocus]). */
 internal fun handleShortcut(e: KeyEvent, ui: AppUi): Boolean {
     if (e.type != KeyEventType.KeyDown) return false
     val p = ui.graph.player
-    val focusInText = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner?.javaClass?.name?.contains("Text") == true
+    val focusInText = TypingFocus.active
     return when {
         e.isCtrlPressed && e.key == Key.K -> { ui.openAssistant(); true }
         e.isCtrlPressed && e.key == Key.F -> { ui.navigateRoot(Route.Search()); ui.searchFocusRequest++; true }
