@@ -53,8 +53,13 @@ class MasterFx {
     @Volatile private var stages: List<Stage> = emptyList()
     /** Chain to crossfade to; cleared by the mixer only if no newer one arrived meanwhile. */
     private val pending = AtomicReference<List<Stage>?>(null)
-    /** Beat length of the playing track, for the echo. */
-    @Volatile var beatSec: Double = 0.5
+    /** Beat length of the playing track at its normal speed, for the echo. */
+    @Volatile var trackBeatSec: Double = 0.5
+    /** Playback rate of the playing deck; the mixer updates it every block (a synced
+     * track glides back to its own tempo after a transition). */
+    @Volatile var rate: Double = 1.0
+    /** Beat length as heard right now. */
+    val beatSec: Double get() = trackBeatSec / rate.coerceIn(0.5, 2.0)
     private val tmp = FloatArray(AudioEngine.BLOCK * 2)
 
     fun set(chain: FxChain?) {

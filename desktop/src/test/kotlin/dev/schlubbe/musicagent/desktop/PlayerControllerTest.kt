@@ -14,6 +14,7 @@ import dev.schlubbe.musicagent.desktop.data.key
 import dev.schlubbe.musicagent.desktop.data.track
 import dev.schlubbe.musicagent.desktop.playback.PlayerController
 import dev.schlubbe.musicagent.desktop.playback.RepeatMode
+import kotlinx.coroutines.delay
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -165,6 +166,22 @@ class PlayerControllerTest {
         Thread.sleep(1500) // the stale job's analysis is done by now
         assertEquals("2", pc.state.value.current?.sourceId)
         assertEquals(track("3").key, pc.planned.value?.plan?.nextId)
+    }
+
+    @Test fun `adding to the queue does not restart the analysis of the next track`() {
+        settings.update { it.copy(djTransitions = true) }
+        store.putAnalysis(track("1").key, gridAnalysis())
+        val analysed = mutableListOf<String>()
+        analyzeFn = { t ->
+            synchronized(analysed) { analysed += t.sourceId }
+            delay(1500)
+            gridAnalysis().also { store.putAnalysis(t.key, it) }
+        }
+        pc.playQueue(q.take(2))
+        Thread.sleep(2000) // the preload of track 2 is analysing it now
+        pc.addToQueue(listOf(track("5")))
+        waitFor(8000) { pc.planned.value?.plan?.nextId == track("2").key }
+        assertEquals(listOf("2"), synchronized(analysed) { analysed.toList() })
     }
 
     @Test fun `volume follows the settings`() {

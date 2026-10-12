@@ -80,6 +80,8 @@ class PlayerController(
     private var preloadJob: Job? = null
     /** Bumped for every preload or transition request: a slower, older one must not write its result. */
     private val preloadGen = AtomicLong()
+    /** Current and next track keys the running (or finished) preload is for. */
+    @Volatile private var preloadTarget: Pair<String?, String>? = null
     private var sleepJob: Job? = null
     private var radioJob: Job? = null
     private var consecutiveFailures = 0
@@ -117,7 +119,7 @@ class PlayerController(
         scope.launch {
             settings.state.map { listOf(it.djTransitions, it.djStyle, it.djHarmonic, it.crossfadeSeconds) }.distinctUntilChanged().drop(1).collect {
                 val phase = engine.transition.value.phase
-                if (phase == TransitionStatus.Phase.NONE || phase == TransitionStatus.Phase.ARMED) schedulePreload()
+                if (phase == TransitionStatus.Phase.NONE || phase == TransitionStatus.Phase.ARMED) schedulePreload(force = true)
             }
         }
         engine.volume = settings.current.volume
@@ -258,6 +260,7 @@ class PlayerController(
         val curKey = s.current?.key
         preloadJob?.cancel()
         preloadGen.incrementAndGet() // an older preload still running must not overwrite this
+        preloadTarget = null
         if (recipe == null) recipes.remove(t.key)
         val src = resolveStream(t)
         // the recipe is kept only once it plans (or cannot be planned yet for lack of a grid)
@@ -266,6 +269,7 @@ class PlayerController(
         if (!stillNext(t, curKey)) error("The queue changed while planning the transition")
         _planned.value = planned
         engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
+        preloadTarget = curKey to t.key
         return planned
     }
 
@@ -387,6 +391,7 @@ class PlayerController(
     fun stop() {
         playJob?.cancel(); preloadJob?.cancel()
         preloadGen.incrementAndGet()
+        preloadTarget = null
         engine.stop()
         _state.update { QueueState(repeat = it.repeat) }
     }
@@ -398,6 +403,7 @@ class PlayerController(
         playJob?.cancel()
         preloadJob?.cancel()
         preloadGen.incrementAndGet()
+        preloadTarget = null
         _state.update { it.copy(resolving = true, error = null) }
         playJob = scope.launch {
             try {
@@ -445,22 +451,33 @@ class PlayerController(
         if (automatic) { recipes.remove(t.key); _planned.value = null; _planNote.value = null }
         store.recordPlay(t)
         engine.mixOutSec = store.current.analysis[t.key]?.mixOutMs?.div(1000.0)
-        store.current.analysis[t.key]?.grid?.let { engine.masterFx.beatSec = it.beatMs / 1000 / engine.currentRate }
-        schedulePreload()
+        // the echo keeps to this track's beat; without a grid, 120 BPM rather than the last track's
+        engine.masterFx.trackBeatSec = store.current.analysis[t.key]?.grid?.beatMs?.div(1000) ?: 0.5
+        schedulePreload(force = true) // the engine used up its preload, even when the next track repeats
         maybeExtendWithRadio()
     }
 
-    private fun schedulePreload() {
-        preloadJob?.cancel()
-        val gen = preloadGen.incrementAndGet()
+    /**
+     * Resolves, analyses and plans the next track. A queue edit that leaves the next
+     * track as it was keeps the preload (and an analysis still running) unless [force].
+     */
+    private fun schedulePreload(force: Boolean = false) {
         val s = _state.value
         val n = nextIndex(s, userAction = false)
+        val curKey = s.current?.key
+        val target = n?.let { curKey to s.queue[it].key }
+        if (!force && target != null && target == preloadTarget) return
+        preloadJob?.cancel()
+        val gen = preloadGen.incrementAndGet()
+        preloadTarget = target
         if (n == null || s.current == null) { engine.preloadNext(null); return }
         val t = s.queue[n]
-        val curKey = s.current?.key
         preloadJob = scope.launch {
             delay(1500) // let the current track settle; quick skips don't resolve needlessly
-            val src = try { resolveStream(t) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@launch }
+            val src = try { resolveStream(t) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                if (gen == preloadGen.get()) preloadTarget = null // the next queue edit tries again
+                return@launch
+            }
             // the analysis may take long; a skip meanwhile cancels this job and makes it stale
             val planned = try { planInto(t) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
             ensureActive()

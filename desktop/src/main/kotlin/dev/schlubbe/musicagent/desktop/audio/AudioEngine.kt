@@ -565,6 +565,7 @@ class AudioEngine(
         norms.forEach { it.allowBoost = equalizer.limiterEnabled }
         equalizer.normalizing = norms[0].enabled
         equalizer.setVolume(volume)
+        masterFx.rate = currentRate
         masterFx.process(buf, BLOCK)
         // the room comes before the EQ and its limiter, so the limiter also catches the reverb's peaks
         reverb.process(buf)
