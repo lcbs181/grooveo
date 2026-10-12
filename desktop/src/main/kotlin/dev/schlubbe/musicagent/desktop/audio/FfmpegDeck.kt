@@ -10,11 +10,12 @@ import java.util.logging.Logger
  * A [Deck] decoding with FFmpeg (libavformat/libavcodec via JavaCV) on its own
  * thread: HTTP(S), HLS, Opus/WebM, AAC/M4A, MP3, FLAC, local files. Output is
  * resampled by FFmpeg to 48 kHz 32-bit float stereo and queued in a [PcmRing]; the full ring
- * blocks the decoder, so it decodes only as fast as the mixer consumes.
+ * blocks the decoder, so it decodes only as fast as the mixer consumes. The ring holds
+ * [BUFFER_SEC] seconds, enough to ride out a slow HLS segment of a network stream.
  */
 class FfmpegDeck(private val name: String) : Deck {
     private val log = Logger.getLogger("FfmpegDeck-$name")
-    private val ring = PcmRing(BYTES_PER_FRAME * SAMPLE_RATE.toInt() / 2)
+    private val ring = PcmRing(BYTES_PER_FRAME * SAMPLE_RATE.toInt() * BUFFER_SEC)
     private val scratch = ByteArray(BYTES_PER_FRAME * 4096)
     private var worker: Thread? = null
     @Volatile private var session = 0
@@ -27,10 +28,12 @@ class FfmpegDeck(private val name: String) : Deck {
         private set
     @Volatile override var durationSec: Double? = null
         private set
-    @Volatile private var basePosSec = 0.0
-    @Volatile private var framesRead = 0L
+    /** Position = [basePosSec] + [framesRead]; both change together under [posLock] (mixer reads, ctl seeks). */
+    private val posLock = Any()
+    private var basePosSec = 0.0
+    private var framesRead = 0L
 
-    override val positionSec: Double get() = basePosSec + framesRead / SAMPLE_RATE
+    override val positionSec: Double get() = synchronized(posLock) { basePosSec + framesRead / SAMPLE_RATE }
     override val ended: Boolean get() = source != null && decoderDone && pendingSeek == null && ring.size() < BYTES_PER_FRAME
 
     @Synchronized
@@ -41,9 +44,7 @@ class FfmpegDeck(private val name: String) : Deck {
         decoderDone = false
         durationSec = null
         pendingSeek = null
-        basePosSec = source.startSec
-        framesRead = 0
-        ring.clear()
+        resetPosition(source.startSec)
         val mySession = ++session
         worker = Thread({ decode(source, mySession) }, "decode-$name").apply { isDaemon = true; start() }
     }
@@ -114,6 +115,11 @@ class FfmpegDeck(private val name: String) : Deck {
         if (source == null) return
         pendingSeek = sec
         decoderDone = false
+        resetPosition(sec)
+    }
+
+    /** Empties the ring and restarts the position count at [sec], atomically against [read]. */
+    private fun resetPosition(sec: Double) = synchronized(posLock) {
         ring.clear()
         basePosSec = sec
         framesRead = 0
@@ -132,20 +138,21 @@ class FfmpegDeck(private val name: String) : Deck {
         source = null
         decoderDone = false
         durationSec = null
-        basePosSec = 0.0
-        framesRead = 0
+        resetPosition(0.0)
     }
 
     override fun read(out: FloatArray, frames: Int): Int {
         val want = minOf(frames, out.size / 2, scratch.size / BYTES_PER_FRAME)
-        val got = ring.read(scratch, want * BYTES_PER_FRAME) / BYTES_PER_FRAME
+        // counted with the read itself: a seek in between must not add old frames to its new position
+        val got = synchronized(posLock) {
+            (ring.read(scratch, want * BYTES_PER_FRAME) / BYTES_PER_FRAME).also { framesRead += it }
+        }
         for (i in 0 until got * 2) {
             val b = i * 4
             val bits = (scratch[b].toInt() and 0xff) or ((scratch[b + 1].toInt() and 0xff) shl 8) or
                 ((scratch[b + 2].toInt() and 0xff) shl 16) or (scratch[b + 3].toInt() shl 24)
             out[i] = java.lang.Float.intBitsToFloat(bits)
         }
-        framesRead += got
         return got
     }
 
@@ -155,6 +162,8 @@ class FfmpegDeck(private val name: String) : Deck {
 
     companion object {
         const val BYTES_PER_FRAME = 8 // stereo float
+        /** Decoded audio kept ahead of the mixer (8 s = 3 MB per deck). */
+        const val BUFFER_SEC = 8
 
         init {
             avutil.av_log_set_level(avutil.AV_LOG_ERROR)
