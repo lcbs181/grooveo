@@ -20,6 +20,10 @@ object RemoteAi {
         const val STOP = "stop"
         const val NEW = "new"
         const val UNDO = "undo"
+        /** Switches to the saved chat [Request.chat]. */
+        const val OPEN = "open"
+        /** Deletes the saved chat [Request.chat]. */
+        const val DELETE = "delete"
     }
 
     data class Request(
@@ -28,7 +32,12 @@ object RemoteAi {
         val id: Long? = null,
         val allow: Boolean? = null,
         val since: Long? = null,
+        /** [Op.OPEN], [Op.DELETE]: the chat's [Chat.id]. */
+        val chat: String? = null,
     )
+
+    /** A saved chat in the list: [title] is its first message, [updatedAt] epoch millis. */
+    data class Chat(val id: String, val title: String, val updatedAt: Long)
 
     /**
      * One entry of the conversation. [type] is "user", "reply", "action", "confirm" or "notice";
@@ -63,8 +72,27 @@ object RemoteAi {
         val provider: String? = null,
         val enabled: Boolean = true,
         val message: String? = null,
+        /** The open chat's id (it is in [chats] once it has a message). */
+        val chatId: String? = null,
+        /** Saved chats, newest first. Null from a PC without chats. */
+        val chats: List<Chat>? = null,
     )
 
     /** At most this many of the latest items are sent. */
     const val MAX_ITEMS = 120
+
+    /** When a chat was last used, as the chat lists show it: "14:32", "Gestern", "Mo.", "3. Okt.", "3. Okt. 2025". */
+    fun dateLabel(epochMs: Long, now: Long = System.currentTimeMillis(), zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String {
+        val t = java.time.Instant.ofEpochMilli(epochMs).atZone(zone)
+        val today = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val days = java.time.temporal.ChronoUnit.DAYS.between(t.toLocalDate(), today)
+        val de = java.util.Locale.GERMAN
+        return when {
+            days <= 0L -> t.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm", de))
+            days == 1L -> "Gestern"
+            days < 7L -> t.format(java.time.format.DateTimeFormatter.ofPattern("EEE", de))
+            t.year == today.year -> t.format(java.time.format.DateTimeFormatter.ofPattern("d. MMM", de))
+            else -> t.format(java.time.format.DateTimeFormatter.ofPattern("d. MMM yyyy", de))
+        }
+    }
 }

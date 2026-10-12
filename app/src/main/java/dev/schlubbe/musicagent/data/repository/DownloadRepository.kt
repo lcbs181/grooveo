@@ -52,31 +52,42 @@ class DownloadRepository @Inject constructor(
      * Adds the downloaded files on the phone that the Downloads list does not know (after a
      * reinstall, a backup import or "Daten löschen"): everything in Grooveo's download folders.
      * A file is matched to a liked, playlist or played track by its name ("Artist - Title");
-     * otherwise it shows up as a local track that plays from the file. Without the audio
-     * permission Android only shows this install's own files. Returns how many were added.
+     * otherwise it shows up as a local track that plays from the file. A file that was added
+     * as a local track before its track was known (the scan on start runs before a backup is
+     * imported) is moved to that track once it is, with its cover and offline mark.
+     * Without the audio permission Android only shows this install's own files.
+     * Returns how many files were added or matched.
      */
     suspend fun scanDevice(): Int = scanLock.withLock {
-        val known = HashMap<Long, Unit>()
-        downloadDao.allCompleted().forEach { e -> e.mediaStoreUri?.let { runCatching { known[ContentUris.parseId(Uri.parse(it))] = Unit } } }
-        val files = deviceFiles().filter { it.id !in known }
+        val completed = downloadDao.allCompleted()
+        val owner = HashMap<Long, DownloadEntity>()
+        completed.forEach { e -> e.mediaStoreUri?.let { runCatching { owner[ContentUris.parseId(Uri.parse(it))] = e } } }
+        // new files, and files only known as a local track (they may match a track now)
+        val files = deviceFiles().filter { f -> owner[f.id]?.trackId?.startsWith("$LOCAL_SOURCE:") ?: true }
         if (files.isEmpty()) return@withLock 0
         val tracks = trackDao.getAll()
+        val likes = likeDao.getAll()
+        val playlistTracks = playlistTrackDao.getAll()
         val index = DeviceDownloads.index(
-            likeDao.getAll().map { DeviceDownloads.Known(it.trackId, it.track.artist, it.track.title) } +
-                playlistTrackDao.getAll().map { DeviceDownloads.Known(it.trackId, it.track.artist, it.track.title) } +
+            likes.map { DeviceDownloads.Known(it.trackId, it.track.artist, it.track.title) } +
+                playlistTracks.map { DeviceDownloads.Known(it.trackId, it.track.artist, it.track.title) } +
                 tracks.filter { it.source != LOCAL_SOURCE }.map { DeviceDownloads.Known(it.id, it.artist, it.title) },
         )
         val trackById = tracks.associateBy { it.id }
-        val snapshots = (likeDao.getAll().map { it.trackId to it.track } + playlistTrackDao.getAll().map { it.trackId to it.track }).toMap()
+        val snapshots = (likes.map { it.trackId to it.track } + playlistTracks.map { it.trackId to it.track }).toMap()
         var added = 0
         for (f in files) {
             val match = index[DeviceDownloads.key(f.name)]
+            val previous = owner[f.id]
+            // a local track stays local until a real track matches it
+            if (previous != null && match == null) continue
             val trackId = match?.id ?: "$LOCAL_SOURCE:${f.id}"
             val existing = downloadDao.getByTrackId(trackId)
             // a track already offline from another file keeps that one
             if (existing?.state == DownloadState.COMPLETED && existing.mediaStoreUri != null) continue
-            if (trackById[trackId] == null) {
-                val snap = snapshots[trackId]
+            val snap = snapshots[trackId]
+            val known = trackById[trackId]
+            if (known == null) {
                 val (artist, title) = DeviceDownloads.parse(f.name)
                 trackDao.upsert(
                     TrackEntity(
@@ -92,6 +103,8 @@ class DownloadRepository @Inject constructor(
                         webpageUrl = snap?.webpageUrl ?: "",
                     ),
                 )
+            } else if (known.thumbnailUrl == null && snap?.thumbnailUrl != null) {
+                trackDao.upsert(known.copy(thumbnailUrl = snap.thumbnailUrl))
             }
             downloadDao.upsert(
                 DownloadEntity(
@@ -104,6 +117,10 @@ class DownloadRepository @Inject constructor(
                     totalBytes = f.size,
                 ),
             )
+            if (previous != null) {
+                downloadDao.delete(previous.trackId)
+                trackDao.delete(previous.trackId)
+            }
             if (match != null) {
                 workManager.enqueueUniqueWork(
                     "analyze:$trackId",

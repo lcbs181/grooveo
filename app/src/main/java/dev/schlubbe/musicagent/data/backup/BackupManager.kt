@@ -10,6 +10,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.schlubbe.musicagent.data.remote.dto.TrackOutDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
+import dev.schlubbe.musicagent.data.repository.DownloadRepository
 import dev.schlubbe.musicagent.data.repository.FollowRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
@@ -42,6 +43,8 @@ class BackupManager @Inject constructor(
     private val followRepository: FollowRepository,
     private val savedPlaylistRepository: SavedPlaylistRepository,
     private val settingsRepository: SettingsRepository,
+    // lazy: only needed after an import, and keeps the graph free of cycles
+    private val downloads: dagger.Lazy<DownloadRepository>,
 ) {
     private val gson = Gson()
 
@@ -226,6 +229,12 @@ class BackupManager @Inject constructor(
             val have = playlistRepository.get(id).tracks.map { it.track.source to it.track.sourceId }.toSet()
             pl.tracks.filter { (it.source to it.sourceId) !in have }.forEach { playlistRepository.addTrack(id, it.toTrackResultDto()) }
         }
+        rescanDownloads()
+    }
+
+    /** Files on the phone that were downloaded for the tracks just imported become theirs again (cover, offline mark). */
+    private suspend fun rescanDownloads() {
+        runCatching { downloads.get().scanDevice() }
     }
 
     /** Most recently written local backup file, if any. */
@@ -271,6 +280,7 @@ class BackupManager @Inject constructor(
             playlistRepository.updateDetails(created.id, p.name, p.description, p.accentColorKey, p.moodTags)
             p.tracks.forEach { t -> playlistRepository.addTrack(created.id, t.toTrackResultDto()) }
         }
+        rescanDownloads()
 
         @Suppress("SENSELESS_COMPARISON")
         val s = payload.settings ?: return

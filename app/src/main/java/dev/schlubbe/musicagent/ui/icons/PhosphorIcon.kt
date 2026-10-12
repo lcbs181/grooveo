@@ -7,6 +7,7 @@ import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.fill.Sparkle
 import com.adamglin.phosphoricons.regular.Stop
 import com.adamglin.phosphoricons.regular.Folder
+import com.adamglin.phosphoricons.regular.Chats
 import com.adamglin.phosphoricons.regular.UploadSimple
 import com.adamglin.phosphoricons.regular.MagnifyingGlass
 import com.adamglin.phosphoricons.regular.Check
@@ -240,6 +241,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "stop" -> PhosphorIcons.Regular.Stop
         "folder" -> PhosphorIcons.Regular.Folder
         "upload-simple" -> PhosphorIcons.Regular.UploadSimple
+        "chats" -> PhosphorIcons.Regular.Chats
         else -> PhosphorIcons.Regular.WarningCircle
     }
 }

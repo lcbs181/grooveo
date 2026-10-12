@@ -2,6 +2,7 @@ package dev.schlubbe.musicagent.ui.assistant
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +29,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +82,7 @@ fun AssistantScreen(onOpenSettings: () -> Unit, viewModel: AssistantViewModel = 
     val items = remote?.items.orEmpty()
     val running = remote?.running == true
     var input by rememberSaveable { mutableStateOf("") }
+    var showChats by rememberSaveable { mutableStateOf(false) }
     val list = rememberLazyListState()
 
     // follow the PC only while the tab is shown
@@ -114,6 +118,10 @@ fun AssistantScreen(onOpenSettings: () -> Unit, viewModel: AssistantViewModel = 
             }
             if (remote != null && items.isNotEmpty()) {
                 CanopyButton("Neu", onClick = viewModel::newConversation, variant = CanopyButtonVariant.Ghost)
+            }
+            // a PC without saved chats sends no list
+            if (remote?.chats != null) {
+                CanopyIconButton(phosphorIcon("chats"), onClick = { showChats = true }, contentDescription = "Chats")
             }
         }
 
@@ -203,6 +211,73 @@ fun AssistantScreen(onOpenSettings: () -> Unit, viewModel: AssistantViewModel = 
                         enabled = input.isNotBlank() && remote?.enabled == true,
                         contentDescription = "Senden",
                     )
+                }
+            }
+        }
+    }
+
+    if (showChats && remote?.chats != null) {
+        ChatsSheet(
+            chats = remote.chats,
+            openId = remote.chatId,
+            onOpen = { viewModel.openChat(it); showChats = false },
+            onNew = { viewModel.newConversation(); showChats = false },
+            onDelete = viewModel::deleteChat,
+            onDismiss = { showChats = false },
+        )
+    }
+}
+
+/** The PC's saved chats: open one, start a new one, delete. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatsSheet(
+    chats: List<RemoteAi.Chat>,
+    openId: String?,
+    onOpen: (String) -> Unit,
+    onNew: () -> Unit,
+    onDelete: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Chats", style = MaterialTheme.typography.headlineSmall, color = Canopy.text, modifier = Modifier.weight(1f))
+            CanopyButton("Neuer Chat", onClick = onNew, variant = CanopyButtonVariant.Ghost, leadingIcon = phosphorIcon("plus"))
+        }
+        if (chats.isEmpty()) {
+            Text(
+                "Noch keine gespeicherten Chats. Jeder Chat mit einer Nachricht landet hier.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Canopy.neutral500,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).padding(bottom = 24.dp),
+            )
+        } else {
+            LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                items(chats, key = { it.id }) { chat ->
+                    val open = chat.id == openId
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(chat.id) }
+                            .background(if (open) Canopy.accent.copy(alpha = 0.08f) else Canopy.surface)
+                            .padding(start = 20.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                chat.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (open) Canopy.accent else Canopy.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(RemoteAi.dateLabel(chat.updatedAt), style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                        }
+                        CanopyIconButton(phosphorIcon("trash"), onClick = { onDelete(chat.id) }, contentDescription = "Chat löschen")
+                    }
                 }
             }
         }

@@ -18,6 +18,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks")
     suspend fun getAll(): List<TrackEntity>
 
+    @Query("DELETE FROM tracks WHERE id = :id")
+    suspend fun delete(id: String)
+
     @Query("SELECT * FROM tracks ORDER BY lastAccessedAt DESC LIMIT :limit")
     fun observeRecentlyPlayed(limit: Int = 50): Flow<List<TrackEntity>>
 }

@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,12 +53,15 @@ import androidx.compose.ui.unit.dp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ArrowUp
+import com.adamglin.phosphoricons.regular.Chats
 import com.adamglin.phosphoricons.regular.Check
 import com.adamglin.phosphoricons.regular.Prohibit
 import com.adamglin.phosphoricons.regular.Sparkle
 import com.adamglin.phosphoricons.regular.Stop
+import com.adamglin.phosphoricons.regular.Trash
 import com.adamglin.phosphoricons.regular.Warning
 import com.adamglin.phosphoricons.regular.X
+import dev.schlubbe.musicagent.data.sync.RemoteAi
 import dev.schlubbe.musicagent.desktop.ai.AiItem
 import dev.schlubbe.musicagent.desktop.ai.AiPolicy
 import dev.schlubbe.musicagent.desktop.ui.C
@@ -99,6 +104,26 @@ fun AiPanel(modifier: Modifier = Modifier) {
             Icon(PhosphorIcons.Regular.Sparkle, null, tint = c.accent, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Text("Grooveo-Assistent", style = MaterialTheme.typography.titleLarge, color = c.text, modifier = Modifier.weight(1f))
+            Box {
+                var chatsOpen by remember { mutableStateOf(false) }
+                IconBtn(PhosphorIcons.Regular.Chats, "Chats") { chatsOpen = true }
+                DropdownMenu(chatsOpen, { chatsOpen = false }, containerColor = c.surface, modifier = Modifier.widthIn(max = 340.dp)) {
+                    DropdownMenuItem({ Text("Neuer Chat", color = c.accent) }, onClick = { ai.newConversation(); chatsOpen = false })
+                    if (st.chats.isEmpty()) DropdownMenuItem({ Text("Noch keine gespeicherten Chats", color = c.textFaint) }, onClick = {}, enabled = false)
+                    st.chats.forEach { chat ->
+                        DropdownMenuItem(
+                            {
+                                Column {
+                                    Text(chat.title, color = if (chat.id == st.chatId) c.accent else c.text, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(RemoteAi.dateLabel(chat.updatedAt), color = c.textFaint, style = MaterialTheme.typography.labelSmall)
+                                }
+                            },
+                            onClick = { ai.openChat(chat.id); chatsOpen = false },
+                            trailingIcon = { IconBtn(PhosphorIcons.Regular.Trash, "Chat löschen", tint = c.textMuted) { ai.deleteChat(chat.id) } },
+                        )
+                    }
+                }
+            }
             TextButton({ ai.newConversation() }) { Text("Neu", color = c.textMuted) }
             IconBtn(PhosphorIcons.Regular.X, "Schließen") { ui.togglePanel(SidePanel.AI) }
         }

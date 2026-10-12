@@ -55,6 +55,10 @@ data class AiState(
     /** The request whose answer [canUndo] refers to (shortened). */
     val undoFor: String? = null,
     val provider: String = "",
+    /** The open chat. */
+    val chatId: String = "",
+    /** Saved chats, newest first. */
+    val chats: List<AiChat> = emptyList(),
 )
 
 /**
@@ -73,21 +77,24 @@ class AiAssistant(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tools = GrooveoTools(g)
     private val ids = AtomicLong()
+    private val chats = AiChatStore(File(keyFile.absoluteFile.parentFile, "ai-chats"))
     /** Guards [conv], [undo] and writes to [_state]. */
     private val lock = Any()
     @Volatile private var conv = Conversation()
     @Volatile private var job: Job? = null
     @Volatile private var undo: UndoRecord? = null
 
-    private val _state = MutableStateFlow(AiState())
+    private val _state = MutableStateFlow(AiState(chatId = conv.id, chats = chats.list()))
     val state: StateFlow<AiState> = _state.asStateFlow()
 
     /**
      * One conversation's own state. "Neu" starts a new one, so a turn that is still
      * winding down can only write into the conversation it belongs to.
      */
-    private inner class Conversation {
-        val history = ArrayList<Msg>()
+    private inner class Conversation(
+        val id: String = java.util.UUID.randomUUID().toString(),
+        val history: ArrayList<Msg> = ArrayList(),
+    ) {
         val policy = AiPolicy()
         val pending = ConcurrentHashMap<Long, CompletableDeferred<Boolean>>()
         /** One turn at a time touches [history]. */
@@ -158,14 +165,49 @@ class AiAssistant(
         c.edit { s -> s.copy(items = s.items.map { if (it is AiItem.Confirm && it.answer == null) it.copy(answer = false) else it }) }
     }
 
-    fun newConversation() {
+    fun newConversation() = switchTo(Conversation(), emptyList())
+
+    /** Opens a saved chat; a turn still running in the current one is stopped. */
+    fun openChat(id: String) {
+        if (id == conv.id) return
+        val saved = chats.load(id) ?: return
+        val items = saved.items.mapNotNull { it.toAiItem() }
+        // new items must not reuse an id of the opened chat
+        items.maxOfOrNull { it.id }?.let { max -> ids.updateAndGet { maxOf(it, max) } }
+        switchTo(Conversation(saved.id, AiChatStore.historyOf(items)), items)
+    }
+
+    /** Deletes a saved chat; the open one is replaced by a new chat. */
+    fun deleteChat(id: String) {
+        if (id == conv.id) {
+            stop()
+            // detached first, so the stopped turn cannot save the chat again while it winds down
+            synchronized(lock) { conv = Conversation() }
+            chats.delete(id)
+            switchTo(Conversation(), emptyList(), save = false)
+        } else {
+            chats.delete(id)
+            synchronized(lock) { _state.update { it.copy(chats = chats.list()) } }
+        }
+    }
+
+    private fun switchTo(next: Conversation, items: List<AiItem>, save: Boolean = true) {
         stop()
+        if (save) persist(conv)
         val label = runCatching { provider().label }.getOrDefault("")
         synchronized(lock) {
-            conv = Conversation()
+            conv = next
             undo = null
-            _state.value = AiState(provider = label)
+            _state.value = AiState(items = items, provider = label, chatId = next.id, chats = chats.list())
         }
+    }
+
+    /** Saves [c] while it is the open chat and has a message of the user. */
+    private fun persist(c: Conversation) {
+        val items = synchronized(lock) { if (conv === c) _state.value.items else return }
+        val first = items.firstOrNull { it is AiItem.User } as? AiItem.User ?: return
+        runCatching { chats.save(c.id, AiChatStore.titleOf(first.text), items.map { it.toWire() }) }
+        synchronized(lock) { if (conv === c) _state.update { it.copy(chats = chats.list()) } }
     }
 
     /** The user's answer to a confirmation card. */
@@ -204,6 +246,7 @@ class AiAssistant(
             c.add(AiItem.Notice(ids.incrementAndGet(),
                 if (kept.isEmpty()) "Rückgängig gemacht: „${u.request}“."
                 else "Rückgängig gemacht: „${u.request}“. Geblieben, weil inzwischen geändert: ${kept.joinToString()}."))
+            persist(c)
         }
     }
 
@@ -291,6 +334,7 @@ class AiAssistant(
                 }
             }
             c.edit { s -> s.copy(running = false, items = s.items.map { if (it is AiItem.Reply && it.streaming) it.copy(streaming = false) else it }) }
+            persist(c)
         }
     }
 
@@ -376,7 +420,7 @@ class AiAssistant(
 
     // ---------------- state helpers
 
-    fun close() { stop(); scope.coroutineContext[Job]?.cancel() }
+    fun close() { stop(); persist(conv); scope.coroutineContext[Job]?.cancel() }
 
     companion object {
         const val MAX_STEPS = 12

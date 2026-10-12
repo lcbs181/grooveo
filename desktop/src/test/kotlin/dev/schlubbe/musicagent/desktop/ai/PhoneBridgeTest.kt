@@ -107,6 +107,36 @@ class PhoneBridgeTest {
         assertEquals(1, graph.store.current.playlists.size)
     }
 
+    @Test fun `chats are saved, listed, opened again with their history and deleted`() {
+        ai(RemoteAi.Request(RemoteAi.Op.SEND, text = "Erster Chat"))
+        val first = pollUntil { s -> !s.running && s.items.lastOrNull()?.type == "reply" }
+        assertEquals(listOf("Erster Chat"), first.chats!!.map { it.title })
+        assertEquals(first.chatId, first.chats!!.single().id)
+        ai(RemoteAi.Request(RemoteAi.Op.NEW))
+        ai(RemoteAi.Request(RemoteAi.Op.SEND, text = "Zweiter Chat"))
+        val second = pollUntil { s -> !s.running && s.items.lastOrNull()?.type == "reply" }
+        assertEquals(listOf("Zweiter Chat", "Erster Chat"), second.chats!!.map { it.title })
+
+        val opened = ai(RemoteAi.Request(RemoteAi.Op.OPEN, chat = first.chatId))
+        assertEquals(first.chatId, opened.chatId)
+        assertEquals(listOf("Erster Chat", "Fertig."), opened.items.mapNotNull { it.text })
+        // the model gets the opened chat's messages before the new one
+        provider.seen.clear()
+        ai(RemoteAi.Request(RemoteAi.Op.SEND, text = "Weiter"))
+        pollUntil { s -> !s.running && s.items.count { it.type == "reply" } == 2 }
+        val texts = provider.seen.flatten().flatMap { m -> m.blocks.filterIsInstance<Block.Text>().map { it.text } }
+        assertTrue(texts.any { it == "Erster Chat" } && texts.any { it == "Fertig." })
+        assertTrue(texts.any { it.endsWith("Weiter") })
+
+        // saved on disk: a new assistant lists both
+        assertEquals(2, AiAssistant(graph, File(dir, "key"), providerOverride = { provider }).run { state.value.chats.size.also { close() } })
+
+        val deleted = ai(RemoteAi.Request(RemoteAi.Op.DELETE, chat = first.chatId))
+        assertEquals(listOf("Zweiter Chat"), deleted.chats!!.map { it.title })
+        assertNotEquals(first.chatId, deleted.chatId)
+        assertTrue(deleted.items.isEmpty())
+    }
+
     @Test fun `switched off on the PC, or with the wrong key, the phone gets nothing`() {
         assertEquals(401, call(SyncProtocol.AI_PATH, gson.toJson(RemoteAi.Request(RemoteAi.Op.STATE)), SyncProtocol.keys(SyncProtocol.newKey())).status)
         graph.settings.update { it.copy(aiFromPhone = false) }

@@ -87,6 +87,8 @@ class AssistantViewModel @Inject constructor(
     fun stop() = op(RemoteAi.Request(RemoteAi.Op.STOP))
     fun newConversation() = op(RemoteAi.Request(RemoteAi.Op.NEW))
     fun undo() = op(RemoteAi.Request(RemoteAi.Op.UNDO))
+    fun openChat(id: String) = op(RemoteAi.Request(RemoteAi.Op.OPEN, chat = id))
+    fun deleteChat(id: String) = op(RemoteAi.Request(RemoteAi.Op.DELETE, chat = id))
 
     /** Play/pause, next, previous on the PC. */
     fun playback(action: String) {

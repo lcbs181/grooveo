@@ -234,6 +234,11 @@ settings and, if allowed, a taste summary.
   rückgängig"). Playback and the queue are not part of it.
 - **Untrusted text:** titles, descriptions and lyrics in tool results are marked
   as data in the system prompt, not as instructions.
+- **Chats:** every chat with a message is saved in `ai-chats/` in the data
+  folder (one JSON file per chat, the newest 100 are kept) and can be opened
+  again or deleted from the chats menu. A chat opened again continues with its
+  messages and replies as the model's history; earlier tool calls are not
+  resent. Opening another chat stops an answer that is still running.
 
 ### From the phone ("KI" tab)
 
@@ -244,9 +249,11 @@ the user's messages and answers. The panel on the PC shows the same
 conversation, and the same questions apply (delete, FX, loudness); they can be
 answered on either device.
 
-- `POST /sync/ai`: `send`, `answer`, `stop`, `new`, `undo`, and `state`, which
+- `POST /sync/ai`: `send`, `answer`, `stop`, `new`, `undo`, `open` and
+  `delete` (a saved chat), and `state`, which
   the PC holds open for up to 20 s until the conversation changes (long poll).
-  Every request is answered with the current conversation and a revision.
+  Every request is answered with the current conversation, the list of saved
+  chats and a revision.
 - `POST /sync/mcp`: MCP JSON-RPC (`initialize`, `tools/list`, `tools/call`)
   with the same tools as the MCP server. The phone uses it for the small player
   bar (what plays on the PC, play/pause, skip). Tools that delete data are not

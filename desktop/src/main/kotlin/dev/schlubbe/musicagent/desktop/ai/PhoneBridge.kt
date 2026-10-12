@@ -57,6 +57,8 @@ class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssist
             RemoteAi.Op.STOP -> ai.stop()
             RemoteAi.Op.NEW -> ai.newConversation()
             RemoteAi.Op.UNDO -> ai.undoLast()
+            RemoteAi.Op.OPEN -> r.chat?.let(ai::openChat)
+            RemoteAi.Op.DELETE -> r.chat?.let(ai::deleteChat)
             else -> return gson.toJson(RemoteAi.State(message = "Unbekannte Anfrage ${r.op}"))
         }
         val (rev, s) = current()
@@ -71,20 +73,14 @@ class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssist
 
     private fun wire(rev: Long, s: AiState, ai: AiAssistant) = RemoteAi.State(
         rev = rev,
-        items = s.items.takeLast(RemoteAi.MAX_ITEMS).map(::wire),
+        items = s.items.takeLast(RemoteAi.MAX_ITEMS).map { it.toWire() },
         running = s.running,
         canUndo = s.canUndo,
         undoFor = s.undoFor,
         provider = s.provider.ifBlank { ai.providerLabel() },
+        chatId = s.chatId,
+        chats = s.chats.map { RemoteAi.Chat(it.id, it.title, it.updatedAt) },
     )
-
-    private fun wire(i: AiItem): RemoteAi.Item = when (i) {
-        is AiItem.User -> RemoteAi.Item(i.id, "user", text = i.text)
-        is AiItem.Reply -> RemoteAi.Item(i.id, "reply", text = i.text, streaming = i.streaming)
-        is AiItem.Action -> RemoteAi.Item(i.id, "action", status = i.status.name.lowercase(), label = i.label, detail = i.detail)
-        is AiItem.Confirm -> RemoteAi.Item(i.id, "confirm", kind = i.kind.name, title = i.title, detail = i.detail, answer = i.answer)
-        is AiItem.Notice -> RemoteAi.Item(i.id, "notice", text = i.text, error = i.error)
-    }
 
     override fun mcp(json: String): String {
         val req = runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull()
