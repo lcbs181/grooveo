@@ -57,6 +57,10 @@ data class QueueState(
  * preloading, crossfade with analysed mix points, "Automatische Weiterempfehlung"
  * radio via the shared FeedRepository.predictNext, sleep timer, history and
  * listening statistics.
+ *
+ * Called from many threads (UI, MPRIS, MCP, the phone bridge, the assistant, its own
+ * jobs): queue changes and the bookkeeping around them run under [lock], and engine
+ * events are handled one after another on [events], never on the mixer thread.
  */
 class PlayerController(
     private val engine: AudioEngine,
@@ -70,6 +74,10 @@ class PlayerController(
     /** "Übergänge analysieren" for one track, storing the result (AppGraph.analyze in the app). */
     private val analyze: suspend (TrackResultDto) -> TrackAnalysis? = { null },
 ) {
+    /** Guards the queue, the jobs and the counters below; held only briefly, never across a suspension. */
+    private val lock = Any()
+    /** Engine callbacks, handled in the order the engine sent them. */
+    private val events = Dispatchers.Default.limitedParallelism(1)
     private val _state = MutableStateFlow(QueueState())
     val state: StateFlow<QueueState> = _state.asStateFlow()
     val engineState get() = engine.state
@@ -100,10 +108,10 @@ class PlayerController(
 
     init {
         engine.listener = object : EngineListener {
-            // called on the mixer thread: library writes and planning must not hold up the audio
-            override fun onStarted(source: AudioSource, automatic: Boolean) { scope.launch { onEngineStarted(source, automatic) } }
-            override fun onEnded(source: AudioSource) { scope.launch { onEngineEnded() } }
-            override fun onError(source: AudioSource, message: String) { scope.launch { onPlaybackError(source, message) } }
+            // the mixer thread only hands these over: library writes and planning must not hold up the audio
+            override fun onStarted(source: AudioSource, automatic: Boolean) { scope.launch(events) { synchronized(lock) { onEngineStarted(source, automatic) } } }
+            override fun onEnded(source: AudioSource) { scope.launch(events) { onEngineEnded() } }
+            override fun onError(source: AudioSource, message: String) { scope.launch(events) { onPlaybackError(source, message) } }
         }
         scope.launch {
             settings.state.distinctUntilChangedBy { listOf(it.eq, it.sound3dPreset, it.crossfadeSeconds, it.loudnessNormalization, it.fxChain, it.djTransitions) }.collect { s ->
@@ -143,106 +151,126 @@ class PlayerController(
     // ---------------- public API ----------------
 
     fun playQueue(tracks: List<TrackResultDto>, startIndex: Int = 0, shuffle: Boolean = false) {
-        if (tracks.isEmpty()) return
-        var list = tracks.distinctBy { it.key }
-        var start = startIndex.coerceIn(0, list.size - 1)
-        unshuffled = null
-        if (shuffle) {
-            unshuffled = list
-            val first = if (startIndex in tracks.indices) list[start] else list.random()
-            list = listOf(first) + (list - first).shuffled()
-            start = 0
+        synchronized(lock) {
+            if (tracks.isEmpty()) return
+            var list = tracks.distinctBy { it.key }
+            var start = startIndex.coerceIn(0, list.size - 1)
+            unshuffled = null
+            if (shuffle) {
+                unshuffled = list
+                val first = if (startIndex in tracks.indices) list[start] else list.random()
+                list = listOf(first) + (list - first).shuffled()
+                start = 0
+            }
+            _state.update { it.copy(queue = list, index = start, shuffle = shuffle, error = null) }
+            startCurrent()
         }
-        _state.update { it.copy(queue = list, index = start, shuffle = shuffle, error = null) }
-        startCurrent()
     }
 
     fun playTrack(track: TrackResultDto) = playQueue(listOf(track))
 
     fun addToQueue(tracks: List<TrackResultDto>) {
-        if (_state.value.queue.isEmpty()) return playQueue(tracks)
-        _state.update { s -> s.copy(queue = s.queue + tracks.filter { t -> s.queue.none { it.key == t.key } }) }
-        unshuffled = unshuffled?.plus(tracks)
-        schedulePreload()
+        synchronized(lock) {
+            if (_state.value.queue.isEmpty()) return playQueue(tracks)
+            _state.update { s -> s.copy(queue = s.queue + tracks.filter { t -> s.queue.none { it.key == t.key } }) }
+            unshuffled = unshuffled?.plus(tracks)
+            schedulePreload()
+        }
     }
 
     fun playNext(track: TrackResultDto) {
-        val s = _state.value
-        if (s.queue.isEmpty()) return playTrack(track)
-        val without = s.queue.filterIndexed { i, t -> t.key != track.key || i == s.index }
-        val idx = without.indexOfFirst { it.key == s.current?.key }.coerceAtLeast(0)
-        _state.update { it.copy(queue = without.toMutableList().apply { add(idx + 1, track) }, index = idx) }
-        // with shuffle on, the order to go back to gets it right after the current track too
-        unshuffled = unshuffled?.let { u ->
-            val rest = u.filter { it.key != track.key }
-            val at = rest.indexOfFirst { it.key == s.current?.key }
-            rest.toMutableList().apply { add(at + 1, track) }
+        synchronized(lock) {
+            val s = _state.value
+            if (s.queue.isEmpty()) return playTrack(track)
+            val without = s.queue.filterIndexed { i, t -> t.key != track.key || i == s.index }
+            val idx = without.indexOfFirst { it.key == s.current?.key }.coerceAtLeast(0)
+            _state.update { it.copy(queue = without.toMutableList().apply { add(idx + 1, track) }, index = idx) }
+            // with shuffle on, the order to go back to gets it right after the current track too
+            unshuffled = unshuffled?.let { u ->
+                val rest = u.filter { it.key != track.key }
+                val at = rest.indexOfFirst { it.key == s.current?.key }
+                rest.toMutableList().apply { add(at + 1, track) }
+            }
+            schedulePreload()
         }
-        schedulePreload()
     }
 
     fun removeFromQueue(i: Int) {
-        val s = _state.value
-        if (i !in s.queue.indices) return
-        // gone for good, also from the order shuffle returns to
-        unshuffled = unshuffled?.filter { it.key != s.queue[i].key }
-        if (i == s.index) {
-            val q = s.queue.filterIndexed { j, _ -> j != i }
-            if (q.isEmpty()) { stop(); return }
-            _state.update { it.copy(queue = q, index = i.coerceAtMost(q.size - 1)) }
-            startCurrent()
-            return
+        synchronized(lock) {
+            val s = _state.value
+            if (i !in s.queue.indices) return
+            // gone for good, also from the order shuffle returns to
+            unshuffled = unshuffled?.filter { it.key != s.queue[i].key }
+            if (i == s.index) {
+                val q = s.queue.filterIndexed { j, _ -> j != i }
+                if (q.isEmpty()) { stop(); return }
+                _state.update { it.copy(queue = q, index = i.coerceAtMost(q.size - 1)) }
+                startCurrent()
+                return
+            }
+            _state.update { it.copy(queue = s.queue.filterIndexed { j, _ -> j != i }, index = if (i < s.index) s.index - 1 else s.index) }
+            schedulePreload()
         }
-        _state.update { it.copy(queue = s.queue.filterIndexed { j, _ -> j != i }, index = if (i < s.index) s.index - 1 else s.index) }
-        schedulePreload()
     }
 
     fun moveInQueue(from: Int, to: Int) {
-        val s = _state.value
-        if (from !in s.queue.indices || to !in s.queue.indices || from == to) return
-        val cur = s.current
-        val q = s.queue.toMutableList().apply { add(to, removeAt(from)) }
-        _state.update { it.copy(queue = q, index = q.indexOfFirst { t -> t.key == cur?.key }) }
-        schedulePreload()
+        synchronized(lock) {
+            val s = _state.value
+            if (from !in s.queue.indices || to !in s.queue.indices || from == to) return
+            val cur = s.current
+            val q = s.queue.toMutableList().apply { add(to, removeAt(from)) }
+            _state.update { it.copy(queue = q, index = q.indexOfFirst { t -> t.key == cur?.key }) }
+            schedulePreload()
+        }
     }
 
     fun clearUpNext() {
-        val s = _state.value
-        _state.update { it.copy(queue = s.queue.take(s.index + 1)) }
-        unshuffled = null
-        schedulePreload()
+        synchronized(lock) {
+            val s = _state.value
+            _state.update { it.copy(queue = s.queue.take(s.index + 1)) }
+            unshuffled = null
+            schedulePreload()
+        }
     }
 
     fun skipTo(i: Int) {
-        if (i !in _state.value.queue.indices) return
-        _state.update { it.copy(index = i) }
-        startCurrent()
+        synchronized(lock) {
+            if (i !in _state.value.queue.indices) return
+            _state.update { it.copy(index = i) }
+            startCurrent()
+        }
     }
 
     fun next() {
-        val s = _state.value
-        val n = nextIndex(s, userAction = true) ?: return
-        _state.update { it.copy(index = n) }
-        startCurrent()
+        synchronized(lock) {
+            val s = _state.value
+            val n = nextIndex(s, userAction = true) ?: return
+            _state.update { it.copy(index = n) }
+            startCurrent()
+        }
     }
 
     fun previous() {
-        val s = _state.value
-        // a track that came in at its mix-in point counts from there, else "back" could never go back
-        val from = engine.activeSource?.takeIf { it.id == s.current?.key }?.startSec ?: 0.0
-        if (engine.state.value.positionSec - from > 3 || s.index <= 0) { seek(0.0); return }
-        _state.update { it.copy(index = s.index - 1) }
-        startCurrent()
+        synchronized(lock) {
+            val s = _state.value
+            // a track that came in at its mix-in point counts from there, else "back" could never go back
+            val from = engine.activeSource?.takeIf { it.id == s.current?.key }?.startSec ?: 0.0
+            if (engine.state.value.positionSec - from > 3 || s.index <= 0) { seek(0.0); return }
+            _state.update { it.copy(index = s.index - 1) }
+            startCurrent()
+        }
     }
 
     fun togglePlay() {
-        val e = engine.state.value
-        when {
-            e.playing -> engine.pause()
-            // the queue played to its end: play the last track again instead of resuming a finished deck
-            e.currentId != null && e.durationSec != null && e.positionSec >= e.durationSec - 0.5 -> startCurrent()
-            e.currentId != null -> engine.resume()
-            _state.value.current != null -> startCurrent()
+        synchronized(lock) {
+            val e = engine.state.value
+            when {
+                e.playing -> engine.pause()
+                // the queue played to its end: play the last track again instead of resuming a finished deck
+                e.currentId != null && e.durationSec != null && e.positionSec >= e.durationSec - 0.5 -> startCurrent()
+                e.currentId != null -> engine.resume()
+                _state.value.current != null -> startCurrent()
+            }
         }
     }
 
@@ -254,22 +282,25 @@ class PlayerController(
      * analysis is missing a beat grid (then the plain crossfade applies).
      */
     suspend fun setTransition(recipe: TransitionRecipe?): PlannedTransition? {
-        val s = _state.value
-        val n = nextIndex(s, userAction = false) ?: error("Nothing queued after the current track")
-        val t = s.queue[n]
-        val curKey = s.current?.key
-        preloadJob?.cancel()
-        preloadGen.incrementAndGet() // an older preload still running must not overwrite this
-        preloadTarget = null
+        val (t, curKey) = synchronized(lock) {
+            val s = _state.value
+            val n = nextIndex(s, userAction = false) ?: error("Nothing queued after the current track")
+            preloadJob?.cancel()
+            preloadGen.incrementAndGet() // an older preload still running must not overwrite this
+            preloadTarget = null
+            s.queue[n] to s.current?.key
+        }
         if (recipe == null) recipes.remove(t.key)
         val src = resolveStream(t)
         // the recipe is kept only once it plans (or cannot be planned yet for lack of a grid)
         val planned = if (recipe == null) planInto(t) else planInto(t, recipe, force = true).also { recipes[t.key] = recipe }
         currentCoroutineContext().ensureActive()
-        if (!stillNext(t, curKey)) error("The queue changed while planning the transition")
-        _planned.value = planned
-        engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
-        preloadTarget = curKey to t.key
+        synchronized(lock) {
+            if (!stillNext(t, curKey)) error("The queue changed while planning the transition")
+            _planned.value = planned
+            engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
+            preloadTarget = curKey to t.key
+        }
         return planned
     }
 
@@ -281,9 +312,11 @@ class PlayerController(
 
     /** Stops an armed transition: the next track follows with the plain crossfade or gaplessly. */
     fun cancelTransition() {
-        _state.value.let { s -> nextIndex(s, false)?.let { recipes.remove(s.queue[it].key) } }
-        _planned.value = null
-        engine.cancelTransition()
+        synchronized(lock) {
+            _state.value.let { s -> nextIndex(s, false)?.let { recipes.remove(s.queue[it].key) } }
+            _planned.value = null
+            engine.cancelTransition()
+        }
     }
 
     /** Live effect on the playing track (DJ EQ, filters, fader, echo). */
@@ -330,70 +363,83 @@ class PlayerController(
     }
 
     fun toggleShuffle() {
-        val s = _state.value
-        val cur = s.current
-        if (!s.shuffle) {
-            unshuffled = s.queue
-            val up = s.upNext.shuffled()
-            _state.update { it.copy(queue = s.queue.take(s.index + 1) + up, shuffle = true) }
-        } else {
-            val orig = unshuffled ?: s.queue
-            val idx = orig.indexOfFirst { it.key == cur?.key }
-            _state.update { it.copy(queue = orig, index = if (idx >= 0) idx else s.index, shuffle = false) }
-            unshuffled = null
+        synchronized(lock) {
+            val s = _state.value
+            val cur = s.current
+            if (!s.shuffle) {
+                unshuffled = s.queue
+                val up = s.upNext.shuffled()
+                _state.update { it.copy(queue = s.queue.take(s.index + 1) + up, shuffle = true) }
+            } else {
+                val orig = unshuffled ?: s.queue
+                val idx = orig.indexOfFirst { it.key == cur?.key }
+                _state.update { it.copy(queue = orig, index = if (idx >= 0) idx else s.index, shuffle = false) }
+                unshuffled = null
+            }
+            schedulePreload()
         }
-        schedulePreload()
     }
 
     fun cycleRepeat() {
-        _state.update { it.copy(repeat = RepeatMode.entries[(it.repeat.ordinal + 1) % RepeatMode.entries.size]) }
-        schedulePreload()
+        synchronized(lock) {
+            _state.update { it.copy(repeat = RepeatMode.entries[(it.repeat.ordinal + 1) % RepeatMode.entries.size]) }
+            schedulePreload()
+        }
     }
 
     fun setSleepTimer(minutes: Int?) {
-        sleepJob?.cancel()
-        if (minutes == null) { _state.update { it.copy(sleepTimerEndAt = null) }; return }
-        val end = System.currentTimeMillis() + minutes * 60_000L
-        _state.update { it.copy(sleepTimerEndAt = end) }
-        sleepJob = scope.launch {
-            delay((minutes * 60_000L - SLEEP_FADE_MS).coerceAtLeast(0))
-            // fade out instead of stopping mid-phrase; the volume setting itself stays
-            val from = engine.volume
-            val steps = 80
-            try {
-                for (k in 1..steps) {
-                    delay(SLEEP_FADE_MS / steps)
-                    engine.volume = from * (1f - k.toFloat() / steps)
+        synchronized(lock) {
+            sleepJob?.cancel()
+            if (minutes == null) { _state.update { it.copy(sleepTimerEndAt = null) }; return }
+            val end = System.currentTimeMillis() + minutes * 60_000L
+            _state.update { it.copy(sleepTimerEndAt = end) }
+            sleepJob = scope.launch {
+                delay((minutes * 60_000L - SLEEP_FADE_MS).coerceAtLeast(0))
+                // fade out instead of stopping mid-phrase; the volume setting itself stays
+                val from = engine.volume
+                val steps = 80
+                try {
+                    for (k in 1..steps) {
+                        delay(SLEEP_FADE_MS / steps)
+                        engine.volume = from * (1f - k.toFloat() / steps)
+                    }
+                    engine.pause()
+                } finally {
+                    engine.volume = settings.current.volume.coerceIn(0f, 1f)
                 }
-                engine.pause()
-            } finally {
-                engine.volume = settings.current.volume.coerceIn(0f, 1f)
+                _state.update { it.copy(sleepTimerEndAt = null) }
             }
-            _state.update { it.copy(sleepTimerEndAt = null) }
         }
     }
 
     /** Switches between the stream and the downloaded copy at the same position. */
     fun toggleSource() {
-        val s = _state.value
-        val t = s.current ?: return
-        val local = localFile(t)
-        if (local == null && !s.playingLocalCopy) return
-        val pos = engine.state.value.positionSec
-        playJob?.cancel()
-        playJob = scope.launch {
-            val src = if (s.playingLocalCopy) resolveStream(t, preferLocal = false) else AudioSource(t.key, local!!.path)
-            engine.play(src.copy(startSec = pos))
-            _state.update { it.copy(playingLocalCopy = !s.playingLocalCopy) }
+        synchronized(lock) {
+            val s = _state.value
+            val t = s.current ?: return
+            val local = localFile(t)
+            if (local == null && !s.playingLocalCopy) return
+            val pos = engine.state.value.positionSec
+            playJob?.cancel()
+            playJob = scope.launch {
+                val src = if (s.playingLocalCopy) resolveStream(t, preferLocal = false) else AudioSource(t.key, local!!.path)
+                synchronized(lock) {
+                    if (_state.value.current?.key != t.key) return@launch
+                    engine.play(src.copy(startSec = pos))
+                    _state.update { it.copy(playingLocalCopy = !s.playingLocalCopy) }
+                }
+            }
         }
     }
 
     fun stop() {
-        playJob?.cancel(); preloadJob?.cancel()
-        preloadGen.incrementAndGet()
-        preloadTarget = null
-        engine.stop()
-        _state.update { QueueState(repeat = it.repeat) }
+        synchronized(lock) {
+            playJob?.cancel(); preloadJob?.cancel()
+            preloadGen.incrementAndGet()
+            preloadTarget = null
+            engine.stop()
+            _state.update { QueueState(repeat = it.repeat) }
+        }
     }
 
     // ---------------- internals ----------------
@@ -408,10 +454,12 @@ class PlayerController(
         playJob = scope.launch {
             try {
                 val src = resolveStream(t)
-                if (_state.value.current?.key != t.key) return@launch
-                engine.play(src)
-                _state.update { it.copy(resolving = false, playingLocalCopy = "://" !in src.url) }
-                consecutiveFailures = 0
+                synchronized(lock) {
+                    if (_state.value.current?.key != t.key) return@launch
+                    engine.play(src)
+                    _state.update { it.copy(resolving = false, playingLocalCopy = "://" !in src.url) }
+                    consecutiveFailures = 0
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -481,9 +529,11 @@ class PlayerController(
             // the analysis may take long; a skip meanwhile cancels this job and makes it stale
             val planned = try { planInto(t) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
             ensureActive()
-            if (gen != preloadGen.get() || !stillNext(t, curKey)) return@launch
-            _planned.value = planned
-            engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
+            synchronized(lock) {
+                if (gen != preloadGen.get() || !stillNext(t, curKey)) return@launch
+                _planned.value = planned
+                engine.preloadNext(if (planned != null) src else src.copy(startSec = mixInOf(t)), planned?.plan)
+            }
         }
     }
 
@@ -501,12 +551,17 @@ class PlayerController(
     }
 
     private suspend fun onEngineEnded() {
-        val s = _state.value
-        val n = nextIndex(s, userAction = false)
-        if (n != null) { _state.update { it.copy(index = n) }; startCurrent(); return }
+        val s = synchronized(lock) {
+            val s = _state.value
+            val n = nextIndex(s, userAction = false)
+            if (n != null) { _state.update { it.copy(index = n) }; startCurrent(); return }
+            s
+        }
         if (settings.current.autoplayRadio) {
-            radioJob?.join()
-            if (_state.value.queue.size > s.queue.size) { _state.update { it.copy(index = s.index + 1) }; startCurrent() }
+            synchronized(lock) { radioJob }?.join()
+            synchronized(lock) {
+                if (_state.value.queue.size > s.queue.size) { _state.update { it.copy(index = s.index + 1) }; startCurrent() }
+            }
         }
     }
 
@@ -516,21 +571,30 @@ class PlayerController(
      * with backoff), but with a freshly resolved URL, resuming at the same position.
      */
     private suspend fun onPlaybackError(source: AudioSource, message: String) {
-        val t = _state.value.current
-        if (t == null || t.key != source.id || streamRetries >= MAX_STREAM_RETRIES) return onEngineError(message)
-        streamRetries++
+        val (t, retry) = synchronized(lock) {
+            val t = _state.value.current
+            if (t == null || t.key != source.id || streamRetries >= MAX_STREAM_RETRIES) null to 0 else t to ++streamRetries
+        }
+        if (t == null) return onEngineError(message)
         val pos = engine.state.value.positionSec
-        delay(500L * streamRetries)
+        delay(500L * retry)
         if (_state.value.current?.key != t.key) return
         val src = runCatching { resolveStream(t) }.getOrElse { return onEngineError(message) }
-        retrying = true
-        engine.play(src.copy(startSec = pos))
+        synchronized(lock) {
+            if (_state.value.current?.key == t.key) {
+                retrying = true
+                engine.play(src.copy(startSec = pos))
+            }
+        }
     }
 
     private suspend fun onEngineError(message: String) {
-        _state.update { it.copy(resolving = false, error = message) }
-        // skip unplayable tracks, but don't spin through a whole broken queue
-        if (++consecutiveFailures < 3 && nextIndex(_state.value, userAction = true) != null) {
+        val skip = synchronized(lock) {
+            _state.update { it.copy(resolving = false, error = message) }
+            // skip unplayable tracks, but don't spin through a whole broken queue
+            ++consecutiveFailures < 3 && nextIndex(_state.value, userAction = true) != null
+        }
+        if (skip) {
             delay(800)
             next()
         }
