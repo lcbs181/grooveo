@@ -159,6 +159,10 @@ fun PlayerScreen(
     var positionMs by remember { mutableLongStateOf(0L) }
     var polledDurationMs by remember { mutableLongStateOf(0L) }
     var isSeeking by remember { mutableStateOf(false) }
+    // Where the user dropped the slider, held until the player reports a position
+    // near it - see seekSettled.
+    var pendingSeekMs by remember { mutableStateOf<Long?>(null) }
+    var pendingSeekAt by remember { mutableLongStateOf(0L) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var sleepTimerRemainingMs by remember { mutableLongStateOf(0L) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -209,7 +213,12 @@ fun PlayerScreen(
             // to whatever real track (if any) is actually loaded underneath - not the
             // DRM-blocked slot on screen - so show 0 instead of a stale/unrelated value.
             if (!isSeeking) {
-                positionMs = if (playbackState.isUnavailable) 0L else viewModel.currentPositionMs()
+                val polled = if (playbackState.isUnavailable) 0L else viewModel.currentPositionMs()
+                val target = pendingSeekMs
+                if (target == null || seekSettled(polled, target, System.currentTimeMillis() - pendingSeekAt)) {
+                    pendingSeekMs = null
+                    positionMs = polled
+                }
             }
             polledDurationMs = if (playbackState.isUnavailable) 0L else viewModel.currentDurationMs()
             val endAt = viewModel.sleepTimerEndAtMs.value
@@ -581,6 +590,8 @@ fun PlayerScreen(
                         positionMs = it.toLong()
                     },
                     onValueChangeFinished = {
+                        pendingSeekMs = positionMs
+                        pendingSeekAt = System.currentTimeMillis()
                         viewModel.seekTo(positionMs)
                         isSeeking = false
                     },
