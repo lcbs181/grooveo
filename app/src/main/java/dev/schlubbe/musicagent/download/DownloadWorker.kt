@@ -58,6 +58,8 @@ class DownloadWorker @AssistedInject constructor(
     private val streamResolverRegistry: StreamResolverRegistry,
     @ExtractionHttpClient private val okHttpClient: OkHttpClient,
     private val workManager: WorkManager,
+    private val trackDao: dev.schlubbe.musicagent.data.local.dao.TrackDao,
+    private val offlineCovers: OfflineCovers,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -154,6 +156,8 @@ class DownloadWorker @AssistedInject constructor(
                             totalBytes = outcome.totalBytes,
                         ),
                     )
+                    // the cover goes offline with the track
+                    runCatching { offlineCovers.save(trackDao.getById(trackId)?.thumbnailUrl) }
                     // Smart-transition analysis needs the actual decoded audio, so it
                     // only makes sense once a track is playable from disk - see
                     // TrackAnalysisWorker/TrackAnalyzer. KEEP: an already-queued or

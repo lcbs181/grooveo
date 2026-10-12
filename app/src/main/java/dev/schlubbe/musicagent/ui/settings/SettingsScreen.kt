@@ -383,6 +383,15 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(top = 12.dp).clickable(onClick = onWhatsNewClick),
                     )
+                    val testChannel by updateViewModel.testChannel.collectAsState()
+                    Spacer(modifier = Modifier.padding(top = 12.dp))
+                    SettingsToggleCard(
+                        icon = phosphorIcon("flask"),
+                        title = "Testversionen",
+                        subtitle = "Auch Vorabversionen zum Ausprobieren anbieten. Können Fehler haben.",
+                        checked = testChannel,
+                        onCheckedChange = updateViewModel::setTestChannel,
+                    )
                 }
                 Spacer(modifier = Modifier.padding(bottom = 24.dp))
             }

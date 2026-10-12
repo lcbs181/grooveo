@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.downloads
 
+import dev.schlubbe.musicagent.data.tags.TagRepository
+import dev.schlubbe.musicagent.data.repository.LikesRepository
 import kotlinx.coroutines.Job
 import android.os.Environment
 import android.os.StatFs
@@ -44,7 +46,12 @@ class DownloadsViewModel @Inject constructor(
     private val downloadRepository: DownloadRepository,
     private val settingsRepository: SettingsRepository,
     private val playerController: PlayerController,
+    likesRepository: LikesRepository,
+    private val tagRepository: TagRepository,
 ) : ViewModel() {
+
+    /** Bumped when the tracks' info changed ("Neu einlesen"), so the list reads it again. */
+    private val tracksChanged = MutableStateFlow(0)
 
     // Same live-progress composition LibraryViewModel uses for its Downloads
     // sub-view, reused rather than duplicated so both stay in step.
@@ -56,8 +63,52 @@ class DownloadsViewModel @Inject constructor(
                 combine(entities.map { entity -> entity.toLiveFlow(workManager) }) { it.toList() }
             }
         }
+        .combine(tracksChanged) { items, _ -> items }
         .map { items -> items.map { it.copy(track = trackDao.getById(it.entity.trackId)) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val likedTrackIds: StateFlow<Set<String>> = likesRepository.likedTrackIds
+    val tagsByTrack: StateFlow<Map<String, List<String>>> = tagRepository.tagsByTrack
+
+    init {
+        // tags of downloads from before tags were kept
+        viewModelScope.launch {
+            downloads.collect { list -> tagRepository.fetchMissing(list.mapNotNull { it.track?.let { t -> t.source to t.sourceId } }) }
+        }
+    }
+
+    private val _filter = MutableStateFlow(DownloadFilter())
+    val filter: StateFlow<DownloadFilter> = _filter.asStateFlow()
+    fun setFilter(f: DownloadFilter) { _filter.value = f }
+
+    private val _refreshing = MutableStateFlow<String?>(null)
+    /** Progress of "Neu einlesen" ("12 / 40"), null when it is not running. */
+    val refreshing: StateFlow<String?> = _refreshing.asStateFlow()
+    private var refreshJob: Job? = null
+
+    /**
+     * "Neu einlesen": finds files on the phone again and fetches title, artist, cover and tags
+     * of every offline track anew; the covers are kept on the phone.
+     */
+    fun refreshOffline() {
+        if (refreshJob?.isActive == true) return
+        _refreshing.value = "Suche …"
+        refreshJob = viewModelScope.launch {
+            val r = runCatching {
+                downloadRepository.refreshOffline { done, total -> _refreshing.value = "$done / $total" }
+            }.getOrNull()
+            _refreshing.value = null
+            tracksChanged.value++
+            _found.value = when {
+                r == null -> "Neu einlesen fehlgeschlagen"
+                else -> buildList {
+                    if (r.found > 0) add(if (r.found == 1) "1 Datei gefunden" else "${r.found} Dateien gefunden")
+                    add(if (r.updated == 1) "1 Titel aktualisiert" else "${r.updated} Titel aktualisiert")
+                    if (r.failed > 0) add("${r.failed} nicht erreichbar")
+                }.joinToString(" · ")
+            }
+        }
+    }
 
     val dataSaverMode: StateFlow<Boolean> = settingsRepository.dataSaverMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)

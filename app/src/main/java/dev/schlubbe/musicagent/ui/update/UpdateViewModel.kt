@@ -36,6 +36,15 @@ class UpdateViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val uiState: StateFlow<UpdateUiState> = _uiState.asStateFlow()
 
+    private val _testChannel = MutableStateFlow(updateRepository.testChannel)
+    /** "Testversionen": also offer test builds. */
+    val testChannel: StateFlow<Boolean> = _testChannel.asStateFlow()
+
+    fun setTestChannel(on: Boolean) {
+        updateRepository.testChannel = on
+        _testChannel.value = on
+    }
+
     // The running check, or the progress poll of a download. Cancelling it never
     // stops the download itself: that runs in the system DownloadManager.
     private var job: Job? = null

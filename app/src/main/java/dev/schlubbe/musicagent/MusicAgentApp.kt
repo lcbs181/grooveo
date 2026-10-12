@@ -8,12 +8,15 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import coil.imageLoader
 import dagger.hilt.android.HiltAndroidApp
 import dev.schlubbe.musicagent.data.backup.BackupWorker
 import dev.schlubbe.musicagent.data.extract.youtube.NewPipeDownloader
 import dev.schlubbe.musicagent.data.repository.AuthRepository
 import dev.schlubbe.musicagent.data.repository.AuthTokenHolder
+import dev.schlubbe.musicagent.download.OfflineCovers
 import dev.schlubbe.musicagent.update.UpdateCheckWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +27,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltAndroidApp
-class MusicAgentApp : Application(), Configuration.Provider {
+class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory {
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
@@ -40,6 +43,14 @@ class MusicAgentApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var workManager: WorkManager
+
+    @Inject
+    lateinit var offlineCovers: OfflineCovers
+
+    /** Saved covers of offline tracks load from their files ([OfflineCovers]). */
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .components { add(offlineCovers.mapper) }
+        .build()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

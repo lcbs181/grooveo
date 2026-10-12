@@ -19,8 +19,12 @@ The release notes also explain how to build the Linux app from source.
 
 ## Rules that must not break
 
-- **Tag = `v<versionCode>`** (e.g. `v22`). The Android updater parses the
-  version code from the tag (`UpdateRepository.parseVersionCode`).
+- **Tag = `v<Android versionCode>` = `v<grooveo.versionCode × 100>`** (e.g.
+  `v2800` for release 28). The Android updater parses the version code from
+  the tag (`UpdateRepository.parseVersionCode`) and checks the downloaded APK
+  against it. (Releases up to v24 used the plain number.)
+- **`grooveo.testBuild=0`** for a release. Test builds (1..99) are only for
+  pre-releases, see docs/RELEASING.md "Test builds".
 - **Title = `<versionName>`** (e.g. `0.6.0`). The desktop updater compares the
   release *title* with its `APP_VERSION` (`UpdateChecker`).
 - **Exactly one `.apk` asset.** The Android updater downloads the first `.apk`.
@@ -40,9 +44,10 @@ The release notes also explain how to build the Linux app from source.
 
 `JAVA_HOME=~/.local/opt/jdk-21.0.12.1+1` (no system JDK on this machine).
 
-1. **Version**: in `gradle.properties` raise `grooveo.versionCode` by 1 and set
-   `grooveo.versionName` (semver; minor for features, patch for fixes). Both
-   apps read them from there.
+1. **Version**: in `gradle.properties` raise `grooveo.versionCode` by 1 (unless
+   test builds for it are out: they already count up to it), set
+   `grooveo.versionName` (semver; minor for features, patch for fixes) and
+   `grooveo.testBuild=0`. Both apps read them from there.
 2. **Tests**:
    ```
    ./gradlew :app:testDebugUnitTest :desktop:test
@@ -66,7 +71,7 @@ The release notes also explain how to build the Linux app from source.
 7. **Tag and draft release**. A draft does not create its tag, but the
    workflow checks the tag out, so push the tag first:
    ```
-   git tag v<code> master && git push origin v<code>
+   git tag v<code> master && git push origin v<code>   # <code> = Android versionCode, e.g. 2800
    gh release create v<code> dist/Grooveo-<version>.apk dist/grooveo-<version>-source.tar.gz \
      --repo lcbs181/grooveo --verify-tag --draft --title "<version>" --notes-file dist/notes.md
    ```

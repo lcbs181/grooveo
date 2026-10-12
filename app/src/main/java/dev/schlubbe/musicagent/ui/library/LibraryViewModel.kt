@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.library
 
+import dev.schlubbe.musicagent.data.tags.TrackTags
+import dev.schlubbe.musicagent.data.tags.TagRepository
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
@@ -87,6 +89,9 @@ data class LibraryUiState(
     val likesSort: LikesSort = LikesSort.RECENT,
     val likesQuery: String = "",
     val likesOfflineOnly: Boolean = false,
+    /** Tag chip selected over the likes; null shows all. */
+    val likesTag: String? = null,
+    val downloadsFilter: dev.schlubbe.musicagent.ui.downloads.DownloadFilter = dev.schlubbe.musicagent.ui.downloads.DownloadFilter(),
     val selectedTab: LibraryTab = LibraryTab.HOME,
     // Mirrors SettingsRepository's persisted flag so the landing menu's Spotify-
     // import banner stays dismissed across process restarts once closed.
@@ -122,7 +127,11 @@ class LibraryViewModel @Inject constructor(
     private val savedPlaylistRepository: SavedPlaylistRepository,
     private val settingsRepository: SettingsRepository,
     private val followRepository: FollowRepository,
+    private val tagRepository: TagRepository,
 ) : ViewModel() {
+
+    /** Tags by track id, for the tag chips over likes and downloads. */
+    val tagsByTrack: StateFlow<Map<String, List<String>>> = tagRepository.tagsByTrack
 
     val followedArtists: StateFlow<List<FollowedArtistEntity>> = followRepository.followedArtists
 
@@ -221,7 +230,11 @@ class LibraryViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(isLoadingLikes = true)
         return viewModelScope.launch {
             runCatching { likesRepository.refresh() }
-                .onSuccess { likes -> _uiState.value = _uiState.value.copy(likes = likes, isLoadingLikes = false) }
+                .onSuccess { likes ->
+                    _uiState.value = _uiState.value.copy(likes = likes, isLoadingLikes = false)
+                    // likes from before tags were kept, or from a backup
+                    tagRepository.fetchMissing(likes.map { it.track.source to it.track.sourceId })
+                }
                 .onFailure { _uiState.value = _uiState.value.copy(isLoadingLikes = false) }
         }
     }
@@ -305,13 +318,15 @@ class LibraryViewModel @Inject constructor(
         val state = _uiState.value
         val query = state.likesQuery.trim()
         val downloaded = downloadedTrackIds.value
+        val tags = tagsByTrack.value
         return state.likes
             .filter { like ->
                 val matchesQuery = query.isBlank() ||
                     like.track.title.contains(query, ignoreCase = true) ||
                     like.track.artist?.contains(query, ignoreCase = true) == true
                 val matchesOffline = !state.likesOfflineOnly || "${like.track.source}:${like.track.sourceId}" in downloaded
-                matchesQuery && matchesOffline
+                val matchesTag = state.likesTag == null || TrackTags.has(tags["${like.track.source}:${like.track.sourceId}"], state.likesTag)
+                matchesQuery && matchesOffline && matchesTag
             }
             .let { filtered ->
                 when (state.likesSort) {
@@ -364,6 +379,14 @@ class LibraryViewModel @Inject constructor(
 
     fun setLikesQuery(query: String) {
         _uiState.value = _uiState.value.copy(likesQuery = query)
+    }
+
+    fun setLikesTag(tag: String?) {
+        _uiState.value = _uiState.value.copy(likesTag = tag)
+    }
+
+    fun setDownloadsFilter(filter: dev.schlubbe.musicagent.ui.downloads.DownloadFilter) {
+        _uiState.value = _uiState.value.copy(downloadsFilter = filter)
     }
 
     fun toggleLikesOfflineOnly() {

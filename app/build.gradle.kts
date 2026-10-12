@@ -38,8 +38,14 @@ android {
         applicationId = "dev.schlubbe.musicagent.standalone"
         minSdk = 30
         targetSdk = 37
-        versionCode = providers.gradleProperty("grooveo.versionCode").get().toInt()
-        versionName = providers.gradleProperty("grooveo.versionName").get()
+        // grooveo.versionCode counts releases; Android gets 100 codes per release so test
+        // builds (grooveo.testBuild = 1..99) fit between two releases without using one up:
+        // release 29 is 2900, its test builds before it are 2801, 2802, ... (docs/RELEASING.md)
+        val release = providers.gradleProperty("grooveo.versionCode").get().toInt()
+        val testBuild = providers.gradleProperty("grooveo.testBuild").getOrElse("0").toInt()
+        require(testBuild in 0..99) { "grooveo.testBuild must be 0 (release) or 1..99" }
+        versionCode = if (testBuild == 0) release * 100 else (release - 1) * 100 + testBuild
+        versionName = providers.gradleProperty("grooveo.versionName").get() + if (testBuild == 0) "" else "-test.$testBuild"
 
         buildConfigField(
             "String",

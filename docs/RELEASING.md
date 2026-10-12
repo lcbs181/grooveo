@@ -26,9 +26,11 @@ Claude Code skill [`.claude/skills/grooveo-release/SKILL.md`](../.claude/skills/
 In short:
 
 1. Bump `grooveo.versionCode` and `grooveo.versionName` in `gradle.properties`
-   (both apps read them). `versionCode` must increase: the Android updater
-   compares it, parsed from the tag `v<versionCode>`. The desktop updater
-   compares the release **title**, which must be the `versionName`.
+   (both apps read them) and set `grooveo.testBuild=0`. `grooveo.versionCode`
+   counts releases; the Android versionCode is 100 times it (release 29 is
+   `2900`), and the tag is `v<Android versionCode>` (`v2900`): the Android
+   updater compares that number. The desktop updater compares the release
+   **title**, which must be the `versionName`.
 2. Build the APK locally with `./gradlew :app:assembleRelease`. The `release`
    build type is signed with this machine's debug keystore
    (`~/.android/debug.keystore`) so it installs as an in-place update over the
@@ -47,6 +49,24 @@ In short:
    against `SHA256SUMS` and only offers the browser when it is missing; if an
    asset is replaced later, rerun the workflow so the sums match again.
 
+## Test builds
+
+Test builds (alpha versions) use no release number. With `grooveo.testBuild=N`
+(1..99) the APK gets versionCode `(release - 1) * 100 + N` and the name
+`<versionName>-test.N`: the test builds before release 29 are 2801, 2802, …,
+and release 29 (2900) installs over all of them. Raise `grooveo.testBuild` for
+each test APK and set it back to 0 for the release.
+
+To offer a test build through the updater, publish it as a GitHub
+**pre-release** with the tag `v<its versionCode>` and its versionName as title:
+
+    gh release create v2803 dist/Grooveo-0.7.0-test.3.apk --repo lcbs181/grooveo \
+      --prerelease --title "0.7.0-test.3" --notes "..."
+
+`releases/latest` never returns a pre-release, so only devices with
+"Testversionen" switched on (Einstellungen, at the bottom; on by default in a
+test build) see it. The desktop app only follows releases.
+
 ## How devices pick it up
 
 On Android, the update check happens via `UpdateCheckWorker` (periodic) or
@@ -54,5 +74,7 @@ whenever the update dialog is triggered manually — it hits
 `https://api.github.com/repos/lcbs181/grooveo/releases/latest`
 unauthenticated, compares the tag's version code against the installed
 app's, and offers the newer APK's `browser_download_url` if there is one.
+With "Testversionen" on it reads `/releases` instead and takes the highest
+version code among releases and pre-releases.
 The desktop app polls the same endpoint and compares the release title with
 its own version (`desktop/.../data/UpdateChecker.kt`).

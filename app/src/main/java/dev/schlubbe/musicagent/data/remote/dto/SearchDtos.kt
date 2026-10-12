@@ -20,6 +20,9 @@ data class TrackResultDto(
     // ytmusic (NewPipeExtractor exposes no genre/category field on StreamInfoItem) -
     // a quiet signal for FeedRepository's personalized-mix scoring, not shown in any UI.
     @SerializedName("genre") val genre: String? = null,
+    // SoundCloud only: genre plus the uploader's tag_list (TrackTags.parse); null when the
+    // source sent none, so "no tags" and "not known" stay apart (see TagRepository).
+    @SerializedName("tags") val tags: List<String>? = null,
 )
 
 data class ArtistResultDto(

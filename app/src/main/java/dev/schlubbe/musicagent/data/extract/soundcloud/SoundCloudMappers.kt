@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.data.extract.soundcloud
 
+import dev.schlubbe.musicagent.data.tags.TrackTags
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
@@ -110,6 +111,7 @@ fun JsonObject.toSoundCloudTrackResultDto(): TrackResultDto? {
         // TrackEntity.genre for where this ends up cached. Blank strings ("" is a real
         // value SoundCloud sends for untagged tracks) are treated the same as absent.
         genre = stringOrNull("genre")?.takeIf { it.isNotBlank() },
+        tags = if (has("tag_list") || has("genre")) TrackTags.parse(stringOrNull("tag_list"), stringOrNull("genre")?.takeIf { it.isNotBlank() }) else null,
     )
 }
 

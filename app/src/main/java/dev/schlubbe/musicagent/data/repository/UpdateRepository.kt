@@ -50,9 +50,10 @@ sealed interface UpdateCheckResult {
  * "music-agent-standalone") was private - now that the source repo is public
  * too, releases are cut from here directly. See docs/RELEASING.md.)
  *
- * Release tags on that repo must follow "v<versionCode>" (e.g. "v6"), matching
+ * Release tags on that repo must follow "v<versionCode>" (e.g. "v2800"), matching
  * android/app/build.gradle.kts's versionCode for that build - see
- * parseVersionCode. After building a new release APK:
+ * parseVersionCode. Test builds are GitHub pre-releases; only the test channel
+ * ([testChannel], "Testversionen" in the settings) looks at them. After building a new release APK:
  *   gh release create v<versionCode> app-release.apk --repo lcbs181/grooveo \
  *     --title "<versionName>" --notes "..."
  *
@@ -73,8 +74,19 @@ class UpdateRepository @Inject constructor(
         return info.longVersionCode
     }
 
+    /**
+     * Test channel: also offers test builds (GitHub pre-releases). On by default in a
+     * test build ("-test.N"), so whoever installed one gets the next one too.
+     */
+    var testChannel: Boolean
+        get() = prefs.getBoolean(KEY_TEST_CHANNEL, isTestBuild())
+        set(value) { prefs.edit().putBoolean(KEY_TEST_CHANNEL, value).apply() }
+
+    fun isTestBuild(): Boolean =
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty().contains("-test.")
+
     suspend fun checkForUpdate(): UpdateCheckResult = runCatching {
-        val release = withTimeout(15_000) { fetchLatestRelease() }
+        val release = withTimeout(15_000) { if (testChannel) fetchNewestRelease() else fetchLatestRelease() }
         val versionCode = parseVersionCode(release.get("tag_name").asString)
         if (versionCode > currentVersionCode()) {
             val asset = apkAsset(release) ?: error("Neuestes Release hat keine .apk-Datei")
@@ -110,12 +122,28 @@ class UpdateRepository @Inject constructor(
         JsonParser.parseString(body).asJsonObject
     }
 
+    /** The release or test build with the highest version code that has an APK. */
+    private suspend fun fetchNewestRelease(): JsonObject = withContext(Dispatchers.IO) {
+        val url = "https://api.github.com/repos/$RELEASES_OWNER/$RELEASES_REPO/releases?per_page=30"
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        val response = okHttpClient.newCall(request).execute()
+        val (code, body) = response.use { it.code to it.body?.string().orEmpty() }
+        check(code in 200..299) { "GitHub releases API error $code" }
+        JsonParser.parseString(body).asJsonArray.map { it.asJsonObject }
+            .filter { it.get("draft")?.asBoolean != true && apkAsset(it) != null }
+            .maxByOrNull { parseVersionCode(it.get("tag_name").asString) }
+            ?: error("Keine Version mit .apk-Datei gefunden")
+    }
+
     private fun apkAsset(release: JsonObject): JsonObject? =
         release.getAsJsonArray("assets")
             ?.map { it.asJsonObject }
             ?.firstOrNull { it.get("name").asString.endsWith(".apk") }
 
-    // Tags are expected as "v<versionCode>" (e.g. "v6"). Falls back to 0 (never
+    // Tags are expected as "v<versionCode>" (e.g. "v2800"). Falls back to 0 (never
     // looks "newer" than any installed app) if a tag doesn't follow that
     // convention, rather than crashing the check on a malformed/manual tag.
     private fun parseVersionCode(tagName: String): Long =
@@ -232,5 +260,6 @@ class UpdateRepository @Inject constructor(
         const val APK_MIME = "application/vnd.android.package-archive"
         const val KEY_ID = "download_id"
         const val KEY_VERSION = "download_version"
+        const val KEY_TEST_CHANNEL = "test_channel"
     }
 }

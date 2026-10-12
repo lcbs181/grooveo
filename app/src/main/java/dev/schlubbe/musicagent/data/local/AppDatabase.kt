@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.data.local
 
+import dev.schlubbe.musicagent.data.local.dao.TrackTagsDao
+import dev.schlubbe.musicagent.data.local.entity.TrackTagsEntity
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -36,8 +38,9 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         SavedPlaylistEntity::class,
         SearchHistoryEntity::class,
         TrackAnalysisEntity::class,
+        TrackTagsEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -51,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun savedPlaylistDao(): SavedPlaylistDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun trackAnalysisDao(): TrackAnalysisDao
+    abstract fun trackTagsDao(): TrackTagsDao
 }
 
 // Backend-less variant: likes/playlists move from the (removed) server to local
@@ -230,5 +234,11 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
 val MIGRATION_11_12 = object : Migration(11, 12) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE playlists ADD COLUMN coverPath TEXT")
+    }
+}
+
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS track_tags (trackId TEXT NOT NULL PRIMARY KEY, tags TEXT NOT NULL, fetchedAt INTEGER NOT NULL)")
     }
 }

@@ -20,6 +20,7 @@ import javax.inject.Singleton
 @Singleton
 class LikesRepository @Inject constructor(
     private val likeDao: LikeDao,
+    private val tagRepository: dev.schlubbe.musicagent.data.tags.TagRepository,
 ) {
     private val _likedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val likedTrackIds: StateFlow<Set<String>> = _likedTrackIds.asStateFlow()
@@ -34,6 +35,7 @@ class LikesRepository @Inject constructor(
     suspend fun like(track: TrackResultDto, likedAt: String? = null) {
         val trackId = "${track.source}:${track.sourceId}"
         likeDao.insert(LikeEntity(trackId, track.toLocalTrackEntity(), likedAt ?: nowIso()))
+        tagRepository.remember(track)
         // .update{} rather than a read-modify-write of .value: two concurrent
         // like()/unlike() calls (e.g. liking two different tracks from two rows in
         // quick succession) could otherwise both snapshot the same old set and the

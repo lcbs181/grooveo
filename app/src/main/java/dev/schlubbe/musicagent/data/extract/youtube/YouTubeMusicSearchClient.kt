@@ -379,6 +379,21 @@ class YouTubeMusicSearchClient @Inject constructor() {
     private fun stripTopicSuffix(name: String): String =
         Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE).replace(name, "").trim()
 
+    /** One track's current title, artist and cover, fetched now (for "Neu einlesen" of offline tracks). */
+    suspend fun getTrack(videoId: String): TrackResultDto = withContext(Dispatchers.IO) {
+        val info = org.schabi.newpipe.extractor.stream.StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
+        TrackResultDto(
+            source = "ytmusic",
+            sourceId = videoId,
+            title = info.name,
+            artist = info.uploaderName,
+            album = null,
+            durationSec = info.duration.takeIf { it > 0 }?.toInt(),
+            thumbnailUrl = info.thumbnails.maxByOrNull { it.height }?.url,
+            webpageUrl = "https://music.youtube.com/watch?v=$videoId",
+        )
+    }
+
     private fun StreamInfoItem.toTrackResultDto(): TrackResultDto? {
         val videoId = Uri.parse(url).getQueryParameter("v") ?: return null
         return TrackResultDto(

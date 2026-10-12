@@ -1,5 +1,13 @@
 package dev.schlubbe.musicagent.data.repository
 
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
+import dev.schlubbe.musicagent.data.extract.youtube.YouTubeMusicSearchClient
+import dev.schlubbe.musicagent.data.extract.soundcloud.toSoundCloudTrackResultDto
+import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudApi
+import dev.schlubbe.musicagent.download.OfflineCovers
+import dev.schlubbe.musicagent.data.tags.TagRepository
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
@@ -40,6 +48,10 @@ class DownloadRepository @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val likeDao: LikeDao,
     private val playlistTrackDao: PlaylistTrackDao,
+    private val tagRepository: TagRepository,
+    private val offlineCovers: OfflineCovers,
+    private val soundCloud: SoundCloudApi,
+    private val youTube: YouTubeMusicSearchClient,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val scanLock = kotlinx.coroutines.sync.Mutex()
@@ -75,6 +87,7 @@ class DownloadRepository @Inject constructor(
         )
         val trackById = tracks.associateBy { it.id }
         val snapshots = (likes.map { it.trackId to it.track } + playlistTracks.map { it.trackId to it.track }).toMap()
+        val covers = ArrayList<String>()
         var added = 0
         for (f in files) {
             val match = index[DeviceDownloads.key(f.name)]
@@ -121,6 +134,7 @@ class DownloadRepository @Inject constructor(
                 downloadDao.delete(previous.trackId)
                 trackDao.delete(previous.trackId)
             }
+            (snap?.thumbnailUrl ?: known?.thumbnailUrl)?.let(covers::add)
             if (match != null) {
                 workManager.enqueueUniqueWork(
                     "analyze:$trackId",
@@ -132,7 +146,56 @@ class DownloadRepository @Inject constructor(
             }
             added++
         }
+        if (covers.isNotEmpty()) scope.launch { covers.forEach { offlineCovers.save(it) } }
         added
+    }
+
+    /** What "Neu einlesen" did: files newly found, offline tracks whose info was refreshed, and failures. */
+    data class RefreshResult(val found: Int, val updated: Int, val failed: Int)
+
+    /**
+     * "Neu einlesen": looks for files on the phone again ([scanDevice]), then fetches the
+     * current title, artist, cover and tags of every offline track from its source and
+     * keeps the cover on the phone. A track that cannot be reached keeps what it had.
+     */
+    suspend fun refreshOffline(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): RefreshResult {
+        val found = scanDevice()
+        val ids = downloadDao.allCompleted().map { it.trackId }
+        val tracks = ids.mapNotNull { trackDao.getById(it) }.filter { it.source == "soundcloud" || it.source == "ytmusic" }
+        val permits = kotlinx.coroutines.sync.Semaphore(3)
+        val done = java.util.concurrent.atomic.AtomicInteger()
+        val results = kotlinx.coroutines.coroutineScope {
+            tracks.map { t ->
+                async {
+                    permits.withPermit {
+                        val fresh = runCatching {
+                            when (t.source) {
+                                "soundcloud" -> soundCloud.get("resolve", mapOf("url" to "https://soundcloud.com/${t.sourceId}")).toSoundCloudTrackResultDto()
+                                else -> youTube.getTrack(t.sourceId)
+                            }
+                        }.getOrNull()
+                        if (fresh != null) {
+                            trackDao.upsert(
+                                t.copy(
+                                    title = fresh.title,
+                                    artist = fresh.artist ?: t.artist,
+                                    durationSec = fresh.durationSec ?: t.durationSec,
+                                    thumbnailUrl = fresh.thumbnailUrl ?: t.thumbnailUrl,
+                                    webpageUrl = fresh.webpageUrl.ifBlank { t.webpageUrl },
+                                    genre = fresh.genre ?: t.genre,
+                                ),
+                            )
+                            likeDao.updateTrackInfo(t.id, fresh.title, fresh.artist ?: t.artist, fresh.thumbnailUrl ?: t.thumbnailUrl)
+                            tagRepository.remember(fresh)
+                        }
+                        offlineCovers.save(fresh?.thumbnailUrl ?: t.thumbnailUrl)
+                        onProgress(done.incrementAndGet(), tracks.size)
+                        fresh != null
+                    }
+                }
+            }.awaitAll()
+        }
+        return RefreshResult(found, results.count { it }, results.count { !it })
     }
 
     private class DeviceFile(
@@ -223,6 +286,8 @@ class DownloadRepository @Inject constructor(
                 ),
             )
             enqueue(track.source, track.sourceId, track.title, track.artist.orEmpty(), trackId)
+            tagRepository.remember(track)
+            offlineCovers.save(track.thumbnailUrl)
         }
     }
 

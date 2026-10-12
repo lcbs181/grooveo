@@ -1,4 +1,8 @@
 package dev.schlubbe.musicagent.ui.library
+import dev.schlubbe.musicagent.ui.downloads.DownloadsSearchRow
+import dev.schlubbe.musicagent.ui.downloads.DownloadFilter
+import dev.schlubbe.musicagent.ui.components.TagChips
+import dev.schlubbe.musicagent.data.tags.TrackTags
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
 import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
@@ -107,6 +111,7 @@ fun LibraryScreen(
     val followedArtists by viewModel.followedArtists.collectAsState()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    val tagsByTrack by viewModel.tagsByTrack.collectAsState()
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -163,7 +168,11 @@ fun LibraryScreen(
                         LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
                         LikesTab(
                             uiState = uiState,
-                            visibleLikes = viewModel.visibleLikes(),
+                            // reads tagsByTrack too: collected above, so a new tag refilters
+                            visibleLikes = remember(uiState, tagsByTrack, downloadedTrackIds) { viewModel.visibleLikes() },
+                            tagChips = remember(uiState.likes, tagsByTrack) {
+                                TrackTags.top(uiState.likes.mapNotNull { tagsByTrack["${it.track.source}:${it.track.sourceId}"] })
+                            },
                             downloadedTrackIds = downloadedTrackIds,
                             nowPlayingTrackId = nowPlayingTrackId,
                             onLikedTrackClick = { like ->
@@ -192,7 +201,7 @@ fun LibraryScreen(
                     }
                     LibraryTab.DOWNLOADS -> Column(modifier = Modifier.fillMaxSize()) {
                         LibrarySubViewHeader(title = "Downloads", onBack = viewModel::backToHome)
-                        DownloadsTab(downloads, likedTrackIds, onDownloadPlayed, viewModel)
+                        DownloadsTab(downloads, likedTrackIds, tagsByTrack, uiState.downloadsFilter, onDownloadPlayed, viewModel)
                     }
                 }
             }
@@ -353,6 +362,7 @@ private fun LibraryHomeContent(
 private fun LikesTab(
     uiState: LibraryUiState,
     visibleLikes: List<LikeOutDto>,
+    tagChips: List<String>,
     downloadedTrackIds: Set<String>,
     nowPlayingTrackId: String?,
     onLikedTrackClick: (LikeOutDto) -> Unit,
@@ -386,6 +396,17 @@ private fun LikesTab(
                     onDownloadAll = viewModel::downloadAllLikes,
                     onAnalyze = { analyzer.analyzeIds(visibleLikes.map { it.track.trackKey() }) },
                 )
+            }
+            if (tagChips.isNotEmpty() || uiState.likesTag != null) {
+                item {
+                    TagChips(
+                        tags = tagChips,
+                        selected = uiState.likesTag,
+                        onSelect = viewModel::setLikesTag,
+                        horizontalPadding = dimens.horizontalPadding,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                }
             }
             if (visibleLikes.isEmpty()) {
                 item {
@@ -806,11 +827,46 @@ private fun LibrarySubViewHeader(title: String, onBack: () -> Unit) {
 private fun DownloadsTab(
     downloads: List<DownloadUiItem>,
     likedTrackIds: Set<String>,
+    tagsByTrack: Map<String, List<String>>,
+    filter: DownloadFilter,
     onDownloadPlayed: () -> Unit,
     viewModel: LibraryViewModel,
 ) {
+    val dimens = rememberResponsiveDimens()
+    val unfinished = remember(downloads) { downloads.filter { it.entity.state != DownloadState.COMPLETED } }
+    val finished = remember(downloads, filter, likedTrackIds, tagsByTrack) { filter.apply(downloads, likedTrackIds, tagsByTrack) }
+    val total = remember(downloads) { downloads.count { it.entity.state == DownloadState.COMPLETED } }
+    val tagChips = remember(downloads, tagsByTrack) {
+        TrackTags.top(downloads.filter { it.entity.state == DownloadState.COMPLETED }.mapNotNull { tagsByTrack[it.entity.trackId] })
+    }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(downloads, key = { it.entity.trackId }) { item ->
+        if (total > 0) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = dimens.horizontalPadding).padding(top = 4.dp, bottom = 10.dp)) {
+                    Text(
+                        if (filter.isFiltered) "${finished.size} von $total Titeln" else if (total == 1) "1 Titel" else "$total Titel",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Canopy.neutral500,
+                    )
+                    DownloadsSearchRow(filter = filter, onChange = viewModel::setDownloadsFilter, modifier = Modifier.padding(top = 12.dp))
+                }
+            }
+            if (tagChips.isNotEmpty() || filter.tag != null) {
+                item {
+                    TagChips(
+                        tags = tagChips,
+                        selected = filter.tag,
+                        onSelect = { viewModel.setDownloadsFilter(filter.copy(tag = it)) },
+                        horizontalPadding = dimens.horizontalPadding,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                }
+            }
+            if (finished.isEmpty()) {
+                item { Text("Keine Treffer", color = Canopy.neutral500, modifier = Modifier.padding(dimens.horizontalPadding)) }
+            }
+        }
+        items(unfinished + finished, key = { it.entity.trackId }) { item ->
             DownloadRow(
                 item = item,
                 isLiked = item.entity.trackId in likedTrackIds,
