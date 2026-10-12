@@ -52,7 +52,7 @@ object TrackAnalyzer {
     fun analyze(url: String, headers: Map<String, String> = emptyMap(), cancelled: () -> Boolean = { false }): Result? {
         val g = FFmpegFrameGrabber(url).apply {
             sampleRate = RATE; audioChannels = 1; sampleFormat = avutil.AV_SAMPLE_FMT_FLT
-            if (headers.isNotEmpty()) setOption("headers", headers.entries.joinToString("") { "${it.key}: ${it.value}\r\n" })
+            networkOptions(url, headers)
         }
         return try {
             g.start()

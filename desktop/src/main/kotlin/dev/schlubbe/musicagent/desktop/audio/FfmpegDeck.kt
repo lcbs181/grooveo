@@ -58,15 +58,7 @@ class FfmpegDeck(private val name: String) : Deck {
                 // float, as the codecs decode: no 16-bit rounding before EQ and normalisation,
                 // and decoder overs above 0 dBFS survive until normalisation turns them down
                 sampleFormat = avutil.AV_SAMPLE_FMT_FLT
-                if (src.url.startsWith("http")) {
-                    setOption("reconnect", "1")
-                    setOption("reconnect_streamed", "1")
-                    setOption("reconnect_on_network_error", "1")
-                    setOption("reconnect_delay_max", "5")
-                    setOption("rw_timeout", "20000000")
-                    if (src.headers.isNotEmpty()) setOption("headers", src.headers.entries.joinToString("") { "${it.key}: ${it.value}\r\n" })
-                    src.headers["User-Agent"]?.let { setOption("user_agent", it) }
-                }
+                networkOptions(src.url, src.headers)
                 start()
             }
             grabber.lengthInTime.takeIf { it > 0 }?.let { durationSec = it / 1_000_000.0 }
@@ -170,4 +162,19 @@ class FfmpegDeck(private val name: String) : Deck {
             runCatching { FFmpegLogCallback.setLevel(avutil.AV_LOG_ERROR) }
         }
     }
+}
+
+/**
+ * Reconnects and a read timeout for network input, so a stalled server ends in an error
+ * instead of a reader that hangs forever, plus the request [headers]. No-op for files.
+ */
+internal fun FFmpegFrameGrabber.networkOptions(url: String, headers: Map<String, String>) {
+    if (!url.startsWith("http")) return
+    setOption("reconnect", "1")
+    setOption("reconnect_streamed", "1")
+    setOption("reconnect_on_network_error", "1")
+    setOption("reconnect_delay_max", "5")
+    setOption("rw_timeout", "20000000")
+    if (headers.isNotEmpty()) setOption("headers", headers.entries.joinToString("") { "${it.key}: ${it.value}\r\n" })
+    headers["User-Agent"]?.let { setOption("user_agent", it) }
 }

@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import dev.schlubbe.musicagent.desktop.audio.networkOptions
 import org.bytedeco.ffmpeg.global.avcodec
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.FFmpegFrameRecorder
@@ -131,7 +132,7 @@ class DownloadManager(
 
     private suspend fun transcodeHls(url: String, headers: Map<String, String>, target: File, key: String) {
         val g = FFmpegFrameGrabber(url).apply {
-            if (headers.isNotEmpty()) setOption("headers", headers.entries.joinToString("") { "${it.key}: ${it.value}\r\n" })
+            networkOptions(url, headers)
             start()
         }
         val totalUs = g.lengthInTime.coerceAtLeast(1)
