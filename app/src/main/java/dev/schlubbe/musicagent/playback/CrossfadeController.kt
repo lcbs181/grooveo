@@ -51,7 +51,8 @@ private val HALF_PI = (Math.PI / 2).toFloat()
  * fade triggers at the outgoing track's marked mix-out point and lands the incoming
  * track at its marked mix-in point instead of blind position 0 - the "positions to
  * jump to" a track's own analysis picked out, same idea as djay's Automix. A track
- * with no analysis (streamed-only, or not analyzed yet) falls back to today's plain
+ * with no analysis (streamed-only, or not analyzed yet) - or one that is playing from
+ * its stream rather than the download the analysis was measured on - falls back to today's plain
  * fixed-duration fade from the raw file's end - the two behaviors mix freely per pair
  * of tracks, there's no "smart mode" toggle.
  *
@@ -159,7 +160,12 @@ class CrossfadeController(
             cachedNextTrackId = nextTrackId
             cachedMixInMs = nextTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixInMs }
         }
-        val mixInMs = cachedMixInMs
+        // Mix points are measured on the downloaded file (see TrackAnalyzer). A stream of
+        // the same track can be a different cut or encode - a YouTube upload with a
+        // longer intro, say - so they only apply when the local file is what plays.
+        val mixInMs = cachedMixInMs?.takeIf {
+            isLocalMediaUri(mainPlayer.getMediaItemAt(nextIndex).localConfiguration?.uri?.scheme)
+        }
 
         // mediaId is the app's own "source:sourceId" track id (see
         // PlayerController.buildMediaItem) - looking it straight up here means this
@@ -170,6 +176,7 @@ class CrossfadeController(
             cachedMixOutMs = currentTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixOutMs }
         }
         val mixOutMs = cachedMixOutMs
+            ?.takeIf { isLocalMediaUri(mainPlayer.currentMediaItem?.localConfiguration?.uri?.scheme) }
             // Always leaves at least MIN_FADE_MS of runway - an analysis result a few
             // ms off the container's own duration (measured independently by decoding,
             // see TrackAnalyzer) should never produce a negative/zero fade window.
@@ -328,3 +335,8 @@ class CrossfadeController(
         fadeAdvanced = false
     }
 }
+
+/** Whether a media item's URI scheme points at a file on the device (a download) rather
+ * than a network stream - the only case where analysed mix points are trusted. */
+internal fun isLocalMediaUri(scheme: String?): Boolean =
+    scheme.equals("content", ignoreCase = true) || scheme.equals("file", ignoreCase = true)
