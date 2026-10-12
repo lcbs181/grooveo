@@ -348,7 +348,7 @@ fun SettingsScreen(
                         )
                         ToggleRow(
                             title = "Hochauflösendes Audio",
-                            subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert.",
+                            subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert. Wirkt nach einem Neustart der App.",
                             checked = uiState.hiResAudio,
                             onCheckedChange = viewModel::onHiResAudioChanged,
                         )

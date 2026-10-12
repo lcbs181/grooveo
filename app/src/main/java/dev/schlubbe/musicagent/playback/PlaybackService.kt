@@ -58,6 +58,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.pow
 import javax.inject.Inject
 
@@ -306,7 +308,7 @@ class PlaybackService : MediaLibraryService() {
                 .setAudioProcessors(arrayOf(eqAudioProcessor, TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
                 .build()
         }.apply {
-            if (settingsRepository.hiResAudioCached) {
+            if (readHiResAudioSetting()) {
                 setEnableAudioFloatOutput(true)
             }
         }
@@ -496,6 +498,16 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** The Hi-Res setting, read from storage rather than SettingsRepository's cache:
+     * that cache starts out false and is filled asynchronously, so on a cold start (the
+     * service created together with the app process) it had usually not arrived yet
+     * and the setting was silently ignored. It can only be applied while the player is
+     * built - hence the short blocking read, bounded so a slow disk can't stall the
+     * service's start. */
+    private fun readHiResAudioSetting(): Boolean =
+        runBlocking { withTimeoutOrNull(HI_RES_READ_TIMEOUT_MS) { settingsRepository.hiResAudio.first() } }
+            ?: settingsRepository.hiResAudioCached
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
@@ -556,6 +568,7 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val STALE_CHECK_INTERVAL_MS = 250L
         private const val VOLUME_POLL_MS = 1_000L
+        private const val HI_RES_READ_TIMEOUT_MS = 500L
 
         /** How often queued spectra are released to the UI - one display frame at 60Hz. */
 
