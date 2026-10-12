@@ -595,6 +595,7 @@ class PlayerController @Inject constructor(
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
         val myGeneration = ++playRequestGeneration
+        cancelBackgroundQueueFill()
         // A fresh load replaces the controller's item(s) wholesale, which fires
         // onMediaItemTransition with reason PLAYLIST_CHANGED - explicitly ignored
         // there, so a pending retry from a *previous* track's error needs
@@ -821,7 +822,8 @@ class PlayerController @Inject constructor(
      * one, since that means a newer playQueue()/playLocalDownload() call has already
      * moved the user on. */
     private fun launchBackgroundQueueFill(tracks: List<TrackResultDto>, startIndex: Int, generation: Int) {
-        scope.launch {
+        backgroundQueueFillJob?.cancel()
+        backgroundQueueFillJob = scope.launch {
             coroutineScope {
                 val order = (startIndex + 1 until tracks.size) + (startIndex - 1 downTo 0)
                 val pending = order.map { i -> tracks[i] to async { resolvePreferLocal(tracks[i]) } }
@@ -833,6 +835,18 @@ class PlayerController @Inject constructor(
                 }
             }
         }
+    }
+
+    // The generation check above only stops a stale fill from *applying* results - its
+    // already-started resolves would otherwise keep running to completion and hold
+    // [StreamResolverRegistry]'s concurrency permits, so a long previous queue could
+    // delay the very next tapped track's own resolve. Cancelled as soon as a newer
+    // playQueue()/playLocalDownload()/playFromUri() replaces the queue.
+    private var backgroundQueueFillJob: Job? = null
+
+    private fun cancelBackgroundQueueFill() {
+        backgroundQueueFillJob?.cancel()
+        backgroundQueueFillJob = null
     }
 
     /** Loads [track] into the MediaController at the position matching its logical
@@ -870,7 +884,7 @@ class PlayerController @Inject constructor(
     /** Removes the queue entry at logical [index] (never the current track). */
     suspend fun removeFromQueue(index: Int) {
         if (index == currentQueueIndex || index !in currentQueue.indices) return
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         exoIndexForLogical[index]?.let { mediaController.removeMediaItem(it) }
         val loaded = loadedFlags().apply { removeAt(index) }
         currentQueue = currentQueue.toMutableList().apply { removeAt(index) }
@@ -884,7 +898,7 @@ class PlayerController @Inject constructor(
     suspend fun moveInQueue(from: Int, to: Int) {
         if (from == to || from <= currentQueueIndex || to <= currentQueueIndex) return
         if (from !in currentQueue.indices || to !in currentQueue.indices) return
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         val fromExo = exoIndexForLogical[from]
         val loaded = loadedFlags()
         loaded.add(to, loaded.removeAt(from))
@@ -897,7 +911,7 @@ class PlayerController @Inject constructor(
 
     /** Drops everything after the current track. */
     suspend fun clearUpNext() {
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         // With shuffle on, "up next" is the rest of the shuffle order, which is spread
         // across the whole logical queue - remove exactly those, back to front so the
         // indices still to remove stay valid.
@@ -930,6 +944,7 @@ class PlayerController @Inject constructor(
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
         val myGeneration = ++playRequestGeneration
+        cancelBackgroundQueueFill()
         // A fresh load replaces the controller's item(s) wholesale, which fires
         // onMediaItemTransition with reason PLAYLIST_CHANGED - explicitly ignored
         // there, so a pending retry from a *previous* track's error needs
@@ -948,7 +963,7 @@ class PlayerController @Inject constructor(
         )
 
         try {
-            val mediaController = ensureConnected()
+            val mediaController = ensureConnectedOrReportError() ?: return
             // See playQueue()'s identical check: ensureConnected() can suspend on
             // first connect, during which a newer playQueue()/playLocalDownload()
             // call may have already started and should win.
@@ -1005,7 +1020,7 @@ class PlayerController @Inject constructor(
             playQueue(listOf(track), 0)
             return
         }
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
 
         val resolved: ResolvedStream = if (settingsRepository.dataSaverModeCached) {
             val download = downloadDao.getByTrackId("${track.source}:${track.sourceId}")
@@ -1046,8 +1061,9 @@ class PlayerController @Inject constructor(
     }
 
     suspend fun playFromUri(uriString: String) {
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         val mediaItem = MediaItem.Builder().setUri(uriString).build()
+        cancelBackgroundQueueFill()
         currentQueue = emptyList()
         exoIndexForLogical = emptyList()
         currentQueueIndex = -1
@@ -1068,14 +1084,14 @@ class PlayerController @Inject constructor(
     }
 
     suspend fun toggleShuffle() {
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         mediaController.shuffleModeEnabled = !mediaController.shuffleModeEnabled
     }
 
     /** Cycles Off -> Alle -> Einzeltitel -> Off, matching the usual single-button
      * repeat control most music players use. */
     suspend fun cycleRepeatMode() {
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         mediaController.repeatMode = when (mediaController.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
@@ -1248,7 +1264,7 @@ class PlayerController @Inject constructor(
     private suspend fun moveToLogicalIndex(newLogicalIndex: Int): Boolean {
         val track = currentQueue.getOrNull(newLogicalIndex) ?: return false
         resetPlaybackErrorState()
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return false
         val exoIndex = exoIndexForLogical.getOrNull(newLogicalIndex)
 
         if (exoIndex == null) {
@@ -1322,9 +1338,9 @@ class PlayerController @Inject constructor(
         // stream nor the local-download branch below makes sense for it.
         if (_playbackState.value.isUnavailable) return
         val track = currentTrack ?: return
-        val mediaController = ensureConnected()
+        val mediaController = ensureConnectedOrReportError() ?: return
         val index = mediaController.currentMediaItemIndex
-        val positionMs = currentPositionMs()
+        val mediaId = mediaController.currentMediaItem?.mediaId
         val wasLocal = isCurrentItemLocal()
 
         val newItem: MediaItem = if (wasLocal) {
@@ -1341,6 +1357,19 @@ class PlayerController @Inject constructor(
             }
             buildMediaItem(track, ResolvedStream(url = localUri, isHls = false))
         }
+
+        // Both branches above suspend (the stream one on a real network resolve), and
+        // the queue can move on meanwhile - an auto-advance, a skip, a queue edit. The
+        // captured [index] then points at some other track, and replacing it would
+        // silently swap that track for this one. Drop the switch instead.
+        if (currentTrack !== track ||
+            mediaController.currentMediaItemIndex != index ||
+            mediaController.currentMediaItem?.mediaId != mediaId
+        ) {
+            return
+        }
+        // Read after the resolve, not before - playback kept running during it.
+        val positionMs = currentPositionMs()
 
         suppressNextTransitionEvent = true
         mediaController.replaceMediaItem(index, newItem)
@@ -1560,7 +1589,7 @@ class PlayerController @Inject constructor(
                 // than glue a stale prediction onto an unrelated new session.
                 if (myGeneration != playRequestGeneration) return@withLock
 
-                val mediaController = ensureConnected()
+                val mediaController = ensureConnectedOrReportError() ?: return@withLock
                 var exoIndex = mediaController.mediaItemCount
                 resolved.forEach { (track, stream) ->
                     mediaController.addMediaItem(buildMediaItem(track, stream))
@@ -1579,7 +1608,7 @@ class PlayerController @Inject constructor(
                 // dropped anything that failed to resolve above regardless).
                 // With shuffle on, the slot after the current one may be a track the
                 // shuffle already played - start the new batch itself instead.
-                val next = if (ensureConnected().shuffleModeEnabled) firstAppended else currentQueueIndex + 1
+                val next = if (controller?.shuffleModeEnabled == true) firstAppended else currentQueueIndex + 1
                 if (next < currentQueue.size) moveToLogicalIndex(next)
             }
         }
