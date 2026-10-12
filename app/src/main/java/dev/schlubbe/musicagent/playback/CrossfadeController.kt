@@ -32,9 +32,6 @@ private const val PREPARE_TIMEOUT_MS = 6_000L
 /** The main player may be this far past the hand-over point when the tail starts (one audio buffer or so). */
 private const val HANDOVER_SLACK_MS = 60L
 
-/** See [CrossfadeController.isOwnAdvance]. */
-private const val OWN_ADVANCE_GRACE_MS = 700L
-
 private val HALF_PI = (Math.PI / 2).toFloat()
 
 /**
@@ -96,18 +93,29 @@ class CrossfadeController(
      * on top of an in-progress fade. */
     val isFading: Boolean get() = fadeJob != null
 
-    private var ownAdvanceAtMs = 0L
+    // The two tracks the running fade is between, and whether the main player has
+    // already moved on to the incoming one - see onPlaylistChanged.
+    private var fadeOutgoingId: String? = null
+    private var fadeIncomingId: String? = null
+    private var fadeAdvanced = false
 
-    /** Whether the player events arriving right now are the echo of this class's own
-     * [ExoPlayer.seekToNextMediaItem] rather than a real user skip - [PlaybackService]
-     * checks it before cancelling a fade. A short time window, not a flag cleared
-     * straight after the call: ExoPlayer delivers the resulting transition,
-     * discontinuity and isPlaying events across several dispatches, so a flag only set
-     * during the call itself was already false when they arrived and every fade
-     * cancelled itself. A real skip within the first [OWN_ADVANCE_GRACE_MS] of a fade is
-     * ignored as a result, which is a fair trade for fades lasting seconds. */
-    val isOwnAdvance: Boolean
-        get() = android.os.SystemClock.elapsedRealtime() - ownAdvanceAtMs < OWN_ADVANCE_GRACE_MS
+    /**
+     * Called by [PlaybackService] whenever the main player's playlist changes. Most such
+     * changes don't touch the fade at all - the background queue fill, "add to queue" and
+     * the autoplay radio all just add items around it - so the fade only stops when the
+     * track it fades from (before the hand-over) or to (both before and after) is no
+     * longer the one in that place. Cancelling on every change cut fades off at random.
+     */
+    fun onPlaylistChanged() {
+        if (!isFading) return
+        val current = mainPlayer.currentMediaItem?.mediaId
+        val stillValid = if (fadeAdvanced) {
+            current == fadeIncomingId
+        } else {
+            current == fadeOutgoingId && nextMediaId() == fadeIncomingId
+        }
+        if (!stillValid) cancelFade()
+    }
 
     /** Call roughly every 200ms from [PlaybackService]'s poll loop with the user's
      * configured crossfade length (0 = off) and a hook to mark the outgoing track as
@@ -183,6 +191,8 @@ class CrossfadeController(
         return timeline.getNextWindowIndex(mainPlayer.currentMediaItemIndex, mainPlayer.repeatMode, mainPlayer.shuffleModeEnabled)
     }
 
+    private fun nextMediaId(): String? = nextWindowIndex().takeIf { it != C.INDEX_UNSET }?.let { mainPlayer.getMediaItemAt(it).mediaId }
+
     /**
      * Fades from the current track into the next one at [fadeAtMs] of the current track. A
      * second player takes over the outgoing tail; it is prepared first and only once it is
@@ -194,6 +204,7 @@ class CrossfadeController(
     private fun startFade(fadeAtMs: Long, fadeDurationMs: Long, mixInMs: Long?, onBeforeAdvance: () -> Unit) {
         val uri = mainPlayer.currentMediaItem?.localConfiguration?.uri ?: return
         val outgoingId = mainPlayer.currentMediaItem?.mediaId
+        val incomingId = nextMediaId()
 
         // Only the EQ is wired up here (see renderersFactory); the visualizer tap and
         // 3D-sound stay on the main player.
@@ -214,6 +225,9 @@ class CrossfadeController(
         // Published before prepare so an immediate load error's cancelFade() finds
         // and releases this player instead of leaving it running under a cancelled fade.
         secondaryPlayer = secondary
+        fadeOutgoingId = outgoingId
+        fadeIncomingId = incomingId
+        fadeAdvanced = false
         secondary.setMediaItem(MediaItem.fromUri(uri))
         secondary.playWhenReady = false
         secondary.volume = 1f
@@ -246,14 +260,18 @@ class CrossfadeController(
                 }
                 val fadeMs = if (mainPlayer.duration != C.TIME_UNSET) min(fadeDurationMs, mainPlayer.duration - startAt) else fadeDurationMs
 
+                // The queue may have changed after the PLAYLIST_CHANGED callback last
+                // checked it - the mix-in point belongs to the track picked at the start.
+                val nextIndex = nextWindowIndex()
+                if (nextIndex == C.INDEX_UNSET || mainPlayer.getMediaItemAt(nextIndex).mediaId != incomingId) return@launch
+
                 outgoingId?.takeIf { it.isNotEmpty() }?.let(onTailStarted)
                 secondary.play()
                 // Marks the outgoing track completed *before* the seek below so the resulting
                 // onMediaItemTransition (reason SEEK, not AUTO) doesn't report it to analytics
                 // as a user skip.
                 onBeforeAdvance()
-                ownAdvanceAtMs = android.os.SystemClock.elapsedRealtime()
-                val nextIndex = nextWindowIndex()
+                fadeAdvanced = true
                 mainPlayer.volume = 0f
                 if (mixInMs != null && nextIndex != C.INDEX_UNSET) {
                     mainPlayer.seekTo(nextIndex, mixInMs)
@@ -288,7 +306,7 @@ class CrossfadeController(
     }
 
     /** Cancels an in-flight fade immediately - a manual skip/seek/pause, a queue
-     * change, playback stopping, or the service being destroyed all call this. Safe to
+     * change that replaces either track of the fade, playback stopping, or the service being destroyed all call this. Safe to
      * call when no fade is running. Cleans up synchronously here (rather than only
      * relying on the ramp coroutine's own cancellation) so the main player is never
      * left silenced for even one more poll tick, and [cleanup] being idempotent means
@@ -305,5 +323,8 @@ class CrossfadeController(
         secondaryPlayer?.release()
         secondaryPlayer = null
         fadeJob = null
+        fadeOutgoingId = null
+        fadeIncomingId = null
+        fadeAdvanced = false
     }
 }
