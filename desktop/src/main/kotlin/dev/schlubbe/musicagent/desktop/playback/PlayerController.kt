@@ -91,6 +91,9 @@ class PlayerController(
     private val _planned = MutableStateFlow<PlannedTransition?>(null)
     /** The transition planned into the next track, if any. */
     val planned: StateFlow<PlannedTransition?> = _planned.asStateFlow()
+    private val _planNote = MutableStateFlow<String?>(null)
+    /** Why no transition is planned into the next track (DJ mode on), or that it is still being prepared. */
+    val planNote: StateFlow<String?> = _planNote.asStateFlow()
     val transition get() = engine.transition
 
     init {
@@ -167,12 +170,20 @@ class PlayerController(
         val without = s.queue.filterIndexed { i, t -> t.key != track.key || i == s.index }
         val idx = without.indexOfFirst { it.key == s.current?.key }.coerceAtLeast(0)
         _state.update { it.copy(queue = without.toMutableList().apply { add(idx + 1, track) }, index = idx) }
+        // with shuffle on, the order to go back to gets it right after the current track too
+        unshuffled = unshuffled?.let { u ->
+            val rest = u.filter { it.key != track.key }
+            val at = rest.indexOfFirst { it.key == s.current?.key }
+            rest.toMutableList().apply { add(at + 1, track) }
+        }
         schedulePreload()
     }
 
     fun removeFromQueue(i: Int) {
         val s = _state.value
         if (i !in s.queue.indices) return
+        // gone for good, also from the order shuffle returns to
+        unshuffled = unshuffled?.filter { it.key != s.queue[i].key }
         if (i == s.index) {
             val q = s.queue.filterIndexed { j, _ -> j != i }
             if (q.isEmpty()) { stop(); return }
@@ -287,15 +298,25 @@ class PlayerController(
         val cur = _state.value.current ?: return null
         val s = settings.current
         val xf = s.crossfadeSeconds.takeIf { it > 0 }?.toDouble()
-        val recipe = (wish ?: recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else return null)
+        val recipe = (wish ?: recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else { _planNote.value = null; return null })
             .let { if (it.crossfadeSec == null && xf != null) it.copy(crossfadeSec = xf) else it }
-        suspend fun analysisOf(x: TrackResultDto) = store.current.analysis[x.key]?.takeIf { it.upToDate } ?: analyze(x)
-        val a = analysisOf(cur) ?: return null
-        val b = analysisOf(t) ?: return null
+        suspend fun analysisOf(x: TrackResultDto): TrackAnalysis? {
+            store.current.analysis[x.key]?.takeIf { it.upToDate }?.let { return it }
+            _planNote.value = "Analysiere „${x.title}“ …"
+            return analyze(x)
+        }
+        val a = analysisOf(cur) ?: run { _planNote.value = "„${cur.title}“ ließ sich nicht analysieren – Überblendung"; return null }
+        val b = analysisOf(t) ?: run { _planNote.value = "„${t.title}“ ließ sich nicht analysieren – Überblendung"; return null }
         val e = engine.state.value
         return runCatching {
             TransitionPlanner.plan(a, b, t.key, recipe, e.positionSec, e.durationSec, engine.canSync)
-        }.onFailure { if (force) throw it }.getOrNull()
+        }.onFailure { if (force) throw it }.getOrNull().also { p ->
+            _planNote.value = when {
+                p != null -> null
+                a.grid == null || b.grid == null -> "Kein Beat erkannt – Überblendung statt DJ-Übergang"
+                else -> "Kein Platz mehr vor dem Ende – Überblendung"
+            }
+        }
     }
 
     fun setVolume(v: Float) {
@@ -331,8 +352,19 @@ class PlayerController(
         val end = System.currentTimeMillis() + minutes * 60_000L
         _state.update { it.copy(sleepTimerEndAt = end) }
         sleepJob = scope.launch {
-            delay(minutes * 60_000L)
-            engine.pause()
+            delay((minutes * 60_000L - SLEEP_FADE_MS).coerceAtLeast(0))
+            // fade out instead of stopping mid-phrase; the volume setting itself stays
+            val from = engine.volume
+            val steps = 80
+            try {
+                for (k in 1..steps) {
+                    delay(SLEEP_FADE_MS / steps)
+                    engine.volume = from * (1f - k.toFloat() / steps)
+                }
+                engine.pause()
+            } finally {
+                engine.volume = settings.current.volume.coerceIn(0f, 1f)
+            }
             _state.update { it.copy(sleepTimerEndAt = null) }
         }
     }
@@ -410,7 +442,7 @@ class PlayerController(
             if (idx >= 0) _state.update { it.copy(index = idx, playingLocalCopy = "://" !in source.url) }
         }
         val t = _state.value.current ?: return
-        if (automatic) { recipes.remove(t.key); _planned.value = null }
+        if (automatic) { recipes.remove(t.key); _planned.value = null; _planNote.value = null }
         store.recordPlay(t)
         engine.mixOutSec = store.current.analysis[t.key]?.mixOutMs?.div(1000.0)
         store.current.analysis[t.key]?.grid?.let { engine.masterFx.beatSec = it.beatMs / 1000 / engine.currentRate }
@@ -492,5 +524,6 @@ class PlayerController(
     private companion object {
         const val MAX_STREAM_RETRIES = 2
         const val DJ_FALLBACK_CROSSFADE_SEC = 6
+        const val SLEEP_FADE_MS = 8_000L
     }
 }

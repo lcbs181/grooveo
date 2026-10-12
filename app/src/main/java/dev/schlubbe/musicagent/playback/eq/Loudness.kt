@@ -140,16 +140,27 @@ class LoudnessNormalizer(fs: Double) {
     val currentGainDb: Double get() = gainDb
 
     fun process(buf: FloatArray, frames: Int) {
-        pending.getAndSet(null)?.let { (id, k) -> trackId = id; known = k; latched = null; meter.reset() }
+        pending.getAndSet(null)?.let { (id, k) ->
+            trackId = id; known = k; latched = null; meter.reset()
+            // a new track starts at a boundary: drop a leftover boost right there, not over seconds into it
+            if (k == null) gainDb = minOf(gainDb, 0.0)
+        }
         meter.add(buf, frames)
         if (latched == null && known == null && meter.seconds >= MIN_SECONDS_TO_STORE) latched = meter.integrated()
         val loudness = known ?: latched ?: meter.integrated()?.takeIf { meter.seconds >= MIN_SECONDS_TO_ADAPT }
         val target = when {
             !enabled -> 0.0
-            loudness == null -> gainDb // keep the previous track's gain until measured
+            // until measured: the previous track's cut, but never its boost (a quiet track's
+            // +6 dB on a loud intro would blast)
+            loudness == null -> minOf(gainDb, 0.0)
             else -> (targetLufs - loudness).coerceIn(-MAX_CUT_DB, if (allowBoost) maxBoostDb else 0.0)
         }
-        val step = if (known != null && enabled) fastSlewPerSample else slewPerSample
+        // a known value is reached at once; while a new track is still being measured it may move faster
+        val step = when {
+            known != null && enabled -> fastSlewPerSample
+            latched == null -> slewPerSample * 2
+            else -> slewPerSample
+        }
         for (i in 0 until frames) {
             if (gainDb != target) gainDb = if (gainDb < target) minOf(target, gainDb + step) else maxOf(target, gainDb - step)
             val db = gainDb

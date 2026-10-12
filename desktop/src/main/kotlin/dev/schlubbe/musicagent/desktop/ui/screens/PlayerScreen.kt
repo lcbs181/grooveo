@@ -175,6 +175,7 @@ private fun PlayerContent() {
                         VolumeControl()
                     }
                     OfflineCard()
+                    TransitionCard()
                     SoundCard()
                     SleepTimerCard()
                 }
@@ -353,6 +354,42 @@ private fun OfflineCard() {
             progress = { dl.progressPct / 100f }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(2.dp)), color = c.accent2, trackColor = Color.White.copy(alpha = 0.1f),
         )
     }
+}
+
+/** "Nächster Übergang": what the DJ mode planned into the next track, while it runs, or why there is none. */
+@Composable
+private fun TransitionCard() {
+    val g = LocalUi.current.graph
+    val c = C.c
+    val settings by g.settings.state.collectAsState()
+    val planned by g.player.planned.collectAsState()
+    val note by g.player.planNote.collectAsState()
+    val status by g.player.transition.collectAsState()
+    val e by g.player.engineState.collectAsState()
+    if (!settings.djTransitions && planned == null) return
+    PlayerCard("Nächster Übergang") {
+        val p = planned
+        val text = when {
+            status.phase == dev.schlubbe.musicagent.desktop.audio.TransitionStatus.Phase.RUNNING ->
+                "${styleLabel(status.plan?.style)} läuft · Schlag ${status.beat.toInt().coerceAtLeast(0) + 1} von ${status.plan?.lengthBeats?.toInt() ?: 0}"
+            p != null -> {
+                val inSec = (p.plan.outStartSec - e.positionSec).coerceAtLeast(0.0).toInt()
+                "${styleLabel(p.plan.style)} · ${p.summary["bars"]} Takte · in ${inSec / 60}:${"%02d".format(inSec % 60)}" +
+                    if (p.plan.sync) " · Tempo angeglichen" else ""
+            }
+            note != null -> note!!
+            else -> "Wird vorbereitet …"
+        }
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = c.text)
+        if (p != null && !p.plan.sync) {
+            Text("Tempi liegen zu weit auseinander: ohne Tempo-Angleichung, darum kurz", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        }
+    }
+}
+
+private fun styleLabel(style: String?) = when (style) {
+    "blend" -> "Blend"; "bass_swap" -> "Bass-Tausch"; "filter" -> "Filter"; "echo_out" -> "Echo-Out"
+    "cut" -> "Schnitt"; "fade" -> "Überblenden"; else -> "Übergang"
 }
 
 @OptIn(ExperimentalLayoutApi::class)

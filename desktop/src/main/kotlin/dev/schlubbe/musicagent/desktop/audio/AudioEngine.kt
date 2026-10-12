@@ -216,6 +216,8 @@ class AudioEngine(
         synchronized(lock) {
             epoch++
             if (phase == TransitionStatus.Phase.RUNNING) finishTransition()
+            // a seek jumps to the track's own tempo: a glide back to it has nothing left to do
+            if (phase == TransitionStatus.Phase.RELEASING) phase = TransitionStatus.Phase.NONE
         }
         val c = current
         c.resetTempo()

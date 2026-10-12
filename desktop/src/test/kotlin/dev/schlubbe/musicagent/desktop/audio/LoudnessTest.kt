@@ -95,6 +95,16 @@ class LoudnessNormalizerTest {
         assertEquals(LoudnessNormalizer.DEFAULT_TARGET_LUFS + 4.0, n.currentGainDb, 1e-9)
     }
 
+    @Test fun `an unknown track does not inherit the previous track's boost`() {
+        val n = LoudnessNormalizer(FS).apply { enabled = true }
+        n.startTrack("quiet", LoudnessNormalizer.DEFAULT_TARGET_LUFS - 5.0)
+        run(n, 0.2, 0.1)
+        assertEquals(5.0, n.currentGainDb, 1e-9)
+        n.startTrack("new", null)
+        run(n, 1.0, 0.5)
+        assertEquals(0.0, n.currentGainDb, 1e-9)
+    }
+
     @Test fun `gain stays fixed once the measurement is latched`() {
         val n = LoudnessNormalizer(FS).apply { enabled = true }
         n.startTrack("a", null)
