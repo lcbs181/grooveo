@@ -31,18 +31,18 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
     private val limiter = LookaheadLimiter(fs)
 
     fun setProfile(p: EqProfile) {
-        makeupDb = if (p.enabled) (-p.preampDb).coerceAtLeast(0.0) else 0.0
+        limiterEnabled = p.limiter
         pendingProfile.set(p)
     }
 
-    /** Level the current profile's preamp takes away; the loudness normaliser adds it back in front of the EQ. */
-    @Volatile var makeupDb = 0.0
+    /** The user's limiter switch. Off means off: then nothing upstream may boost either ([LoudnessNormalizer.allowBoost]). */
+    @Volatile var limiterEnabled = true
         private set
-    fun setVolume(v: Float) { volume = v }
 
-    /** Keeps the limiter on although the profile has it off: an upstream gain (loudness
-     * normalisation) is boosting the signal and could otherwise clip. */
-    @Volatile var forceLimiter = false
+    /** Upstream gain (loudness normalisation) in dB; the limiter catches its peaks even with the EQ off. */
+    @Volatile var upstreamGainDb = 0.0
+
+    fun setVolume(v: Float) { volume = v }
 
     /** Filter sections of the current settings (subsonic, bands, loudness), in processing order. */
     internal fun sectionsFor(p: EqProfile, vol: Float): List<Biquad> {
@@ -97,7 +97,7 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
         chain.commit()
         preamp = targetPre
         fadingOut = null
-        if ((profile.enabled && profile.limiter) || forceLimiter) limiter.process(buf, frames) else limiter.reset()
+        if (profile.limiter && (profile.enabled || upstreamGainDb > 0.05)) limiter.process(buf, frames) else limiter.reset()
     }
 
     companion object {
@@ -261,7 +261,8 @@ class LookaheadLimiter(fs: Double, private val ceiling: Double = 10.0.pow(-0.5 /
  * samples when the gain moved; boosts rise slowly, cuts and boost reductions are fast.
  *
  * - [bass]: "Dynamischer Bass", a low shelf that fills thin mixes up towards
- *   [BASS_TARGET_DB]. Measured on real tracks, bass-heavy pop/rap/EDM sits at
+ *   [BASS_TARGET_DB]. Its sidechain follows sections of a song (seconds), not single
+ *   kicks, and the lift falls gently: following each kick made the bass duck. Measured on real tracks, bass-heavy pop/rap/EDM sits at
  *   -3..-0.5 dB and gets nothing, thin mixes (singer-songwriter, acoustic,
  *   classical) sit at -5..-10 dB. Because the long-term balance counts too, the
  *   breaks of a bass-heavy track are not lifted (no boom when the bass returns).
@@ -278,6 +279,8 @@ class DynamicEqBand(
     attackMs: Double,
     releaseMs: Double,
     private val riseDbPerS: Double,
+    /** How fast the gain may drop; infinite drops at once (a de-esser must). */
+    private val fallDbPerS: Double = Double.POSITIVE_INFINITY,
     private val curve: (fastDb: Double, slowDb: Double, amount: Double) -> Double,
 ) {
     /** Strength: maximum boost in dB for [bass], 0..1 for [harsh]; 0 bypasses the band. */
@@ -296,6 +299,7 @@ class DynamicEqBand(
     private val release = 1 - kotlin.math.exp(-1 / (releaseMs * 0.001 * fs))
     private val slow = 1 - kotlin.math.exp(-1 / (SLOW_S * fs))
     private val rise = riseDbPerS * UPDATE / fs
+    private val fall = fallDbPerS * UPDATE / fs
     private val sc = Array(sidechain.size) { DoubleArray(4) }
     private var envBand = 0.0
     private var envFull = 0.0
@@ -328,8 +332,12 @@ class DynamicEqBand(
                 longTermBalanceDb = 10 * kotlin.math.log10((slowBand / slowFull).coerceAtLeast(1e-12))
                 target = curve(balanceDb, longTermBalanceDb, a)
             }
-            // boosts grow slowly; anything that lowers the gain applies at once
-            gainDb = if (target > gainDb && a > 0.0) minOf(target, gainDb + rise) else target
+            // boosts grow slowly; lower gains apply at [fallDbPerS] (at once when switched off)
+            gainDb = when {
+                a <= 0.0 -> target
+                target > gainDb -> minOf(target, gainDb + rise)
+                else -> maxOf(target, gainDb - fall)
+            }
             if (abs(gainDb - designedDb) > 0.05 || (gainDb == 0.0 && designedDb != 0.0)) {
                 coef = MatchedDesign.design(type, freq, gainDb, q, fs)
                 designedDb = gainDb
@@ -370,7 +378,7 @@ class DynamicEqBand(
         fun bass(fs: Double) = DynamicEqBand(
             fs, FilterType.LOW_SHELF, 100.0, 0.7,
             MatchedDesign.butterworthQs(2).map { MatchedDesign.design(FilterType.LOW_PASS, 150.0, 0.0, it, fs) },
-            attackMs = 20.0, releaseMs = 250.0, riseDbPerS = 2.0,
+            attackMs = 400.0, releaseMs = 1500.0, riseDbPerS = 2.0, fallDbPerS = 6.0,
         ) { fast, slow, maxBoost -> (BASS_TARGET_DB - maxOf(fast, slow)).coerceIn(0.0, maxBoost) }
 
         fun harsh(fs: Double) = DynamicEqBand(

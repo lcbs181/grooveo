@@ -120,11 +120,14 @@ class AudioEngineTest {
         assertEquals(0.75f, sink.samples[3000], 1e-3f)
     }
 
-    @Test fun `a preamp cut is made up right away, also without normalisation`() {
-        engine.setEq(EqProfile(limiter = false, subsonic = false, preampDb = -6.0206, bands = emptyList()))
-        engine.play(AudioSource("5", "x"))
-        waitFor { sink.samples.size > 4000 }
-        assertEquals(0.5f, sink.samples[3000], 0.02f)
+    @Test fun `a preamp cut lowers the level, with and without the limiter`() {
+        for (limiter in listOf(false, true)) {
+            engine.setEq(EqProfile(limiter = limiter, subsonic = false, preampDb = -6.0206, bands = emptyList()))
+            engine.play(AudioSource("5", "x"))
+            val from = sink.samples.size
+            waitFor { sink.samples.size > from + 4000 }
+            assertEquals(0.25f, sink.samples[from + 3000], 0.02f)
+        }
     }
 
     @Test fun `buffering clears once audio flows`() {
@@ -137,7 +140,7 @@ class AudioEngineTest {
 
     @Test fun `known track loudness is normalised per deck`() {
         val cache = LoudnessCache(java.nio.file.Files.createTempDirectory("grooveo-ln").resolve("l.json").toFile())
-        cache.put("2", -4.0) // 6 dB louder than the target
+        cache.put("2", LoudnessNormalizer.DEFAULT_TARGET_LUFS + 6.0) // 6 dB louder than the target
         engine.loudnessCache = cache
         engine.normalize = true
         engine.play(AudioSource("2", "x"))

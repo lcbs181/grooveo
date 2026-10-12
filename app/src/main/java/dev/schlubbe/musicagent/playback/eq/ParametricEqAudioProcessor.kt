@@ -116,9 +116,9 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         }
         inputBuffer.position(inputBuffer.limit())
         normalizer?.let { n ->
-            n.makeupDb = p.makeupDb
+            n.allowBoost = p.limiterEnabled
             n.process(work, frames)
-            p.forceLimiter = n.currentGainDb > 0.05
+            p.upstreamGainDb = n.currentGainDb
         }
         p.process(work, frames)
         val out = replaceOutputBuffer(frames * channels * sampleBytes).order(ByteOrder.LITTLE_ENDIAN)

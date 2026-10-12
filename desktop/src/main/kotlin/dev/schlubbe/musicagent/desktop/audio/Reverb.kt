@@ -92,11 +92,12 @@ class ReverbStage {
     }
 }
 
-/** Linear below 0.8, smooth knee above (same curve as the Android reverb processor). */
+/** Linear up to 0.95 (-0.45 dBFS), smooth knee above towards 1.0: a safety net for overs, not a sound. */
 fun softClip(x: Float): Float {
+    // only what would clip anyway: the limiter's ceiling (-0.5 dBFS) stays untouched
     val a = abs(x)
-    if (a <= 0.8f) return x
-    val over = a - 0.8f
-    val shaped = 0.8f + 0.2f * (over / (over + 0.2f))
+    if (a <= 0.95f) return x
+    val over = a - 0.95f
+    val shaped = 0.95f + 0.05f * (over / (over + 0.05f))
     return if (x < 0) -shaped else shaped
 }

@@ -333,8 +333,10 @@ class AiAssistant(
                     }
                 }
             }
-            c.edit { s -> s.copy(running = false, items = s.items.map { if (it is AiItem.Reply && it.streaming) it.copy(streaming = false) else it }) }
+            c.edit { s -> s.copy(items = s.items.map { if (it is AiItem.Reply && it.streaming) it.copy(streaming = false) else it }) }
+            // saved before "running" ends, so whoever waits for the end sees the chat in the list
             persist(c)
+            c.edit { it.copy(running = false) }
         }
     }
 

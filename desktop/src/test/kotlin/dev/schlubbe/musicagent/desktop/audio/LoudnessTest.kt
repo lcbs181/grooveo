@@ -68,10 +68,10 @@ class LoudnessNormalizerTest {
         val n = LoudnessNormalizer(FS).apply { enabled = true }
         n.startTrack("a", -20.0)
         run(n, 0.2, 0.1)
-        assertEquals(LoudnessNormalizer.DEFAULT_MAX_BOOST_DB, n.currentGainDb, 1e-9) // wants +10, capped at +8
+        assertEquals(LoudnessNormalizer.DEFAULT_MAX_BOOST_DB, n.currentGainDb, 1e-9) // wants +8, capped at +6
         n.startTrack("b", -4.0)
         run(n, 0.2, 0.1)
-        assertEquals(-6.0, n.currentGainDb, 1e-9)
+        assertEquals(LoudnessNormalizer.DEFAULT_TARGET_LUFS + 4.0, n.currentGainDb, 1e-9)
     }
 
     @Test fun `unknown track is measured and levelled gradually`() {
@@ -80,7 +80,7 @@ class LoudnessNormalizerTest {
         run(n, 2.0, 0.5) // -6 LUFS: still measuring, unity gain
         assertEquals(0.0, n.currentGainDb, 1e-9)
         run(n, 6.0, 0.5)
-        assertEquals(-4.0, n.currentGainDb, 0.05)
+        assertEquals(LoudnessNormalizer.DEFAULT_TARGET_LUFS + 6.0, n.currentGainDb, 0.05)
         assertNull(n.measuredLufs(), "too short to store")
         run(n, 14.0, 0.5)
         assertEquals(-6.0, n.measuredLufs()!!, 0.1)
@@ -92,7 +92,7 @@ class LoudnessNormalizerTest {
         run(n, 0.2, 0.5)
         n.startTrack("b", null)
         run(n, 1.0, 0.5)
-        assertEquals(-6.0, n.currentGainDb, 1e-9)
+        assertEquals(LoudnessNormalizer.DEFAULT_TARGET_LUFS + 4.0, n.currentGainDb, 1e-9)
     }
 
     @Test fun `gain stays fixed once the measurement is latched`() {
@@ -104,26 +104,15 @@ class LoudnessNormalizerTest {
         assertEquals(g, n.currentGainDb, 1e-9)
     }
 
-    @Test fun `makeup adds back the preamp cut`() {
-        val n = LoudnessNormalizer(FS).apply { enabled = true; makeupDb = 6.0 }
-        n.startTrack("a", -20.0)
-        run(n, 0.2, 0.1)
-        assertEquals(14.0, n.currentGainDb, 1e-9) // wants +10 +6, capped at 8 + 6
-    }
-
-    @Test fun `makeup applies at once without normalisation or a measurement`() {
-        for (on in listOf(false, true)) {
-            val n = LoudnessNormalizer(FS).apply { enabled = on; makeupDb = 6.0 }
-            n.startTrack("a", null) // nothing known, nothing measured yet
-            run(n, 0.05, 0.1)
-            assertEquals(6.0, n.currentGainDb, 0.05)
-            n.makeupDb = 2.0 // a change within the first seconds is followed too
-            val out = run(n, 0.1, 0.1)
-            assertEquals(2.0, n.currentGainDb, 1e-3)
-            val ref = tones(0.1, 0.1 to 997.0)
-            val i = out.size - 2
-            assertEquals(ref[i] * 10.0.pow(2.0 / 20).toFloat(), out[i], 1e-4f)
-        }
+    @Test fun `without the limiter tracks are only turned down`() {
+        val quiet = LoudnessNormalizer(FS).apply { enabled = true; allowBoost = false }
+        quiet.startTrack("a", -20.0)
+        run(quiet, 0.2, 0.1)
+        assertEquals(0.0, quiet.currentGainDb, 1e-9) // would want a boost
+        val loud = LoudnessNormalizer(FS).apply { enabled = true; allowBoost = false }
+        loud.startTrack("b", -6.0)
+        run(loud, 0.2, 0.1)
+        assertEquals(LoudnessNormalizer.DEFAULT_TARGET_LUFS + 6.0, loud.currentGainDb, 1e-9)
     }
 
     @Test fun `disabled is transparent but still measures`() {
@@ -174,6 +163,25 @@ class DynamicEqTest {
         feed(b, tones(15.0, 0.1 to 1000.0, 0.4 to 60.0))
         feed(b, tones(2.0, 0.1 to 1000.0)) // 2 s break without bass
         assertTrue(b.gainDb < 1.0, "gain ${b.gainDb}")
+    }
+
+    @Test fun `dynamic bass does not duck on each kick`() {
+        val b = DynamicEqBand.bass(FS).apply { amount = 6.0 }
+        // a thin mix with a short, loud 55 Hz kick every 500 ms (120 BPM)
+        val beat = (0.5 * FS).toInt()
+        val kick = (0.08 * FS).toInt()
+        val n = (12.0 * FS).toInt()
+        val buf = FloatArray(n * 2) { k ->
+            val i = k / 2
+            val inKick = i % beat < kick
+            (0.3 * sin(2 * PI * 1000.0 * i / FS) + if (inKick) 0.5 * sin(2 * PI * 55.0 * i / FS) else 0.0).toFloat()
+        }
+        var low = Double.MAX_VALUE; var high = -Double.MAX_VALUE
+        for (i in 0 until n) {
+            b.step(buf[2 * i].toDouble(), buf[2 * i + 1].toDouble())
+            if (i > 8 * FS) { low = minOf(low, b.gainDb); high = maxOf(high, b.gainDb) }
+        }
+        assertTrue(high - low < 1.0, "gain moved ${high - low} dB within the beat ($low..$high)")
     }
 
     @Test fun `harsh band dips only when 2-8 kHz jumps above the track's average`() {

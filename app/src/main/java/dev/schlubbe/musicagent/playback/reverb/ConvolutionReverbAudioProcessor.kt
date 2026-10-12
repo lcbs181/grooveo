@@ -224,13 +224,13 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
         Sound3dPreset.KIRCHE -> 0.3f
     }
 
-    // Linear below 0.8, smooth knee above - residual overs from a loud transient
-    // bend instead of hard-clipping into audible crackle.
+    // Linear up to 0.95 (-0.45 dBFS, above the limiter's ceiling), smooth knee above -
+    // residual overs bend instead of hard-clipping into audible crackle.
     private fun softClip(x: Float): Float {
         val a = kotlin.math.abs(x)
-        if (a <= 0.8f) return x
-        val over = a - 0.8f
-        val shaped = 0.8f + 0.2f * (over / (over + 0.2f))
+        if (a <= 0.95f) return x
+        val over = a - 0.95f
+        val shaped = 0.95f + 0.05f * (over / (over + 0.05f))
         return if (x < 0) -shaped else shaped
     }
 

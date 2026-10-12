@@ -87,7 +87,7 @@ class ParametricEqAudioProcessorTest {
         val p = configured(C.ENCODING_PCM_16BIT).apply {
             setProfile(EqProfile(enabled = false))
             setNormalization(true)
-            startTrack("soundcloud:1", -4.0) // 6 dB above the -10 LUFS target
+            startTrack("soundcloud:1", LoudnessNormalizer.DEFAULT_TARGET_LUFS + 6.0) // 6 dB above the target
         }
         val out = run(p, sine16(1000.0, 44100, 2, 44100), false, 2)
         val dry = run(configured(C.ENCODING_PCM_16BIT).apply { setProfile(EqProfile(enabled = false)) }, sine16(1000.0, 44100, 2, 44100), false, 2)

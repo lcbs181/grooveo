@@ -556,8 +556,8 @@ class AudioEngine(
     }
 
     private fun output(buf: FloatArray) {
-        norms.forEach { it.makeupDb = equalizer.makeupDb }
-        equalizer.forceLimiter = norms.any { it.currentGainDb > 0.05 }
+        norms.forEach { it.allowBoost = equalizer.limiterEnabled }
+        equalizer.upstreamGainDb = norms.maxOf { it.currentGainDb }
         equalizer.setVolume(volume)
         masterFx.process(buf, BLOCK)
         equalizer.process(buf, BLOCK)
