@@ -185,6 +185,26 @@ class DownloadManagerTest {
         assertEquals("opus", DownloadManager.extensionFor("audio/ogg", "x"))
     }
 
+    @Test fun `download file names stay inside the download folder`() {
+        val out = File(dir, "out")
+        val evil = TrackResultDto("../../.config/autostart/x", "../../evil", "t", null, null, null, null, "")
+        val base = DownloadManager.fileBase(evil, out)
+        assertTrue(base.matches(Regex("[A-Za-z0-9._-]+")), base)
+        assertEquals(out.canonicalFile, File(out, "$base.m4a").canonicalFile.parentFile)
+        assertEquals("soundcloud_dl", DownloadManager.fileBase(track("dl"), out))
+    }
+
+    @Test fun `synced and imported entries from unknown sources are dropped`() {
+        val store = LibraryStore(dir)
+        val backup = BackupManager(store, SettingsRepository(File(dir, "settings.json")), dir)
+        val f = File(dir, "evil.json").apply {
+            writeText("""{"version":1,"createdAt":"2026-09-20T10:00:00Z","likes":[
+                {"source":"soundcloud","sourceId":"ok","title":"A"},{"source":"../../x","sourceId":"y","title":"B"}],"playlists":[]}""")
+        }
+        backup.import(f)
+        assertEquals(listOf("soundcloud:ok"), store.current.likes.map { it.track.key })
+    }
+
     @Test fun `update check compares versions`() {
         assertTrue(UpdateChecker.isNewer("v1.0.1", "1.0.0"))
         assertTrue(UpdateChecker.isNewer("1.10.0", "1.9.9"))

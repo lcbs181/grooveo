@@ -63,7 +63,7 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
         store.mutate { d ->
             val now = System.currentTimeMillis()
             val known = d.likes.map { it.track.source to it.track.sourceId }.toSet()
-            val newLikes = p.likes.orEmpty().filter { (it.source to it.sourceId) !in known }
+            val newLikes = p.likes.orEmpty().filter { isKnownSource(it.source) && (it.source to it.sourceId) !in known }
                 .mapIndexed { i, t -> LikedTrack(t.toTrack(), likedAt(t.likedAt) ?: (now - i)) }
             val incoming = p.playlists.orEmpty()
             val matches = SyncMerge.matchPlaylists(d.playlists.map { SyncMerge.Local(it.id, it.name) }, incoming)
@@ -75,7 +75,7 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
                 if (at != null) {
                     val mine = folded[at]
                     val have = mine.tracks.map { it.track.source to it.track.sourceId }.toSet()
-                    folded[at] = mine.copy(tracks = mine.tracks + b.tracks.orEmpty().filter { (it.source to it.sourceId) !in have }
+                    folded[at] = mine.copy(tracks = mine.tracks + b.tracks.orEmpty().filter { isKnownSource(it.source) && (it.source to it.sourceId) !in have }
                         .map { PlaylistTrack(it.toTrack(), now) })
                 } else {
                     val key = SyncMerge.syncKey(b)
@@ -85,7 +85,7 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
                     val id = key.takeIf { it.isNotBlank() && it !in usedIds } ?: java.util.UUID.randomUUID().toString()
                     usedIds += id
                     created += Playlist(id = id, name = b.name, createdAt = ts(b.createdAt), description = b.description, accentColorKey = b.accentColorKey,
-                        moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().map { PlaylistTrack(it.toTrack(), now) })
+                        moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().filter { isKnownSource(it.source) }.map { PlaylistTrack(it.toTrack(), now) })
                 }
             }
             val fKnown = d.followed.map { it.source to it.sourceId }.toSet()
@@ -93,9 +93,9 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
             d.copy(
                 likes = (newLikes + d.likes).sortedByDescending { it.createdAt },
                 playlists = folded + created,
-                followed = d.followed + p.followedArtists.orEmpty().filter { (it.source to it.sourceId) !in fKnown }
+                followed = d.followed + p.followedArtists.orEmpty().filter { isKnownSource(it.source) && (it.source to it.sourceId) !in fKnown }
                     .map { FollowedArtist(it.source, it.sourceId, it.name, it.thumbnailUrl, ts(it.followedAt)) },
-                savedPlaylists = d.savedPlaylists + p.savedPlaylists.orEmpty().filter { (it.source to it.sourceId) !in sKnown }
+                savedPlaylists = d.savedPlaylists + p.savedPlaylists.orEmpty().filter { isKnownSource(it.source) && (it.source to it.sourceId) !in sKnown }
                     .map { SavedPlaylist(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, savedAt = ts(it.savedAt)) },
             )
         }
@@ -108,13 +108,13 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
         fun ts(iso: String?) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
         store.mutate { d ->
             d.copy(
-                likes = p.likes.orEmpty().mapIndexed { i, t -> LikedTrack(t.toTrack(), likedAt(t.likedAt) ?: (System.currentTimeMillis() - i)) },
+                likes = p.likes.orEmpty().filter { isKnownSource(it.source) }.mapIndexed { i, t -> LikedTrack(t.toTrack(), likedAt(t.likedAt) ?: (System.currentTimeMillis() - i)) },
                 playlists = p.playlists.orEmpty().map { b ->
                     Playlist(name = b.name, createdAt = ts(b.createdAt), description = b.description, accentColorKey = b.accentColorKey,
-                        moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
+                        moodTags = b.moodTags.orEmpty(), tracks = b.tracks.orEmpty().filter { isKnownSource(it.source) }.map { PlaylistTrack(it.toTrack(), System.currentTimeMillis()) })
                 },
-                followed = p.followedArtists.orEmpty().map { FollowedArtist(it.source, it.sourceId, it.name, it.thumbnailUrl, ts(it.followedAt)) },
-                savedPlaylists = p.savedPlaylists.orEmpty().map { SavedPlaylist(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, savedAt = ts(it.savedAt)) },
+                followed = p.followedArtists.orEmpty().filter { isKnownSource(it.source) }.map { FollowedArtist(it.source, it.sourceId, it.name, it.thumbnailUrl, ts(it.followedAt)) },
+                savedPlaylists = p.savedPlaylists.orEmpty().filter { isKnownSource(it.source) }.map { SavedPlaylist(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, savedAt = ts(it.savedAt)) },
             )
         }
         p.settings?.let { b ->
@@ -134,6 +134,12 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
     fun listBackups(): List<File> = dir.listFiles { f -> f.name.startsWith("backup_") && f.extension == "json" }?.sortedDescending().orEmpty()
 
     companion object {
+        /** Sources Grooveo plays from; synced or imported entries from anything else are dropped. */
+        val KNOWN_SOURCES = setOf("soundcloud", "ytmusic", "local")
+
+        /** Source ends up in file names (downloads) and stream lookups, so it must be one of ours. */
+        fun isKnownSource(source: String?) = source in KNOWN_SOURCES
+
         private val STAMP = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC)
         private fun likedAt(iso: String?) = iso?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
         private fun TrackResultDto.toDto() = BackupTrackDto(source, sourceId, title, artist, album, durationSec, thumbnailUrl, webpageUrl)

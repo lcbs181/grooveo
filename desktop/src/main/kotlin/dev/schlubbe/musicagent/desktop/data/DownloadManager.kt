@@ -78,7 +78,7 @@ class DownloadManager(
             update(key) { it.copy(state = DownloadState.DOWNLOADING) }
             val stream = resolve(track)
             val dir = dirProvider().apply { mkdirs() }
-            val base = "${track.source}_${track.sourceId.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
+            val base = fileBase(track, dir)
             val file = if (stream.isHls) {
                 File(dir, "$base.m4a").also { transcodeHls(stream.url, stream.httpHeaders, it, key) }
             } else {
@@ -158,6 +158,19 @@ class DownloadManager(
     }
 
     companion object {
+        /**
+         * File name (without extension) for [track] in [dir]. Source and id come from synced or
+         * imported data too, so both are reduced to safe characters, and the result must stay
+         * inside [dir].
+         */
+        fun fileBase(track: TrackResultDto, dir: File): String {
+            fun safe(s: String) = s.replace(Regex("[^A-Za-z0-9._-]"), "_").take(100)
+            val base = "${safe(track.source)}_${safe(track.sourceId)}"
+            val root = dir.canonicalFile
+            require(File(root, base).canonicalFile.parentFile == root) { "Ungültiger Dateiname" }
+            return base
+        }
+
         fun extensionFor(contentType: String?, url: String): String {
             val ct = contentType?.substringBefore(';')?.trim()?.lowercase()
             return when {
