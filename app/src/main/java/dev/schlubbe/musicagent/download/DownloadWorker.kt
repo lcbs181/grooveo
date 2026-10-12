@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.download
 
 import android.content.Context
+import android.os.Build
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -18,6 +19,8 @@ import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.playback.analysis.TrackAnalysisWorker
+import androidx.work.WorkInfo
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -108,13 +111,23 @@ class DownloadWorker @AssistedInject constructor(
             downloadDao.upsert(
                 DownloadEntity(trackId, null, null, DownloadState.FAILED, 0, createdAt, tempFile.absolutePath, startOffset),
             )
-            return Result.retry()
+            return retryOrGiveUp()
         }
 
-        val outcome = if (resolved.isHls) {
-            downloadHls(resolved, tempFile) { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) }
-        } else {
-            downloadProgressive(resolved, tempFile, startOffset) { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) }
+        // Dispatchers.IO: both transfers are blocking OkHttp execute()/file writes, which
+        // CoroutineWorker's default Dispatchers.Default (sized to the CPU count) is not
+        // meant for - a few parallel downloads could starve every other Default user.
+        // NonCancellable: a stop (pause, or the system pulling the job) is handled
+        // cooperatively through the isStopped checks inside, which return Paused. Left
+        // cancellable, the very next setProgress() - or withContext itself on return -
+        // threw CancellationException instead, so that Paused outcome (and the PAUSED
+        // row with its resume offset below) was usually never reached.
+        val outcome = withContext(Dispatchers.IO + NonCancellable) {
+            if (resolved.isHls) {
+                downloadHls(resolved, tempFile) { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) }
+            } else {
+                downloadProgressive(resolved, tempFile, startOffset) { pct -> setProgress(workDataOf(PROGRESS_KEY to pct)) }
+            }
         }
 
         return when (outcome) {
@@ -128,61 +141,77 @@ class DownloadWorker @AssistedInject constructor(
                 // button never disappears" bug). tempFilePath/bytesDownloaded are
                 // kept on failure so a retry can go straight back to finalizing
                 // instead of re-downloading the whole track.
-                try {
-                    val displayName = DeviceDownloads.baseName(artist, title) + extensionFor(outcome.mimeType)
+                // Same dispatcher reasoning as the transfer above; NonCancellable so a
+                // stop arriving mid-finalize can't leave a half-written MediaStore entry
+                // with no COMPLETED row pointing at it.
+                withContext(Dispatchers.IO + NonCancellable) {
+                    try {
+                        val displayName = DeviceDownloads.baseName(artist, title) + extensionFor(outcome.mimeType)
 
-                    val uri = MediaStoreWriter(applicationContext).write(
-                        displayName = displayName,
-                        mimeType = outcome.mimeType,
-                        input = tempFile.inputStream(),
-                        contentLength = tempFile.length(),
-                        useDownloadsCollection = outcome.useDownloadsCollection,
-                        onProgress = {},
-                    )
-                    tempFile.delete()
+                        val uri = MediaStoreWriter(applicationContext).write(
+                            displayName = displayName,
+                            mimeType = outcome.mimeType,
+                            input = tempFile.inputStream(),
+                            contentLength = tempFile.length(),
+                            useDownloadsCollection = outcome.useDownloadsCollection,
+                            onProgress = {},
+                        )
+                        tempFile.delete()
 
-                    downloadDao.upsert(
-                        DownloadEntity(
-                            trackId = trackId,
-                            mediaStoreUri = uri.toString(),
-                            relativePath = if (outcome.useDownloadsCollection) {
-                                "Download/PrivateMusicAgent"
-                            } else {
-                                "Music/PrivateMusicAgent"
-                            },
-                            state = DownloadState.COMPLETED,
-                            progressPct = 100,
-                            createdAt = createdAt,
-                            totalBytes = outcome.totalBytes,
-                        ),
-                    )
-                    // the cover goes offline with the track
-                    runCatching { offlineCovers.save(trackDao.getById(trackId)?.thumbnailUrl) }
-                    // Smart-transition analysis needs the actual decoded audio, so it
-                    // only makes sense once a track is playable from disk - see
-                    // TrackAnalysisWorker/TrackAnalyzer. KEEP: an already-queued or
-                    // already-cached analysis for this track shouldn't be redone just
-                    // because e.g. a "Alle herunterladen" re-triggered this worker for
-                    // an unrelated reason.
-                    workManager.enqueueUniqueWork(
-                        "analyze:$trackId",
-                        ExistingWorkPolicy.KEEP,
-                        OneTimeWorkRequestBuilder<TrackAnalysisWorker>()
-                            .setInputData(workDataOf(TrackAnalysisWorker.KEY_TRACK_ID to trackId))
-                            .build(),
-                    )
-                    Result.success()
-                } catch (e: Exception) {
-                    downloadDao.upsert(
-                        DownloadEntity(
-                            trackId, null, null, DownloadState.FAILED, 100, createdAt,
-                            tempFile.absolutePath.takeIf { tempFile.exists() }, tempFile.length(), outcome.totalBytes,
-                        ),
-                    )
-                    Result.retry()
+                        downloadDao.upsert(
+                            DownloadEntity(
+                                trackId = trackId,
+                                mediaStoreUri = uri.toString(),
+                                relativePath = if (outcome.useDownloadsCollection) {
+                                    "Download/PrivateMusicAgent"
+                                } else {
+                                    "Music/PrivateMusicAgent"
+                                },
+                                state = DownloadState.COMPLETED,
+                                progressPct = 100,
+                                createdAt = createdAt,
+                                totalBytes = outcome.totalBytes,
+                            ),
+                        )
+                        // the cover goes offline with the track
+                        runCatching { offlineCovers.save(trackDao.getById(trackId)?.thumbnailUrl) }
+                        // Smart-transition analysis needs the actual decoded audio, so it
+                        // only makes sense once a track is playable from disk - see
+                        // TrackAnalysisWorker/TrackAnalyzer. KEEP: an already-queued or
+                        // already-cached analysis for this track shouldn't be redone just
+                        // because e.g. a "Alle herunterladen" re-triggered this worker for
+                        // an unrelated reason.
+                        workManager.enqueueUniqueWork(
+                            "analyze:$trackId",
+                            ExistingWorkPolicy.KEEP,
+                            OneTimeWorkRequestBuilder<TrackAnalysisWorker>()
+                                .setInputData(workDataOf(TrackAnalysisWorker.KEY_TRACK_ID to trackId))
+                                .build(),
+                        )
+                        Result.success()
+                    } catch (e: Exception) {
+                        downloadDao.upsert(
+                            DownloadEntity(
+                                trackId, null, null, DownloadState.FAILED, 100, createdAt,
+                                tempFile.absolutePath.takeIf { tempFile.exists() }, tempFile.length(), outcome.totalBytes,
+                            ),
+                        )
+                        retryOrGiveUp()
+                    }
                 }
             }
             is TransferOutcome.Paused -> {
+                // Only an explicit cancel from the app (DownloadRepository.pauseDownload,
+                // or a REPLACE re-enqueue that writes its own state anyway) is the user
+                // pausing. Anything else - constraints no longer met (Wi-Fi lost with
+                // "nur über WLAN" on), the 10-minute execution limit, Doze, quota - is the
+                // system stopping the job, and WorkManager reschedules it by itself. That
+                // used to be recorded as PAUSED too, so the row sat showing "Fortsetzen"
+                // while the rescheduled worker silently carried on with it later.
+                // stopReason is API 31+; on 30 there is no way to tell, so keep the old
+                // "every stop is a pause" behaviour there.
+                val userPaused = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP
                 // Wrapped in NonCancellable: this write must land even though the
                 // cancellation that got us here (WorkManager.cancelUniqueWork, see
                 // DownloadRepository.pauseDownload) is actively tearing this coroutine
@@ -191,13 +220,16 @@ class DownloadWorker @AssistedInject constructor(
                 withContext(NonCancellable) {
                     downloadDao.upsert(
                         DownloadEntity(
-                            trackId, existing?.mediaStoreUri, existing?.relativePath, DownloadState.PAUSED,
+                            trackId, existing?.mediaStoreUri, existing?.relativePath,
+                            if (userPaused) DownloadState.PAUSED else DownloadState.QUEUED,
                             outcome.pct.takeIf { it >= 0 } ?: (existing?.progressPct ?: 0),
                             createdAt, tempFile.absolutePath, outcome.bytesSoFar, outcome.totalBytes,
                         ),
                     )
                 }
-                Result.failure()
+                // Ignored by WorkManager for a stopped worker either way - a system stop
+                // is rescheduled regardless of what is returned here.
+                if (userPaused) Result.failure() else Result.retry()
             }
             is TransferOutcome.Failed -> {
                 downloadDao.upsert(
@@ -206,10 +238,19 @@ class DownloadWorker @AssistedInject constructor(
                         tempFile.absolutePath.takeIf { outcome.bytesSoFar > 0 }, outcome.bytesSoFar, outcome.totalBytes,
                     ),
                 )
-                if (outcome.retryable) Result.retry() else Result.failure()
+                if (outcome.retryable) retryOrGiveUp() else Result.failure()
             }
         }
     }
+
+    /** [Result.retry] until [MAX_ATTEMPTS] runs have failed, then gives up for good.
+     * Without a cap a track that keeps failing (a geo-blocked video, a resolver that
+     * is broken until the next app update) was retried with exponential backoff
+     * forever, each run a full resolve - work specs were seen at attempt 9-15. The
+     * entity is already FAILED by the time this is called, so the "Wiederholen"
+     * button still offers a fresh manual attempt. */
+    private fun retryOrGiveUp(): Result =
+        if (runAttemptCount + 1 >= MAX_ATTEMPTS) Result.failure() else Result.retry()
 
     /** Direct single-file download (YouTube always, SoundCloud when its
      * "progressive" transcoding is what resolved), fetched as a series of
@@ -427,6 +468,7 @@ class DownloadWorker @AssistedInject constructor(
         const val KEY_SOURCE = "source"
         const val KEY_SOURCE_ID = "source_id"
         private const val CHUNK_BYTES = 2L * 1024 * 1024
+        private const val MAX_ATTEMPTS = 5
         const val KEY_TITLE = "title"
         const val KEY_ARTIST = "artist"
         const val PROGRESS_KEY = "progress_pct"
