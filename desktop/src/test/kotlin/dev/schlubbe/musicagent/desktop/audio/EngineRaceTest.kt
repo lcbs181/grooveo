@@ -133,6 +133,20 @@ class EngineRaceTest {
         waitFor { "start:b" in events }
     }
 
+    @Test fun `an incoming deck that runs dry mid-transition does not stall the outgoing one`() {
+        val a = PosDeck(60.0, { 0.2f })
+        val b = PosDeck(60.0, { 0.4f })
+        startEngine(a, b)
+        engine.play(AudioSource("a", "x"))
+        engine.preloadNext(AudioSource("b", "y"), plan(1.0, 0.0, lengthBeats = 32.0))
+        waitFor { engine.transition.value.phase == TransitionStatus.Phase.RUNNING }
+        // the incoming stream stops delivering (a slow network segment)
+        b.dataGate = CountDownLatch(1)
+        val at = a.positionSec
+        waitFor(5000) { a.positionSec > at + 1.0 }
+        b.dataGate!!.countDown()
+    }
+
     @Test fun `a preload that lands right after a hand-over is not stopped`() {
         val a = PosDeck(2.0, { 0.1f })
         val b = PosDeck(2.0, { 0.2f })

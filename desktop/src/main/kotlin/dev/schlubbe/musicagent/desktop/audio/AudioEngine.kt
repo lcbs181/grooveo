@@ -45,6 +45,12 @@ class AudioEngine(
     private val norms = arrayOf(LoudnessNormalizer(SAMPLE_RATE), LoudnessNormalizer(SAMPLE_RATE))
     /** Stored loudness per track id; measurements are written back when a deck loads the next track. */
     @Volatile var loudnessCache: LoudnessCache? = null
+    /**
+     * What each deck's normaliser measured so far, as (track id, LUFS). The meter belongs to
+     * the mixer thread; it refreshes this once a second for the control thread and [close].
+     */
+    private val measured = java.util.concurrent.atomic.AtomicReferenceArray<Pair<String, Double?>>(2)
+    private val measuredFrames = IntArray(2)
     /** Turns loudness normalisation on or off (glides, no jump). */
     var normalize: Boolean
         get() = norms[0].enabled
@@ -71,6 +77,9 @@ class AudioEngine(
     private var beatFrames = 1.0
     private var syncBaseRate = 1.0
     private var syncErrMs: Double? = null
+    /** [active]'s lanes per deck, split once in [begin] (the mixer applies them every 64 frames). */
+    private var outLanes = emptyArray<Lane>()
+    private var inLanes = emptyArray<Lane>()
     /** A preload that arrived while a transition was using the other deck. */
     @Volatile private var pendingPreload: Pair<AudioSource?, TransitionPlan?>? = null
     /** Loads per deck (changed under [lock]), so a deferred stop leaves a newer load alone. */
@@ -301,17 +310,30 @@ class AudioEngine(
     /** Stores what deck [i] measured for its previous track and primes it for [source]. */
     private fun startLoudness(i: Int, source: AudioSource) {
         val cache = loudnessCache
-        norms[i].trackId?.let { id -> norms[i].measuredLufs()?.let { cache?.put(id, it) } }
+        measured.get(i)?.let { (id, lufs) -> lufs?.let { cache?.put(id, it) } }
         norms[i].startTrack(source.id, cache?.get(source.id))
-        cache?.save()
+        cache?.let { synchronized(it) { it.save() } } // close() saves from another thread
+    }
+
+    /** Runs deck [i]'s loudness normaliser over [frames] frames of [buf] (mixer thread). */
+    private fun normalize(i: Int, buf: FloatArray, frames: Int) {
+        val n = norms[i]
+        n.process(buf, frames)
+        measuredFrames[i] += frames
+        if (measuredFrames[i] >= SAMPLE_RATE) {
+            measuredFrames[i] = 0
+            n.trackId?.let { measured.set(i, it to n.measuredLufs()) }
+        }
     }
 
     /**
      * Fills [buf] from [deck] until [frames] frames, deck end, error, pause or epoch change.
      * With [stopOnPause] false a pause does not cut the read short (the incoming deck of
-     * a transition must advance exactly as far as the outgoing one).
+     * a transition must advance exactly as far as the outgoing one). Waiting for data
+     * ends at [deadlineNs] ([System.nanoTime]), so a starving incoming deck cannot stall
+     * the outgoing one.
      */
-    private fun readFull(deck: Deck, buf: FloatArray, frames: Int, myEpoch: Int, stopOnPause: Boolean = true): Int {
+    private fun readFull(deck: Deck, buf: FloatArray, frames: Int, myEpoch: Int, stopOnPause: Boolean = true, deadlineNs: Long = Long.MAX_VALUE): Int {
         var got = 0
         var waitedMs = 0
         while (got < frames && running) {
@@ -319,6 +341,7 @@ class AudioEngine(
             System.arraycopy(scratch, 0, buf, got * 2, n * 2)
             got += n
             if (got >= frames || deck.ended || deck.error != null || (stopOnPause && !playing) || epoch != myEpoch || deck.source == null) break
+            if (System.nanoTime() >= deadlineNs) break
             Thread.sleep(2)
             waitedMs += 2
             if (waitedMs == 150) publish(buffering = true)
@@ -326,7 +349,7 @@ class AudioEngine(
         // clear the flag set by play()/seek() too, not only after a stall: audio that
         // arrives within 150 ms otherwise left the play button spinning while playing
         if (got > 0 && (waitedMs >= 150 || _state.value.buffering)) publish(buffering = false)
-        if (got > 0) norms[if (deck === chains[0].deck) 0 else 1].process(buf, got)
+        if (got > 0) normalize(if (deck === chains[0].deck) 0 else 1, buf, got)
         return got
     }
 
@@ -334,7 +357,7 @@ class AudioEngine(
     private fun readAvailable(deck: Deck, buf: FloatArray, frames: Int): Int {
         val n = deck.read(scratch, minOf(frames, scratch.size / 2))
         System.arraycopy(scratch, 0, buf, 0, n * 2)
-        if (n > 0) norms[if (deck === chains[0].deck) 0 else 1].process(buf, n)
+        if (n > 0) normalize(if (deck === chains[0].deck) 0 else 1, buf, n)
         return n
     }
 
@@ -343,6 +366,8 @@ class AudioEngine(
     private val bufB = FloatArray(BLOCK * 2)
     private val mix = FloatArray(BLOCK * 2)
     private var publishCounter = 0
+    /** Mixer blocks that failed in a row (see [mixerFailed]). */
+    private var failures = 0
 
     private fun mixLoop() {
         while (running) {
@@ -367,10 +392,13 @@ class AudioEngine(
                     val from = startAt.coerceIn(0, BLOCK)
                     syncIncoming(p)
                     bufB.fill(0f)
-                    o.render(bufB, from, BLOCK - from) { b, k -> readFull(o.deck, b, k, myEpoch, stopOnPause = false) }
+                    // a network stream that has nothing decoded yet is silent for the rest of this
+                    // block instead of holding up the outgoing deck too; beat sync catches it up
+                    val deadline = System.nanoTime() + INCOMING_WAIT_NS
+                    o.render(bufB, from, BLOCK - from) { b, k -> readFull(o.deck, b, k, myEpoch, stopOnPause = false, deadlineNs = deadline) }
                     // frames before the start belong to the outgoing deck only
-                    applyLanes(p, DeckRole.OUT, c, bufA, 0, BLOCK, -from.toLong())
-                    applyLanes(p, DeckRole.IN, o, bufB, from, BLOCK - from, -from.toLong())
+                    applyLanes(DeckRole.OUT, c, bufA, 0, BLOCK, -from.toLong())
+                    applyLanes(DeckRole.IN, o, bufB, from, BLOCK - from, -from.toLong())
                     for (i in 0 until BLOCK * 2) mix[i] += bufA[i] + bufB[i]
                     tFrames += BLOCK - from
                     if (tFrames / beatFrames >= p.endBeat || (c.ended && tFrames / beatFrames >= p.lengthBeats)) {
@@ -391,17 +419,31 @@ class AudioEngine(
                     } else if (phase != TransitionStatus.Phase.NONE && publishCounter % 8 == 0) publishTransition()
                 }
                 output(mix)
+                failures = 0
             } catch (_: InterruptedException) {
                 return
-            } catch (e: Exception) {
-                java.util.logging.Logger.getLogger("AudioEngine").warning("mixer: $e")
+            } catch (t: Throwable) {
+                // also Errors (a missing native library, out of memory): never let the mixer die silently
+                if (!running) return
+                java.util.logging.Logger.getLogger("AudioEngine").warning("mixer: $t")
+                if (++failures >= MAX_FAILURES) { failures = 0; mixerFailed(t) }
+                try { Thread.sleep(minOf(1000L, 10L shl minOf(failures, 7))) } catch (_: InterruptedException) { return }
             }
         }
     }
 
+    /** The mixer kept failing: stop playing and report it instead of retrying forever. */
+    private fun mixerFailed(t: Throwable) {
+        val src = current.source
+        playing = false
+        runCatching { sink.stop() }
+        runCatching { publish(buffering = false) }
+        if (src != null) runCatching { listener.onError(src, "Audioausgabe fehlgeschlagen: ${t.message ?: t.javaClass.simpleName}") }
+    }
+
     /** Sets the lane values of [role]'s deck every 64 frames and runs its effects into [mix]. */
-    private fun applyLanes(p: TransitionPlan, role: DeckRole, chain: DeckChain, buf: FloatArray, from: Int, frames: Int, frameOffset: Long) {
-        val lanes = p.lanes.filter { it.deck == role }
+    private fun applyLanes(role: DeckRole, chain: DeckChain, buf: FloatArray, from: Int, frames: Int, frameOffset: Long) {
+        val lanes = if (role == DeckRole.OUT) outLanes else inLanes
         var i = from
         while (i < from + frames) {
             val len = minOf(64, from + frames - i)
@@ -491,6 +533,8 @@ class AudioEngine(
         val c = current
         val o = other
         active = p
+        outLanes = p.lanes.filter { it.deck == DeckRole.OUT }.toTypedArray()
+        inLanes = p.lanes.filter { it.deck == DeckRole.IN }.toTypedArray()
         plan = null
         phase = TransitionStatus.Phase.RUNNING
         tFrames = 0
@@ -503,7 +547,7 @@ class AudioEngine(
         c.fx.echo.delayFrames = echo
         o.fx.echo.delayFrames = echo
         // the incoming deck's effects start where its lanes start, not at neutral
-        p.lanes.filter { it.deck == DeckRole.IN }.forEach { o.fx.set(it.param, it.valueAt(0.0)) }
+        inLanes.forEach { o.fx.set(it.param, it.valueAt(0.0)) }
         o.fx.settle()
     }
 
@@ -599,8 +643,10 @@ class AudioEngine(
     val currentRate: Double get() = if (phase == TransitionStatus.Phase.RUNNING) other.rate else current.rate
 
     fun close() {
-        norms.forEach { n -> n.trackId?.let { id -> n.measuredLufs()?.let { loudnessCache?.put(id, it) } } }
-        loudnessCache?.save()
+        loudnessCache?.let { cache ->
+            for (i in 0 until 2) measured.get(i)?.let { (id, lufs) -> lufs?.let { cache.put(id, it) } }
+            synchronized(cache) { cache.save() }
+        }
         running = false
         mixer.interrupt()
         ctl.shutdownNow()
@@ -615,5 +661,9 @@ class AudioEngine(
 
     companion object {
         const val BLOCK = ReverbStage.BLOCK
+        /** Longest wait per block for the incoming deck of a transition (the sink holds ~85 ms). */
+        private const val INCOMING_WAIT_NS = 40_000_000L
+        /** Failed mixer blocks in a row before playback stops with an error. */
+        private const val MAX_FAILURES = 10
     }
 }
