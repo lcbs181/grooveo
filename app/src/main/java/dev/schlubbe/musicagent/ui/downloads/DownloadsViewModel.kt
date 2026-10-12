@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.downloads
 
+import kotlinx.coroutines.Job
 import android.os.Environment
 import android.os.StatFs
 import androidx.lifecycle.ViewModel
@@ -75,12 +76,11 @@ class DownloadsViewModel @Inject constructor(
     val found: StateFlow<String?> = _found.asStateFlow()
 
     /** Looks for downloaded files on the phone that the list does not show yet. */
-    fun scanDevice() {
+    fun scanDevice(): Job =
         viewModelScope.launch {
             val n = runCatching { downloadRepository.scanDevice() }.getOrDefault(0)
             if (n > 0) _found.value = if (n == 1) "1 Download auf dem Handy gefunden" else "$n Downloads auf dem Handy gefunden"
         }
-    }
 
     fun setDataSaverMode(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setDataSaverMode(enabled) }

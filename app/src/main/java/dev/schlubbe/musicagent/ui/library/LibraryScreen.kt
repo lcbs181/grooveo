@@ -73,6 +73,7 @@ import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
@@ -137,60 +138,62 @@ fun LibraryScreen(
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            when (uiState.selectedTab) {
-                LibraryTab.HOME -> LibraryHomeContent(
-                    uiState = uiState,
-                    recentlyPlayed = recentlyPlayed,
-                    likedCount = likedTrackIds.size,
-                    followedCount = followedArtists.size,
-                    onOpenFollowing = { viewModel.openSection(LibraryTab.FOLLOWING) },
-                    downloadedCount = downloads.count { it.entity.state == DownloadState.COMPLETED },
-                    onOpenSettings = onOpenSettings,
-                    onOpenLikes = { viewModel.openSection(LibraryTab.LIKES) },
-                    onOpenPlaylists = { viewModel.openSection(LibraryTab.PLAYLISTS) },
-                    onOpenDownloads = { viewModel.openSection(LibraryTab.DOWNLOADS) },
-                    onRecentlyPlayedClick = { track ->
-                        viewModel.onRecentlyPlayedClicked(track)
-                        onDownloadPlayed()
-                    },
-                    onRecentlyPlayedAddToPlaylist = { viewModel.onAddToPlaylistClicked(it.toTrackResultDto()) },
-                    onRecentlyPlayedAddToQueue = { viewModel.onAddToQueueClicked(it.toTrackResultDto()) },
-                    onRecentlyPlayedArtistClick = { viewModel.onTrackArtistClicked(it.toTrackResultDto()) },
-                )
-                LibraryTab.LIKES -> Column(modifier = Modifier.fillMaxSize()) {
-                    LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
-                    LikesTab(
+            PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
+                when (uiState.selectedTab) {
+                    LibraryTab.HOME -> LibraryHomeContent(
                         uiState = uiState,
-                        visibleLikes = viewModel.visibleLikes(),
-                        downloadedTrackIds = downloadedTrackIds,
-                        nowPlayingTrackId = nowPlayingTrackId,
-                        onLikedTrackClick = { like ->
-                            viewModel.playLikedTrack(like)
+                        recentlyPlayed = recentlyPlayed,
+                        likedCount = likedTrackIds.size,
+                        followedCount = followedArtists.size,
+                        onOpenFollowing = { viewModel.openSection(LibraryTab.FOLLOWING) },
+                        downloadedCount = downloads.count { it.entity.state == DownloadState.COMPLETED },
+                        onOpenSettings = onOpenSettings,
+                        onOpenLikes = { viewModel.openSection(LibraryTab.LIKES) },
+                        onOpenPlaylists = { viewModel.openSection(LibraryTab.PLAYLISTS) },
+                        onOpenDownloads = { viewModel.openSection(LibraryTab.DOWNLOADS) },
+                        onRecentlyPlayedClick = { track ->
+                            viewModel.onRecentlyPlayedClicked(track)
                             onDownloadPlayed()
                         },
-                        onPlayAll = { shuffle ->
-                            viewModel.playAllLikes(shuffle)
-                            onDownloadPlayed()
-                        },
-                        viewModel = viewModel,
+                        onRecentlyPlayedAddToPlaylist = { viewModel.onAddToPlaylistClicked(it.toTrackResultDto()) },
+                        onRecentlyPlayedAddToQueue = { viewModel.onAddToQueueClicked(it.toTrackResultDto()) },
+                        onRecentlyPlayedArtistClick = { viewModel.onTrackArtistClicked(it.toTrackResultDto()) },
                     )
-                }
-                LibraryTab.PLAYLISTS -> Column(modifier = Modifier.fillMaxSize()) {
-                    LibrarySubViewHeader(title = "Playlists", onBack = viewModel::backToHome)
-                    PlaylistsTab(
-                        uiState = uiState,
-                        onPlaylistClick = onPlaylistClick,
-                        onSavedPlaylistClick = onSavedPlaylistClick,
-                        onCreatePlaylistClick = { showCreatePlaylistDialog = true },
-                    )
-                }
-                LibraryTab.FOLLOWING -> Column(modifier = Modifier.fillMaxSize()) {
-                    LibrarySubViewHeader(title = "Folge ich", onBack = viewModel::backToHome)
-                    FollowingTab(followedArtists, onArtistClick = { onArtistSelected(it.source, it.sourceId) })
-                }
-                LibraryTab.DOWNLOADS -> Column(modifier = Modifier.fillMaxSize()) {
-                    LibrarySubViewHeader(title = "Downloads", onBack = viewModel::backToHome)
-                    DownloadsTab(downloads, likedTrackIds, onDownloadPlayed, viewModel)
+                    LibraryTab.LIKES -> Column(modifier = Modifier.fillMaxSize()) {
+                        LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
+                        LikesTab(
+                            uiState = uiState,
+                            visibleLikes = viewModel.visibleLikes(),
+                            downloadedTrackIds = downloadedTrackIds,
+                            nowPlayingTrackId = nowPlayingTrackId,
+                            onLikedTrackClick = { like ->
+                                viewModel.playLikedTrack(like)
+                                onDownloadPlayed()
+                            },
+                            onPlayAll = { shuffle ->
+                                viewModel.playAllLikes(shuffle)
+                                onDownloadPlayed()
+                            },
+                            viewModel = viewModel,
+                        )
+                    }
+                    LibraryTab.PLAYLISTS -> Column(modifier = Modifier.fillMaxSize()) {
+                        LibrarySubViewHeader(title = "Playlists", onBack = viewModel::backToHome)
+                        PlaylistsTab(
+                            uiState = uiState,
+                            onPlaylistClick = onPlaylistClick,
+                            onSavedPlaylistClick = onSavedPlaylistClick,
+                            onCreatePlaylistClick = { showCreatePlaylistDialog = true },
+                        )
+                    }
+                    LibraryTab.FOLLOWING -> Column(modifier = Modifier.fillMaxSize()) {
+                        LibrarySubViewHeader(title = "Folge ich", onBack = viewModel::backToHome)
+                        FollowingTab(followedArtists, onArtistClick = { onArtistSelected(it.source, it.sourceId) })
+                    }
+                    LibraryTab.DOWNLOADS -> Column(modifier = Modifier.fillMaxSize()) {
+                        LibrarySubViewHeader(title = "Downloads", onBack = viewModel::backToHome)
+                        DownloadsTab(downloads, likedTrackIds, onDownloadPlayed, viewModel)
+                    }
                 }
             }
         }

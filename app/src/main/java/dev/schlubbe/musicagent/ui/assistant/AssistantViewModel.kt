@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.assistant
 
+import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
@@ -71,6 +72,14 @@ class AssistantViewModel @Inject constructor(
             if (sync.isPaired && _state.value.error == null) refreshNowPlaying()
             delay(8_000)
         }
+    }
+
+    /** Pull to refresh: asks the PC for its conversation and what plays right away. */
+    fun refresh(): Job = viewModelScope.launch {
+        _state.update { it.copy(paired = sync.isPaired) }
+        if (!sync.isPaired) return@launch
+        request(RemoteAi.Request(RemoteAi.Op.STATE), OP_TIMEOUT_MS)
+        refreshNowPlaying()
     }
 
     fun send(text: String) = op(RemoteAi.Request(RemoteAi.Op.SEND, text = text))

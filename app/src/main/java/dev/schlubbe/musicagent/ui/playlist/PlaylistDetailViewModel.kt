@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.playlist
 
+import kotlinx.coroutines.Job
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -59,13 +60,12 @@ class PlaylistDetailViewModel @Inject constructor(
         viewModelScope.launch { runCatching { likesRepository.refresh() } }
     }
 
-    fun load() {
+    fun load(): Job =
         viewModelScope.launch {
             runCatching { playlistRepository.get(playlistId) }
                 .onSuccess { playlist -> _uiState.value = _uiState.value.copy(playlist = playlist, isLoading = false) }
                 .onFailure { _uiState.value = _uiState.value.copy(isLoading = false) }
         }
-    }
 
     fun playTrack(item: PlaylistTrackOutDto) {
         viewModelScope.launch {

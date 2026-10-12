@@ -53,6 +53,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.CanopyShapes
@@ -131,32 +132,34 @@ fun AssistantScreen(onOpenSettings: () -> Unit, viewModel: AssistantViewModel = 
             )
         }
 
-        LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(),
-            state = list,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (remote == null && ui.error == null) item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(16.dp), color = Canopy.accent, strokeWidth = 2.dp)
-                    Text("Verbinde mit dem PC …", style = MaterialTheme.typography.bodyMedium, color = Canopy.neutral500)
-                }
-            }
-            if (remote != null && remote.enabled && items.isEmpty()) item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    Text(
-                        "Sag Grooveo am PC, was es tun soll: Musik finden, Playlists bauen, Klang einstellen, Übergänge planen. " +
-                            "Bevor es löscht, Effekte einschaltet oder die Lautstärke ändert, fragt es hier nach.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Canopy.neutral500,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SUGGESTIONS.forEach { s -> CanopyChip(s, active = false, onClick = { send(s) }) }
+        PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = list,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (remote == null && ui.error == null) item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(16.dp), color = Canopy.accent, strokeWidth = 2.dp)
+                        Text("Verbinde mit dem PC …", style = MaterialTheme.typography.bodyMedium, color = Canopy.neutral500)
                     }
                 }
+                if (remote != null && remote.enabled && items.isEmpty()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        Text(
+                            "Sag Grooveo am PC, was es tun soll: Musik finden, Playlists bauen, Klang einstellen, Übergänge planen. " +
+                                "Bevor es löscht, Effekte einschaltet oder die Lautstärke ändert, fragt es hier nach.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Canopy.neutral500,
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SUGGESTIONS.forEach { s -> CanopyChip(s, active = false, onClick = { send(s) }) }
+                        }
+                    }
+                }
+                items(items, key = { it.id }) { item -> ItemView(item, viewModel::answer) }
             }
-            items(items, key = { it.id }) { item -> ItemView(item, viewModel::answer) }
         }
 
         Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)) {

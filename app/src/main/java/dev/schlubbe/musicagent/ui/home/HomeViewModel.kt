@@ -21,11 +21,13 @@ import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.playback.PlayerController
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -504,13 +506,9 @@ class HomeViewModel @Inject constructor(
     /** Reloads every shelf backed by a suspend call. Called from the screen on first
      * composition and every time it's revisited (e.g. after coming back from the
      * Player), so it reflects likes/playlist edits made elsewhere. */
-    fun refresh() {
-        loadCharts()
-        loadFeed()
-        loadPlaylists()
-        loadLikes()
-        loadMixCards()
-        loadGenreTracks(_uiState.value.selectedGenre)
+    fun refresh(): Job {
+        val jobs = listOf(loadCharts(), loadFeed(), loadPlaylists(), loadLikes(), loadMixCards(), loadGenreTracks(_uiState.value.selectedGenre))
+        return viewModelScope.launch { jobs.joinAll() }
     }
 
     /** "Trends nach Genre" chip tap. Reloads only that shelf; the chip genuinely
@@ -541,9 +539,9 @@ class HomeViewModel @Inject constructor(
         return preferredFilters + remaining
     }
 
-    private fun loadGenreTracks(genre: GenreFilter) {
+    private fun loadGenreTracks(genre: GenreFilter): Job {
         _uiState.value = _uiState.value.copy(isGenreLoading = true)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             runCatching { searchRepository.getTrendingByGenre(genre.label, limit = GENRE_SHELF_LIMIT) }
                 .onSuccess { tracks ->
                     // Guard against a slow response for a genre the user has since
@@ -566,9 +564,9 @@ class HomeViewModel @Inject constructor(
     // build a feed from at all. YouTube-Music-only: SoundCloud's own "trending"
     // charts skew toward tracks with locked/DRM-only transcodings often enough
     // that mixing them in here made Charts unreliable to tap into.
-    private fun loadCharts() {
+    private fun loadCharts(): Job {
         _uiState.value = _uiState.value.copy(isChartsLoading = true)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             runCatching { searchRepository.getTrending(limit = CHART_OVERFETCH_COUNT, source = "ytmusic") }
                 .onSuccess { tracks ->
                     _uiState.value = _uiState.value.copy(
@@ -626,8 +624,8 @@ class HomeViewModel @Inject constructor(
      *   reupload-culture mixes - so that's the primary source here, with the
      *   keyword search only as a fallback if genre coverage is too sparse to
      *   fill the card. */
-    private fun loadMixCards() {
-        viewModelScope.launch {
+    private fun loadMixCards(): Job {
+        return viewModelScope.launch {
             // Genre-tagged first, same reasoning as the party pool below (real
             // uploader-set genre metadata is a more legitimate population than a
             // free-text keyword match) - falls back to a plain search only if
@@ -709,9 +707,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadFeed() {
+    private fun loadFeed(): Job {
         _uiState.value = _uiState.value.copy(isFeedLoading = true)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             val preferredGenres = settingsRepository.preferredGenres.first()
             val preferredArtists = settingsRepository.preferredArtists.first()
             runCatching { feedRepository.getFeed(preferredGenres = preferredGenres, preferredArtists = preferredArtists) }
@@ -729,9 +727,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadPlaylists() {
+    private fun loadPlaylists(): Job {
         _uiState.value = _uiState.value.copy(isPlaylistsLoading = true)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             runCatching { playlistRepository.list() }
                 .onSuccess { playlists ->
                     _uiState.value = _uiState.value.copy(
@@ -743,9 +741,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadLikes() {
+    private fun loadLikes(): Job {
         _uiState.value = _uiState.value.copy(isLikesLoading = true)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             runCatching { likesRepository.refresh() }
                 .onSuccess { likes ->
                     _uiState.value = _uiState.value.copy(

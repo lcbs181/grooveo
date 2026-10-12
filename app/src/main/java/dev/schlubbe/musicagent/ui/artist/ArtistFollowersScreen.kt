@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -85,36 +86,38 @@ fun ArtistFollowersScreen(
                         modifier = Modifier.padding(16.dp),
                     )
                 }
-                else -> LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(uiState.followers, key = { it.sourceId }) { follower ->
-                        ListItem(
-                            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
-                            leadingContent = { TrackThumbnail(follower.thumbnailUrl) },
-                            headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = follower.subscriberCount?.let { count ->
-                                { Text("$count Follower", color = Canopy.neutral500) }
-                            },
-                            trailingContent = {
-                                CanopyIconButton(
-                                    icon = phosphorIcon("share-network"),
-                                    onClick = { context.shareText(follower.webpageUrl) },
-                                )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onArtistSelected(follower.source, follower.sourceId) },
-                        )
-                    }
-                    if (uiState.isLoadingMore) {
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                horizontalArrangement = Arrangement.Center,
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Canopy.accent)
+                else -> PullRefresh(onRefresh = viewModel::loadFirstPage, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(uiState.followers, key = { it.sourceId }) { follower ->
+                            ListItem(
+                                colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+                                leadingContent = { TrackThumbnail(follower.thumbnailUrl) },
+                                headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                supportingContent = follower.subscriberCount?.let { count ->
+                                    { Text("$count Follower", color = Canopy.neutral500) }
+                                },
+                                trailingContent = {
+                                    CanopyIconButton(
+                                        icon = phosphorIcon("share-network"),
+                                        onClick = { context.shareText(follower.webpageUrl) },
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onArtistSelected(follower.source, follower.sourceId) },
+                            )
+                        }
+                        if (uiState.isLoadingMore) {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Canopy.accent)
+                                }
                             }
                         }
                     }

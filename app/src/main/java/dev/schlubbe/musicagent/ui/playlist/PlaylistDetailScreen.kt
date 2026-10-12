@@ -68,6 +68,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.components.WaveSweep
 import dev.schlubbe.musicagent.ui.components.rememberFadeUp
@@ -144,234 +145,236 @@ fun PlaylistDetailScreen(
                 "Playlist nicht gefunden",
                 modifier = Modifier.padding(padding).padding(16.dp),
             )
-            else -> LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
-                        Row {
-                            Box {
-                                CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
-                                DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text(ANALYZE_LABEL) },
-                                        leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
-                                        onClick = {
-                                            showTopMenu = false
-                                            analyzer.analyzeIds(playlist.tracks.map { "${it.track.source}:${it.track.sourceId}" })
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Beschreibung & Stimmung") },
-                                        leadingIcon = { Icon(phosphorIcon("pencil-simple"), contentDescription = null, tint = Canopy.accent) },
-                                        onClick = { showTopMenu = false; showEditSheet = true },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Löschen") },
-                                        leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
-                                        onClick = {
-                                            showTopMenu = false
-                                            viewModel.delete(onDeleted)
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Teilen") },
-                                        leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
-                                        onClick = {
-                                            showTopMenu = false
-                                            // Local playlists have no remote URL - shares a
-                                            // plain-text summary (name + track list) instead.
-                                            val trackLines = playlist.tracks.joinToString("\n") { "- ${it.track.title}" }
-                                            context.shareText("${playlist.name} (${playlist.tracks.size} Titel)\n$trackLines")
-                                        },
-                                    )
-                                }
-                            }
-                            // Pencil <-> filled X (design 06): toggles the inline quick-edit
-                            // below instead of opening PlaylistEditSheet directly.
-                            CanopyIconButton(
-                                icon = if (isEditing) phosphorIcon("x") else phosphorIcon("pencil-simple"),
-                                onClick = {
-                                    if (isEditing) {
-                                        // Cancel: discard local edits.
-                                        editedName = playlist.name
-                                        editedAccentColorKey = playlist.accentColorKey
+            else -> PullRefresh(onRefresh = viewModel::load, modifier = Modifier.padding(padding).fillMaxSize()) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                            Row {
+                                Box {
+                                    CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
+                                    DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(ANALYZE_LABEL) },
+                                            leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
+                                            onClick = {
+                                                showTopMenu = false
+                                                analyzer.analyzeIds(playlist.tracks.map { "${it.track.source}:${it.track.sourceId}" })
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Beschreibung & Stimmung") },
+                                            leadingIcon = { Icon(phosphorIcon("pencil-simple"), contentDescription = null, tint = Canopy.accent) },
+                                            onClick = { showTopMenu = false; showEditSheet = true },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Löschen") },
+                                            leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
+                                            onClick = {
+                                                showTopMenu = false
+                                                viewModel.delete(onDeleted)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Teilen") },
+                                            leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
+                                            onClick = {
+                                                showTopMenu = false
+                                                // Local playlists have no remote URL - shares a
+                                                // plain-text summary (name + track list) instead.
+                                                val trackLines = playlist.tracks.joinToString("\n") { "- ${it.track.title}" }
+                                                context.shareText("${playlist.name} (${playlist.tracks.size} Titel)\n$trackLines")
+                                            },
+                                        )
                                     }
-                                    isEditing = !isEditing
-                                },
-                                iconSize = 17.dp,
-                            )
+                                }
+                                // Pencil <-> filled X (design 06): toggles the inline quick-edit
+                                // below instead of opening PlaylistEditSheet directly.
+                                CanopyIconButton(
+                                    icon = if (isEditing) phosphorIcon("x") else phosphorIcon("pencil-simple"),
+                                    onClick = {
+                                        if (isEditing) {
+                                            // Cancel: discard local edits.
+                                            editedName = playlist.name
+                                            editedAccentColorKey = playlist.accentColorKey
+                                        }
+                                        isEditing = !isEditing
+                                    },
+                                    iconSize = 17.dp,
+                                )
+                            }
                         }
                     }
-                }
-                item {
-                    PlaylistHeader(
-                        playlist = playlist,
-                        onCoverClick = {
-                            coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                        isEditing = isEditing,
-                        editedName = editedName,
-                        onEditedNameChange = { editedName = it },
-                        editedAccentColorKey = editedAccentColorKey,
-                        onEditedAccentColorKeyChange = { editedAccentColorKey = it },
-                    )
-                }
-                if (playlist.tracks.isEmpty()) {
                     item {
-                        Text(
-                            "Noch keine Titel",
-                            color = Canopy.neutral500,
-                            modifier = Modifier.padding(20.dp),
-                        )
-                    }
-                } else if (!isEditing) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CanopyButton(
-                                text = "Abspielen",
-                                onClick = {
-                                    viewModel.playTrack(playlist.tracks.first())
-                                    onTrackSelected()
-                                },
-                                leadingIcon = phosphorIcon("play", filled = true),
-                            )
-                            CanopyButton(
-                                text = "Zufall",
-                                onClick = {
-                                    // PlaylistDetailViewModel has no shuffle-the-whole-queue
-                                    // action - this starts playback from a random track
-                                    // instead (playTrack still queues the rest in list
-                                    // order from there). See the task report.
-                                    viewModel.playTrack(playlist.tracks.random())
-                                    onTrackSelected()
-                                },
-                                variant = CanopyButtonVariant.Secondary,
-                                leadingIcon = phosphorIcon("shuffle"),
-                            )
-                            Spacer(modifier = Modifier.weight(1f))
-                            CanopyIconButton(
-                                icon = phosphorIcon("download-simple"),
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                                    viewModel.onDownloadPlaylistClicked()
-                                },
-                                variant = CanopyButtonVariant.Secondary,
-                                size = 42.dp,
-                            )
-                        }
-                    }
-                } else {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 16.dp, end = 16.dp, top = 18.dp)
-                                .clip(CanopyShapes.medium)
-                                .background(Canopy.surface)
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(phosphorIcon("info"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(16.dp))
-                            Text(
-                                "Ordne Titel mit den Pfeilen neu an oder entferne sie unten.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Canopy.neutral500,
-                            )
-                        }
-                    }
-                }
-                if (playlist.tracks.isNotEmpty()) {
-                    itemsIndexed(playlist.tracks, key = { _, item -> item.track.id }) { zeroBasedIndex, item ->
-                        PlaylistTrackRow(
-                            index = zeroBasedIndex + 1,
-                            item = item,
-                            isLiked = item.track.id in uiState.likedTrackIds,
-                            isEditing = isEditing,
-                            onClick = {
-                                viewModel.playTrack(item)
-                                onTrackSelected()
+                        PlaylistHeader(
+                            playlist = playlist,
+                            onCoverClick = {
+                                coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             },
-                            onMoveUp = { viewModel.moveTrack(item, -1) },
-                            onMoveDown = { viewModel.moveTrack(item, 1) },
-                            onRemove = { viewModel.removeTrack(item) },
-                            onLikeClick = { viewModel.onLikeToggled(item.track.toTrackResultDto()) },
-                            onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(item.track.toTrackResultDto()) },
-                            onAddToQueueClick = { viewModel.onAddToQueueClicked(item.track.toTrackResultDto()) },
-                            onDownloadClick = { viewModel.onDownloadClicked(item.track.toTrackResultDto()) },
-                            onArtistClick = { viewModel.onTrackArtistClicked(item.track.toTrackResultDto()) },
+                            isEditing = isEditing,
+                            editedName = editedName,
+                            onEditedNameChange = { editedName = it },
+                            editedAccentColorKey = editedAccentColorKey,
+                            onEditedAccentColorKeyChange = { editedAccentColorKey = it },
                         )
                     }
-                }
-                if (isEditing) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            CanopyButton(
-                                text = "Abbrechen",
-                                onClick = {
-                                    editedName = playlist.name
-                                    editedAccentColorKey = playlist.accentColorKey
-                                    isEditing = false
-                                },
-                                variant = CanopyButtonVariant.Secondary,
-                                modifier = Modifier.weight(1f),
-                            )
-                            CanopyButton(
-                                text = "Speichern",
-                                onClick = {
-                                    viewModel.updateDetails(
-                                        name = editedName.trim().ifBlank { playlist.name },
-                                        description = playlist.description,
-                                        accentColorKey = editedAccentColorKey,
-                                        moodTags = playlist.moodTags,
-                                    )
-                                    isEditing = false
-                                    showSavedFlash = true
-                                    overlay.spray(6)
-                                },
-                                leadingIcon = phosphorIcon("check"),
-                                modifier = Modifier.weight(1f),
+                    if (playlist.tracks.isEmpty()) {
+                        item {
+                            Text(
+                                "Noch keine Titel",
+                                color = Canopy.neutral500,
+                                modifier = Modifier.padding(20.dp),
                             )
                         }
-                    }
-                }
-                if (showSavedFlash) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 14.dp, start = 16.dp, end = 16.dp),
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
+                    } else if (!isEditing) {
+                        item {
                             Row(
-                                modifier = Modifier
-                                    .then(rememberFadeUp(key = showSavedFlash))
-                                    .clip(CanopyShapes.large)
-                                    .background(Canopy.accent100)
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(
-                                    phosphorIcon("check-circle", filled = true),
-                                    contentDescription = null,
-                                    tint = Canopy.accent,
-                                    modifier = Modifier.size(16.dp),
+                                CanopyButton(
+                                    text = "Abspielen",
+                                    onClick = {
+                                        viewModel.playTrack(playlist.tracks.first())
+                                        onTrackSelected()
+                                    },
+                                    leadingIcon = phosphorIcon("play", filled = true),
                                 )
-                                Text("Playlist gespeichert", style = MaterialTheme.typography.labelMedium, color = Canopy.accent)
+                                CanopyButton(
+                                    text = "Zufall",
+                                    onClick = {
+                                        // PlaylistDetailViewModel has no shuffle-the-whole-queue
+                                        // action - this starts playback from a random track
+                                        // instead (playTrack still queues the rest in list
+                                        // order from there). See the task report.
+                                        viewModel.playTrack(playlist.tracks.random())
+                                        onTrackSelected()
+                                    },
+                                    variant = CanopyButtonVariant.Secondary,
+                                    leadingIcon = phosphorIcon("shuffle"),
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                CanopyIconButton(
+                                    icon = phosphorIcon("download-simple"),
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                        viewModel.onDownloadPlaylistClicked()
+                                    },
+                                    variant = CanopyButtonVariant.Secondary,
+                                    size = 42.dp,
+                                )
+                            }
+                        }
+                    } else {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, top = 18.dp)
+                                    .clip(CanopyShapes.medium)
+                                    .background(Canopy.surface)
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(phosphorIcon("info"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(16.dp))
+                                Text(
+                                    "Ordne Titel mit den Pfeilen neu an oder entferne sie unten.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Canopy.neutral500,
+                                )
                             }
                         }
                     }
+                    if (playlist.tracks.isNotEmpty()) {
+                        itemsIndexed(playlist.tracks, key = { _, item -> item.track.id }) { zeroBasedIndex, item ->
+                            PlaylistTrackRow(
+                                index = zeroBasedIndex + 1,
+                                item = item,
+                                isLiked = item.track.id in uiState.likedTrackIds,
+                                isEditing = isEditing,
+                                onClick = {
+                                    viewModel.playTrack(item)
+                                    onTrackSelected()
+                                },
+                                onMoveUp = { viewModel.moveTrack(item, -1) },
+                                onMoveDown = { viewModel.moveTrack(item, 1) },
+                                onRemove = { viewModel.removeTrack(item) },
+                                onLikeClick = { viewModel.onLikeToggled(item.track.toTrackResultDto()) },
+                                onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(item.track.toTrackResultDto()) },
+                                onAddToQueueClick = { viewModel.onAddToQueueClicked(item.track.toTrackResultDto()) },
+                                onDownloadClick = { viewModel.onDownloadClicked(item.track.toTrackResultDto()) },
+                                onArtistClick = { viewModel.onTrackArtistClicked(item.track.toTrackResultDto()) },
+                            )
+                        }
+                    }
+                    if (isEditing) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                CanopyButton(
+                                    text = "Abbrechen",
+                                    onClick = {
+                                        editedName = playlist.name
+                                        editedAccentColorKey = playlist.accentColorKey
+                                        isEditing = false
+                                    },
+                                    variant = CanopyButtonVariant.Secondary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                CanopyButton(
+                                    text = "Speichern",
+                                    onClick = {
+                                        viewModel.updateDetails(
+                                            name = editedName.trim().ifBlank { playlist.name },
+                                            description = playlist.description,
+                                            accentColorKey = editedAccentColorKey,
+                                            moodTags = playlist.moodTags,
+                                        )
+                                        isEditing = false
+                                        showSavedFlash = true
+                                        overlay.spray(6)
+                                    },
+                                    leadingIcon = phosphorIcon("check"),
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                    if (showSavedFlash) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp, start = 16.dp, end = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .then(rememberFadeUp(key = showSavedFlash))
+                                        .clip(CanopyShapes.large)
+                                        .background(Canopy.accent100)
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        phosphorIcon("check-circle", filled = true),
+                                        contentDescription = null,
+                                        tint = Canopy.accent,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Text("Playlist gespeichert", style = MaterialTheme.typography.labelMedium, color = Canopy.accent)
+                                }
+                            }
+                        }
+                    }
+                    item { Spacer(modifier = Modifier.height(20.dp)) }
                 }
-                item { Spacer(modifier = Modifier.height(20.dp)) }
             }
         }
     }

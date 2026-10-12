@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.artist
 
+import kotlinx.coroutines.Job
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -39,9 +40,10 @@ class ArtistFollowersViewModel @Inject constructor(
         loadFirstPage()
     }
 
-    private fun loadFirstPage() {
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-        viewModelScope.launch {
+    /** Also the pull to refresh; the list stays on screen while it reloads. */
+    fun loadFirstPage(): Job {
+        _uiState.value = _uiState.value.copy(isLoading = _uiState.value.followers.isEmpty(), error = null)
+        return viewModelScope.launch {
             runCatching { searchRepository.getFollowersPage(sourceId, cursorUrl = null) }
                 .onSuccess { page ->
                     _uiState.value = _uiState.value.copy(

@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.playlist
 
+import kotlinx.coroutines.Job
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -76,16 +77,18 @@ class RemotePlaylistDetailViewModel @Inject constructor(
         viewModelScope.launch { runCatching { savedPlaylistRepository.refresh() } }
     }
 
-    fun load() {
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-        viewModelScope.launch {
+    /** Also the pull to refresh: a page already shown stays while it reloads. */
+    fun load(): Job {
+        _uiState.value = _uiState.value.copy(isLoading = _uiState.value.detail == null, error = null)
+        return viewModelScope.launch {
             runCatching { searchRepository.getPlaylistDetail(source, sourceId) }
                 .onSuccess { detail -> _uiState.value = _uiState.value.copy(detail = detail, isLoading = false) }
                 .onFailure { e ->
                     // leaving the screen mid-load cancels this coroutine; that is not an
                     // error to show (it surfaced as "StandaloneCoroutine was cancelled")
                     if (e is CancellationException) { throw e }
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    // a failed refresh keeps the page that is already shown
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = if (_uiState.value.detail == null) e.message else null)
                 }
         }
     }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.shape.CircleShape
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.util.shareText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -138,47 +139,49 @@ fun SearchScreen(
                 onResultTypeChanged = viewModel::onResultTypeChanged,
             )
 
-            when {
-                uiState.isLoading -> CenteredMessage { CircularProgressIndicator(color = Canopy.accent) }
-                uiState.error != null -> CenteredMessage {
-                    Text(
-                        uiState.error!!,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Canopy.accent2,
+            PullRefresh(onRefresh = viewModel::runSearch, modifier = Modifier.weight(1f)) {
+                when {
+                    uiState.isLoading -> CenteredMessage { CircularProgressIndicator(color = Canopy.accent) }
+                    uiState.error != null -> CenteredMessage {
+                        Text(
+                            uiState.error!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Canopy.accent2,
+                        )
+                    }
+                    uiState.suggestions.isNotEmpty() -> SuggestionsList(
+                        suggestions = uiState.suggestions,
+                        onTap = viewModel::onSuggestionTapped,
+                    )
+                    else -> ResultsList(
+                        uiState = uiState,
+                        onTrackClick = {
+                            // Otherwise the keyboard stays up over the Player it opens.
+                            focusManager.clearFocus()
+                            viewModel.onTrackClicked(it)
+                            onTrackSelected()
+                        },
+                        onArtistClick = viewModel::onArtistResultClicked,
+                        onPlaylistClick = viewModel::onPlaylistResultClicked,
+                        onHistoryTapped = viewModel::onHistoryQueryTapped,
+                        onHistoryDeleted = viewModel::onHistoryQueryDeleted,
+                        trackActions = TrackActions(
+                            onAnalyze = { track -> analyzer.analyzeTracks(listOf(track)) },
+                            onLikeToggle = viewModel::onLikeToggled,
+                            onDownload = { track ->
+                                viewModel.onDownloadClicked(track)
+                                Toast.makeText(context, "„${track.title}“ wird heruntergeladen", Toast.LENGTH_SHORT).show()
+                            },
+                            onAddToQueue = { track ->
+                                viewModel.onAddToQueueClicked(track)
+                                Toast.makeText(context, "Als Nächstes eingereiht", Toast.LENGTH_SHORT).show()
+                            },
+                            onAddToPlaylist = viewModel::onAddToPlaylistClicked,
+                            onArtist = viewModel::onTrackArtistClicked,
+                            onShare = { track -> context.shareText(track.webpageUrl) },
+                        ),
                     )
                 }
-                uiState.suggestions.isNotEmpty() -> SuggestionsList(
-                    suggestions = uiState.suggestions,
-                    onTap = viewModel::onSuggestionTapped,
-                )
-                else -> ResultsList(
-                    uiState = uiState,
-                    onTrackClick = {
-                        // Otherwise the keyboard stays up over the Player it opens.
-                        focusManager.clearFocus()
-                        viewModel.onTrackClicked(it)
-                        onTrackSelected()
-                    },
-                    onArtistClick = viewModel::onArtistResultClicked,
-                    onPlaylistClick = viewModel::onPlaylistResultClicked,
-                    onHistoryTapped = viewModel::onHistoryQueryTapped,
-                    onHistoryDeleted = viewModel::onHistoryQueryDeleted,
-                    trackActions = TrackActions(
-                        onAnalyze = { track -> analyzer.analyzeTracks(listOf(track)) },
-                        onLikeToggle = viewModel::onLikeToggled,
-                        onDownload = { track ->
-                            viewModel.onDownloadClicked(track)
-                            Toast.makeText(context, "„${track.title}“ wird heruntergeladen", Toast.LENGTH_SHORT).show()
-                        },
-                        onAddToQueue = { track ->
-                            viewModel.onAddToQueueClicked(track)
-                            Toast.makeText(context, "Als Nächstes eingereiht", Toast.LENGTH_SHORT).show()
-                        },
-                        onAddToPlaylist = viewModel::onAddToPlaylistClicked,
-                        onArtist = viewModel::onTrackArtistClicked,
-                        onShare = { track -> context.shareText(track.webpageUrl) },
-                    ),
-                )
             }
         }
     }

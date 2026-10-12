@@ -53,6 +53,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopyBadge
 import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
 import dev.schlubbe.musicagent.ui.components.CanopyBadgeVariant
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -162,103 +163,105 @@ fun RemotePlaylistDetailScreen(
                     modifier = Modifier.padding(16.dp),
                 )
                 detail == null -> Text("Playlist nicht gefunden", modifier = Modifier.padding(16.dp))
-                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TrackThumbnail(detail.thumbnailUrl, size = 80.dp)
-                            Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
-                                Text(detail.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                                    CanopyBadge(if (detail.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
-                                    val subtitle = listOfNotNull(detail.owner?.takeIf { it.isNotBlank() }, detail.trackCount?.let { "$it Titel" })
-                                        .joinToString(" · ")
-                                    if (subtitle.isNotBlank()) {
-                                        Text(
-                                            subtitle,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = Canopy.neutral500,
-                                            modifier = Modifier.padding(start = 8.dp),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
+                else -> PullRefresh(onRefresh = viewModel::load, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TrackThumbnail(detail.thumbnailUrl, size = 80.dp)
+                                Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
+                                    Text(detail.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                                        CanopyBadge(if (detail.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
+                                        val subtitle = listOfNotNull(detail.owner?.takeIf { it.isNotBlank() }, detail.trackCount?.let { "$it Titel" })
+                                            .joinToString(" · ")
+                                        if (subtitle.isNotBlank()) {
+                                            Text(
+                                                subtitle,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = Canopy.neutral500,
+                                                modifier = Modifier.padding(start = 8.dp),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                        detail.description?.takeIf { it.isNotBlank() }?.let { description ->
-                            RemotePlaylistBio(description)
-                        }
-                        if (detail.tags.isNotEmpty()) {
+                            detail.description?.takeIf { it.isNotBlank() }?.let { description ->
+                                RemotePlaylistBio(description)
+                            }
+                            if (detail.tags.isNotEmpty()) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                                ) {
+                                    detail.tags.forEach { tag -> CanopyBadge(tag, variant = CanopyBadgeVariant.Outline, tone = CanopyBadgeTone.Accent) }
+                                }
+                            }
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                detail.tags.forEach { tag -> CanopyBadge(tag, variant = CanopyBadgeVariant.Outline, tone = CanopyBadgeTone.Accent) }
+                                CanopyButton(
+                                    text = "Alle abspielen",
+                                    onClick = viewModel::playAll,
+                                    leadingIcon = phosphorIcon("play"),
+                                    variant = CanopyButtonVariant.Primary,
+                                    enabled = detail.tracks.isNotEmpty(),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                CanopyIconButton(
+                                    icon = phosphorIcon("heart", filled = uiState.isSaved),
+                                    onClick = {
+                                        haptic.performHapticFeedback(
+                                            if (uiState.isSaved) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
+                                        )
+                                        // Saving a whole playlist is a bigger action than
+                                        // liking one track - the ascending 3-step pattern
+                                        // gives it more ceremony than premiumHaptics.like().
+                                        if (uiState.isSaved) premiumHaptics.unlike() else premiumHaptics.celebrate()
+                                        viewModel.toggleSaved()
+                                    },
+                                    variant = if (uiState.isSaved) CanopyButtonVariant.Secondary else CanopyButtonVariant.Primary,
+                                    size = 44.dp,
+                                    iconSize = 19.dp,
+                                )
                             }
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CanopyButton(
-                                text = "Alle abspielen",
-                                onClick = viewModel::playAll,
-                                leadingIcon = phosphorIcon("play"),
-                                variant = CanopyButtonVariant.Primary,
-                                enabled = detail.tracks.isNotEmpty(),
-                                modifier = Modifier.weight(1f),
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            CanopyIconButton(
-                                icon = phosphorIcon("heart", filled = uiState.isSaved),
-                                onClick = {
-                                    haptic.performHapticFeedback(
-                                        if (uiState.isSaved) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn,
-                                    )
-                                    // Saving a whole playlist is a bigger action than
-                                    // liking one track - the ascending 3-step pattern
-                                    // gives it more ceremony than premiumHaptics.like().
-                                    if (uiState.isSaved) premiumHaptics.unlike() else premiumHaptics.celebrate()
-                                    viewModel.toggleSaved()
-                                },
-                                variant = if (uiState.isSaved) CanopyButtonVariant.Secondary else CanopyButtonVariant.Primary,
-                                size = 44.dp,
-                                iconSize = 19.dp,
-                            )
+                        if (detail.tracks.isEmpty()) {
+                            item {
+                                Text(
+                                    "Keine Titel gefunden",
+                                    color = Canopy.neutral500,
+                                    modifier = Modifier.padding(20.dp),
+                                )
+                            }
+                        } else {
+                            items(detail.tracks, key = { "${it.source}:${it.sourceId}" }) { track ->
+                                RemotePlaylistTrackRow(
+                                    track = track,
+                                    isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
+                                    onClick = {
+                                        viewModel.playTrack(track)
+                                        onTrackSelected()
+                                    },
+                                    onLikeClick = { viewModel.onLikeToggled(track) },
+                                    onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
+                                    onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
+                                    onDownloadClick = { viewModel.onDownloadClicked(track) },
+                                    onArtistClick = { viewModel.onTrackArtistClicked(track) },
+                                )
+                            }
                         }
+                        item { Spacer(modifier = Modifier.height(20.dp)) }
                     }
-                    if (detail.tracks.isEmpty()) {
-                        item {
-                            Text(
-                                "Keine Titel gefunden",
-                                color = Canopy.neutral500,
-                                modifier = Modifier.padding(20.dp),
-                            )
-                        }
-                    } else {
-                        items(detail.tracks, key = { "${it.source}:${it.sourceId}" }) { track ->
-                            RemotePlaylistTrackRow(
-                                track = track,
-                                isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
-                                onClick = {
-                                    viewModel.playTrack(track)
-                                    onTrackSelected()
-                                },
-                                onLikeClick = { viewModel.onLikeToggled(track) },
-                                onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
-                                onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
-                                onDownloadClick = { viewModel.onDownloadClicked(track) },
-                                onArtistClick = { viewModel.onTrackArtistClicked(track) },
-                            )
-                        }
-                    }
-                    item { Spacer(modifier = Modifier.height(20.dp)) }
                 }
             }
         }

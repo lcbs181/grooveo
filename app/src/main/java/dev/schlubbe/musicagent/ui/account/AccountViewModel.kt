@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.account
 
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -72,18 +74,19 @@ class AccountViewModel @Inject constructor(
         refresh()
     }
 
-    fun refresh() {
-        viewModelScope.launch {
+    fun refresh(): Job {
+        val playlists = viewModelScope.launch {
             runCatching { playlistRepository.list() }.onSuccess { playlists ->
                 _uiState.value = _uiState.value.copy(playlistCount = playlists.size)
             }
         }
-        viewModelScope.launch {
+        val likes = viewModelScope.launch {
             runCatching { likesRepository.refresh() }.onSuccess { likes ->
                 _uiState.value = _uiState.value.copy(likeCount = likes.size)
             }
         }
-        viewModelScope.launch { runCatching { followRepository.refresh() } }
+        val follows = viewModelScope.launch { runCatching { followRepository.refresh() } }
+        return viewModelScope.launch { joinAll(playlists, likes, follows) }
     }
 
     fun updateProfile(name: String, colorStyle: String) {

@@ -45,6 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
 import dev.schlubbe.musicagent.ui.components.CanopyToggle
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.library.DownloadUiItem
@@ -112,153 +113,155 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
     }
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 14.dp,
-                bottom = CONTENT_BOTTOM_PADDING.dp,
-            ),
-        ) {
-            item {
-                Text(
-                    "Downloads",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = Canopy.text,
-                    modifier = Modifier.padding(bottom = 16.dp),
-                )
-            }
-
-            found?.let { msg ->
+        PullRefresh(onRefresh = viewModel::scanDevice, modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 14.dp,
+                    bottom = CONTENT_BOTTOM_PADDING.dp,
+                ),
+            ) {
                 item {
-                    Text(msg, style = MaterialTheme.typography.bodySmall, color = Canopy.accent, modifier = Modifier.padding(bottom = 12.dp))
+                    Text(
+                        "Downloads",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Canopy.text,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
                 }
-            }
-            if (!audioAccess) {
+
+                found?.let { msg ->
+                    item {
+                        Text(msg, style = MaterialTheme.typography.bodySmall, color = Canopy.accent, modifier = Modifier.padding(bottom = 12.dp))
+                    }
+                }
+                if (!audioAccess) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp)
+                                .clip(CanopyShapes.medium)
+                                .background(Canopy.surface)
+                                .border(1.dp, Canopy.divider, CanopyShapes.medium)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text("Downloads auf dem Handy finden", style = MaterialTheme.typography.bodyMedium, color = Canopy.text)
+                            Text(
+                                "Titel, die Grooveo früher heruntergeladen hat (z. B. vor einer Neuinstallation), liegen noch in Musik/ und Download/. " +
+                                    "Mit Zugriff auf Audiodateien zeigt Grooveo sie hier wieder an.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Canopy.neutral500,
+                            )
+                            dev.schlubbe.musicagent.ui.components.CanopyButton(
+                                text = "Zugriff erlauben",
+                                onClick = { askAudio.launch(audioPermission) },
+                                variant = CanopyButtonVariant.Secondary,
+                            )
+                        }
+                    }
+                }
+
                 item {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 16.dp)
                             .clip(CanopyShapes.medium)
                             .background(Canopy.surface)
                             .border(1.dp, Canopy.divider, CanopyShapes.medium)
                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Downloads auf dem Handy finden", style = MaterialTheme.typography.bodyMedium, color = Canopy.text)
-                        Text(
-                            "Titel, die Grooveo früher heruntergeladen hat (z. B. vor einer Neuinstallation), liegen noch in Musik/ und Download/. " +
-                                "Mit Zugriff auf Audiodateien zeigt Grooveo sie hier wieder an.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Canopy.neutral500,
+                        // Decorative: the adjacent "Datensparmodus" text already labels
+                        // this row for TalkBack, so the icon itself stays unlabeled
+                        // rather than announcing redundantly.
+                        Icon(
+                            phosphorIcon("cell-signal-slash"),
+                            contentDescription = null,
+                            tint = Canopy.neutral500,
+                            modifier = Modifier.size(22.dp),
                         )
-                        dev.schlubbe.musicagent.ui.components.CanopyButton(
-                            text = "Zugriff erlauben",
-                            onClick = { askAudio.launch(audioPermission) },
-                            variant = CanopyButtonVariant.Secondary,
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Datensparmodus",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Canopy.text,
+                            )
+                            Text(
+                                "Nur heruntergeladene Titel abspielen",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Canopy.neutral500,
+                            )
+                        }
+                        CanopyToggle(checked = dataSaver, onCheckedChange = viewModel::setDataSaverMode)
+                    }
+                }
+
+                item { StorageLine(storage) }
+
+                if (queue.isNotEmpty()) {
+                    item {
+                        CanopySectionHeader(
+                            title = "Warteschlange",
+                            action = "Alle pausieren",
+                            onActionClick = viewModel::pauseAll,
+                            modifier = Modifier.padding(top = 24.dp),
+                        )
+                    }
+                    items(queue.size) { index ->
+                        QueueRow(
+                            item = queue[index],
+                            onCancel = { viewModel.cancel(queue[index].entity.trackId) },
+                            onRetry = { viewModel.retry(queue[index].entity.trackId) },
+                            onResume = { viewModel.resume(queue[index].entity.trackId) },
                         )
                     }
                 }
-            }
 
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(CanopyShapes.medium)
-                        .background(Canopy.surface)
-                        .border(1.dp, Canopy.divider, CanopyShapes.medium)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Decorative: the adjacent "Datensparmodus" text already labels
-                    // this row for TalkBack, so the icon itself stays unlabeled
-                    // rather than announcing redundantly.
-                    Icon(
-                        phosphorIcon("cell-signal-slash"),
-                        contentDescription = null,
-                        tint = Canopy.neutral500,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Datensparmodus",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Canopy.text,
-                        )
-                        Text(
-                            "Nur heruntergeladene Titel abspielen",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Canopy.neutral500,
+                if (allOnDevice.isNotEmpty()) {
+                    item {
+                        DownloadsSearchRow(
+                            query = query,
+                            sort = sort,
+                            onQueryChange = { query = it },
+                            onSortChange = { sort = it },
                         )
                     }
-                    CanopyToggle(checked = dataSaver, onCheckedChange = viewModel::setDataSaverMode)
                 }
-            }
+                if (onDevice.isNotEmpty()) {
+                    item {
+                        CanopySectionHeader(
+                            title = "Auf dem Gerät",
+                            action = ANALYZE_LABEL,
+                            onActionClick = analyzer::analyzeAllDownloads,
+                            modifier = Modifier.padding(top = 24.dp),
+                        )
+                    }
+                    items(onDevice.size) { index ->
+                        OnDeviceRow(
+                            item = onDevice[index],
+                            onClick = {
+                                viewModel.playDownload(onDevice[index])
+                                onDownloadPlayed()
+                            },
+                            onDelete = { viewModel.cancel(onDevice[index].entity.trackId) },
+                        )
+                    }
+                }
 
-            item { StorageLine(storage) }
-
-            if (queue.isNotEmpty()) {
-                item {
-                    CanopySectionHeader(
-                        title = "Warteschlange",
-                        action = "Alle pausieren",
-                        onActionClick = viewModel::pauseAll,
-                        modifier = Modifier.padding(top = 24.dp),
-                    )
-                }
-                items(queue.size) { index ->
-                    QueueRow(
-                        item = queue[index],
-                        onCancel = { viewModel.cancel(queue[index].entity.trackId) },
-                        onRetry = { viewModel.retry(queue[index].entity.trackId) },
-                        onResume = { viewModel.resume(queue[index].entity.trackId) },
-                    )
-                }
-            }
-
-            if (allOnDevice.isNotEmpty()) {
-                item {
-                    DownloadsSearchRow(
-                        query = query,
-                        sort = sort,
-                        onQueryChange = { query = it },
-                        onSortChange = { sort = it },
-                    )
-                }
-            }
-            if (onDevice.isNotEmpty()) {
-                item {
-                    CanopySectionHeader(
-                        title = "Auf dem Gerät",
-                        action = ANALYZE_LABEL,
-                        onActionClick = analyzer::analyzeAllDownloads,
-                        modifier = Modifier.padding(top = 24.dp),
-                    )
-                }
-                items(onDevice.size) { index ->
-                    OnDeviceRow(
-                        item = onDevice[index],
-                        onClick = {
-                            viewModel.playDownload(onDevice[index])
-                            onDownloadPlayed()
-                        },
-                        onDelete = { viewModel.cancel(onDevice[index].entity.trackId) },
-                    )
-                }
-            }
-
-            if (downloads.isEmpty()) {
-                item {
-                    Text(
-                        "Noch keine Downloads. Titel mit dem Pfeil-Symbol offline speichern.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Canopy.neutral500,
-                        modifier = Modifier.padding(top = 32.dp),
-                    )
+                if (downloads.isEmpty()) {
+                    item {
+                        Text(
+                            "Noch keine Downloads. Titel mit dem Pfeil-Symbol offline speichern.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Canopy.neutral500,
+                            modifier = Modifier.padding(top = 32.dp),
+                        )
+                    }
                 }
             }
         }

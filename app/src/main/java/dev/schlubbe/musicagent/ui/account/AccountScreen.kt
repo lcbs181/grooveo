@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +47,7 @@ import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.canopyCard
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -76,87 +79,89 @@ fun AccountScreen(
     LaunchedEffect(Unit) { viewModel.refresh() }
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Konto", style = MaterialTheme.typography.headlineMedium)
-                CanopyIconButton(
-                    icon = phosphorIcon("gear-six"),
-                    onClick = onSettingsClick,
-                    shape = CircleShape,
-                    variant = CanopyButtonVariant.Secondary,
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp)
-                    .clickable { showEditSheet = true },
-            ) {
-                Box(
+        PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.padding(padding).fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Row(
                     modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(accentColorFor(uiState.profileColorStyle.takeIf { it != "auto" }, uiState.profileName)),
-                    contentAlignment = Alignment.Center,
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(phosphorIcon("user"), contentDescription = null, tint = Canopy.neutral200, modifier = Modifier.size(26.dp))
-                }
-                Column(modifier = Modifier.padding(start = 14.dp)) {
-                    Text(uiState.profileName.ifBlank { "Name festlegen" }, style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        "Lokales Profil · kein Login erforderlich",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Canopy.neutral500,
-                        modifier = Modifier.padding(top = 2.dp),
+                    Text("Konto", style = MaterialTheme.typography.headlineMedium)
+                    CanopyIconButton(
+                        icon = phosphorIcon("gear-six"),
+                        onClick = onSettingsClick,
+                        shape = CircleShape,
+                        variant = CanopyButtonVariant.Secondary,
                     )
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                Icon(phosphorIcon("pencil-simple"), contentDescription = "Bearbeiten", tint = Canopy.neutral500, modifier = Modifier.size(15.dp))
-            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                StatItem(value = uiState.playlistCount, label = "Playlists", modifier = Modifier.weight(1f))
-                StatItem(value = uiState.likeCount, label = "Likes", modifier = Modifier.weight(1f))
-                StatItem(value = uiState.following.size, label = "Folge ich", modifier = Modifier.weight(1f))
-            }
-
-            if (uiState.statLine.isNotBlank()) {
-                Text(
-                    uiState.statLine,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Canopy.neutral500,
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.padding(top = 16.dp))
-            Text("Folge ich", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 20.dp))
-            Spacer(modifier = Modifier.padding(top = 8.dp))
-            if (uiState.following.isEmpty()) {
-                Text(
-                    "Du folgst noch niemandem",
-                    color = Canopy.neutral500,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                )
-            } else {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp)
+                        .clickable { showEditSheet = true },
                 ) {
-                    items(uiState.following, key = { "${it.source}:${it.sourceId}" }) { artist ->
-                        FollowedArtistItem(artist = artist, onClick = { onArtistSelected(artist.source, artist.sourceId) })
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(accentColorFor(uiState.profileColorStyle.takeIf { it != "auto" }, uiState.profileName)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(phosphorIcon("user"), contentDescription = null, tint = Canopy.neutral200, modifier = Modifier.size(26.dp))
+                    }
+                    Column(modifier = Modifier.padding(start = 14.dp)) {
+                        Text(uiState.profileName.ifBlank { "Name festlegen" }, style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "Lokales Profil · kein Login erforderlich",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Canopy.neutral500,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(phosphorIcon("pencil-simple"), contentDescription = "Bearbeiten", tint = Canopy.neutral500, modifier = Modifier.size(15.dp))
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    StatItem(value = uiState.playlistCount, label = "Playlists", modifier = Modifier.weight(1f))
+                    StatItem(value = uiState.likeCount, label = "Likes", modifier = Modifier.weight(1f))
+                    StatItem(value = uiState.following.size, label = "Folge ich", modifier = Modifier.weight(1f))
+                }
+
+                if (uiState.statLine.isNotBlank()) {
+                    Text(
+                        uiState.statLine,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Canopy.neutral500,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                }
+
+                Spacer(modifier = Modifier.padding(top = 16.dp))
+                Text("Folge ich", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 20.dp))
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+                if (uiState.following.isEmpty()) {
+                    Text(
+                        "Du folgst noch niemandem",
+                        color = Canopy.neutral500,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                } else {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        items(uiState.following, key = { "${it.source}:${it.sourceId}" }) { artist ->
+                            FollowedArtistItem(artist = artist, onClick = { onArtistSelected(artist.source, artist.sourceId) })
+                        }
                     }
                 }
             }

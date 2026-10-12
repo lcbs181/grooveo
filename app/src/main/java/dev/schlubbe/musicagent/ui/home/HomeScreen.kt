@@ -51,6 +51,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
 import dev.schlubbe.musicagent.ui.components.EqualizerBadge
 import dev.schlubbe.musicagent.ui.components.EqualizerBadgeVariant
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
@@ -92,98 +93,100 @@ fun HomeScreen(
     }
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(bottom = CONTENT_BOTTOM_PADDING.dp),
-        ) {
-            item { HomeAppBar(uiState, onSettingsClick) }
+        PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = CONTENT_BOTTOM_PADDING.dp),
+            ) {
+                item { HomeAppBar(uiState, onSettingsClick) }
 
-            if (uiState.recentlyPlayed.isNotEmpty()) {
+                if (uiState.recentlyPlayed.isNotEmpty()) {
+                    item {
+                        ResumeGrid(
+                            tracks = uiState.recentlyPlayed.take(RESUME_GRID_COUNT),
+                            onClick = {
+                                viewModel.onRecentlyPlayedClicked(it)
+                                onTrackSelected()
+                            },
+                        )
+                    }
+                }
+
+                if (uiState.feed.isNotEmpty() || uiState.isFeedLoading) {
+                    item {
+                        MoreForYouShelf(
+                            items = uiState.feed,
+                            subtitle = uiState.moreForYouSubtitle,
+                            isLoading = uiState.isFeedLoading,
+                            onShowAll = onSearchClick,
+                            onClick = {
+                                viewModel.onFeedTrackClicked(it)
+                                onTrackSelected()
+                            },
+                        )
+                    }
+                }
+
+                if (uiState.mixCards.isNotEmpty()) {
+                    item {
+                        MixShelf(
+                            mixes = uiState.mixCards,
+                            onClick = {
+                                viewModel.onMixCardClicked(it)
+                                onTrackSelected()
+                            },
+                        )
+                    }
+                }
+
                 item {
-                    ResumeGrid(
-                        tracks = uiState.recentlyPlayed.take(RESUME_GRID_COUNT),
-                        onClick = {
-                            viewModel.onRecentlyPlayedClicked(it)
+                    GenreTrends(
+                        genres = uiState.genreFilters,
+                        selected = uiState.selectedGenre,
+                        tracks = uiState.genreTracks,
+                        isLoading = uiState.isGenreLoading,
+                        nowPlayingId = uiState.nowPlayingId,
+                        onGenreSelected = viewModel::onGenreSelected,
+                        onTrackClick = {
+                            viewModel.onGenreTrackClicked(it)
                             onTrackSelected()
                         },
                     )
                 }
-            }
 
-            if (uiState.feed.isNotEmpty() || uiState.isFeedLoading) {
-                item {
-                    MoreForYouShelf(
-                        items = uiState.feed,
-                        subtitle = uiState.moreForYouSubtitle,
-                        isLoading = uiState.isFeedLoading,
-                        onShowAll = onSearchClick,
-                        onClick = {
-                            viewModel.onFeedTrackClicked(it)
-                            onTrackSelected()
-                        },
-                    )
+                uiState.dailyPick?.let { pick ->
+                    item {
+                        DailyPickCard(
+                            pick = pick,
+                            onPlay = {
+                                viewModel.onDailyPickClicked()
+                                onTrackSelected()
+                            },
+                        )
+                    }
                 }
-            }
 
-            if (uiState.mixCards.isNotEmpty()) {
-                item {
-                    MixShelf(
-                        mixes = uiState.mixCards,
-                        onClick = {
-                            viewModel.onMixCardClicked(it)
-                            onTrackSelected()
-                        },
-                    )
+                if (!uiState.scPromoDismissed) {
+                    item { ScPromoCard(onDismiss = viewModel::dismissScPromo, onCta = onDownloadsClick) }
                 }
-            }
 
-            item {
-                GenreTrends(
-                    genres = uiState.genreFilters,
-                    selected = uiState.selectedGenre,
-                    tracks = uiState.genreTracks,
-                    isLoading = uiState.isGenreLoading,
-                    nowPlayingId = uiState.nowPlayingId,
-                    onGenreSelected = viewModel::onGenreSelected,
-                    onTrackClick = {
-                        viewModel.onGenreTrackClicked(it)
-                        onTrackSelected()
-                    },
-                )
-            }
-
-            uiState.dailyPick?.let { pick ->
-                item {
-                    DailyPickCard(
-                        pick = pick,
-                        onPlay = {
-                            viewModel.onDailyPickClicked()
-                            onTrackSelected()
-                        },
-                    )
-                }
-            }
-
-            if (!uiState.scPromoDismissed) {
-                item { ScPromoCard(onDismiss = viewModel::dismissScPromo, onCta = onDownloadsClick) }
-            }
-
-            if (uiState.topArtists.isNotEmpty()) {
-                item {
-                    StationsShelf(
-                        artists = uiState.topArtists,
-                        onClick = {
-                            viewModel.onStationClicked(it)
-                            onTrackSelected()
-                        },
-                    )
-                }
-                item {
-                    FollowedArtistsRail(
-                        artists = uiState.topArtists,
-                        onSeeAll = onSeeAllArtistsClick,
-                        onClick = viewModel::onArtistAvatarClicked,
-                    )
+                if (uiState.topArtists.isNotEmpty()) {
+                    item {
+                        StationsShelf(
+                            artists = uiState.topArtists,
+                            onClick = {
+                                viewModel.onStationClicked(it)
+                                onTrackSelected()
+                            },
+                        )
+                    }
+                    item {
+                        FollowedArtistsRail(
+                            artists = uiState.topArtists,
+                            onSeeAll = onSeeAllArtistsClick,
+                            onClick = viewModel::onArtistAvatarClicked,
+                        )
+                    }
                 }
             }
         }

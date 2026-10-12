@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.library
 
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -209,29 +211,36 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun refreshLikes() {
+    /** Pull to refresh: likes, playlists and follows at once. */
+    fun refresh(): Job {
+        val jobs = listOf(refreshLikes(), refreshPlaylists(), viewModelScope.launch { runCatching { followRepository.refresh() } })
+        return viewModelScope.launch { jobs.joinAll() }
+    }
+
+    fun refreshLikes(): Job {
         _uiState.value = _uiState.value.copy(isLoadingLikes = true)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             runCatching { likesRepository.refresh() }
                 .onSuccess { likes -> _uiState.value = _uiState.value.copy(likes = likes, isLoadingLikes = false) }
                 .onFailure { _uiState.value = _uiState.value.copy(isLoadingLikes = false) }
         }
     }
 
-    fun refreshPlaylists() {
+    fun refreshPlaylists(): Job {
         // Spinner only for the first load - a silent refresh on return keeps the grid.
         if (_uiState.value.playlists.isEmpty()) _uiState.value = _uiState.value.copy(isLoadingPlaylists = true)
-        viewModelScope.launch {
+        val own = viewModelScope.launch {
             runCatching { playlistRepository.list() }
                 .onSuccess { playlists ->
                     _uiState.value = _uiState.value.copy(playlists = playlists, isLoadingPlaylists = false)
                 }
                 .onFailure { _uiState.value = _uiState.value.copy(isLoadingPlaylists = false) }
         }
-        viewModelScope.launch {
+        val saved = viewModelScope.launch {
             runCatching { savedPlaylistRepository.refresh() }
                 .onSuccess { saved -> _uiState.value = _uiState.value.copy(savedPlaylists = saved) }
         }
+        return viewModelScope.launch { joinAll(own, saved) }
     }
 
     /** Downloads every track of a local (Room-backed) playlist from its Library row,

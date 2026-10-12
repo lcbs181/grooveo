@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.artist
 
+import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -103,6 +104,16 @@ class ArtistViewModel @Inject constructor(
                     if (e is CancellationException) { loadedKey = null; throw e }
                     _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
                 }
+        }
+    }
+
+    /** Pull to refresh: fetches the shown page again, past the cache, and keeps it on screen meanwhile. */
+    fun refresh(): Job? {
+        val artist = _uiState.value.artist ?: return null
+        return viewModelScope.launch {
+            runCatching { searchRepository.getArtist(artist.source, artist.sourceId, refresh = true) }
+                .onSuccess { fresh -> _uiState.value = _uiState.value.copy(artist = fresh, error = null) }
+                .onFailure { e -> if (e is CancellationException) throw e }
         }
     }
 

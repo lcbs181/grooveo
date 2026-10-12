@@ -71,6 +71,7 @@ import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
 import dev.schlubbe.musicagent.ui.components.DrmLockIcon
 import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
+import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.components.WaveSweep
 import dev.schlubbe.musicagent.ui.components.rememberFadeUp
@@ -151,128 +152,130 @@ fun ArtistScreen(
                         if (showAllLatest) artist.latestTracks.size else SHELF_PREVIEW_COUNT,
                     )
 
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        item {
-                            ArtistHeader(
-                                artist = artist,
-                                isFollowing = uiState.isFollowing,
-                                onNavigateBack = onNavigateBack,
-                                onShare = { context.shareText(artist.webpageUrl) },
-                                showOverflowMenu = showTopMenu,
-                                onOverflowMenuChange = { showTopMenu = it },
-                                onFollowToggle = {
-                                    // The design fires its full follow-spray confetti the
-                                    // moment "Folgen" is tapped, not after the toggle
-                                    // resolves -- so the spray only plays on the
-                                    // not-following -> following transition, never on unfollow.
-                                    if (!uiState.isFollowing) overlay.spray()
-                                    viewModel.toggleFollow()
-                                },
-                                onShuffle = {
-                                    val queue = (artist.topTracks + artist.latestTracks).shuffled()
-                                    queue.firstOrNull()?.let { track ->
-                                        viewModel.onTrackClicked(track, queue)
+                    PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            item {
+                                ArtistHeader(
+                                    artist = artist,
+                                    isFollowing = uiState.isFollowing,
+                                    onNavigateBack = onNavigateBack,
+                                    onShare = { context.shareText(artist.webpageUrl) },
+                                    showOverflowMenu = showTopMenu,
+                                    onOverflowMenuChange = { showTopMenu = it },
+                                    onFollowToggle = {
+                                        // The design fires its full follow-spray confetti the
+                                        // moment "Folgen" is tapped, not after the toggle
+                                        // resolves -- so the spray only plays on the
+                                        // not-following -> following transition, never on unfollow.
+                                        if (!uiState.isFollowing) overlay.spray()
+                                        viewModel.toggleFollow()
+                                    },
+                                    onShuffle = {
+                                        val queue = (artist.topTracks + artist.latestTracks).shuffled()
+                                        queue.firstOrNull()?.let { track ->
+                                            viewModel.onTrackClicked(track, queue)
+                                            onTrackSelected()
+                                        }
+                                    },
+                                    onPlayFirst = {
+                                        val queue = artist.topTracks.ifEmpty { artist.latestTracks }
+                                        queue.firstOrNull()?.let { track ->
+                                            viewModel.onTrackClicked(track, queue)
+                                            onTrackSelected()
+                                        }
+                                    },
+                                )
+
+                                artist.description?.takeIf { it.isNotBlank() }?.let { description ->
+                                    ArtistBio(description)
+                                }
+
+                                if (artist.topTracks.isNotEmpty()) {
+                                    CanopySectionHeader(
+                                        title = "Top-Titel",
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).then(rememberFadeUp()),
+                                        action = shelfActionLabel(artist.topTracks.size, showAllTop),
+                                        onActionClick = { showAllTop = !showAllTop },
+                                    )
+                                }
+                            }
+                            items(topPreview, key = { "top:${it.source}:${it.sourceId}" }) { track ->
+                                ArtistTrackRow(
+                                    track = track,
+                                    thumbnailSize = 52.dp,
+                                    isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
+                                    onClick = {
+                                        viewModel.onTrackClicked(track, artist.topTracks)
                                         onTrackSelected()
-                                    }
-                                },
-                                onPlayFirst = {
-                                    val queue = artist.topTracks.ifEmpty { artist.latestTracks }
-                                    queue.firstOrNull()?.let { track ->
-                                        viewModel.onTrackClicked(track, queue)
+                                    },
+                                    onLikeClick = { viewModel.onLikeToggled(track) },
+                                    onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
+                                    onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
+                                    onDownloadClick = { viewModel.onDownloadClicked(track) },
+                                )
+                            }
+
+                            if (artist.latestTracks.isNotEmpty()) {
+                                item {
+                                    CanopySectionHeader(
+                                        title = "Neueste Titel",
+                                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).then(rememberFadeUp()),
+                                        action = shelfActionLabel(artist.latestTracks.size, showAllLatest),
+                                        onActionClick = { showAllLatest = !showAllLatest },
+                                    )
+                                }
+                            }
+                            items(latestPreview, key = { "latest:${it.source}:${it.sourceId}" }) { track ->
+                                ArtistTrackRow(
+                                    track = track,
+                                    thumbnailSize = 46.dp,
+                                    isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
+                                    onClick = {
+                                        viewModel.onTrackClicked(track, artist.latestTracks)
                                         onTrackSelected()
-                                    }
-                                },
-                            )
-
-                            artist.description?.takeIf { it.isNotBlank() }?.let { description ->
-                                ArtistBio(description)
-                            }
-
-                            if (artist.topTracks.isNotEmpty()) {
-                                CanopySectionHeader(
-                                    title = "Top-Titel",
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).then(rememberFadeUp()),
-                                    action = shelfActionLabel(artist.topTracks.size, showAllTop),
-                                    onActionClick = { showAllTop = !showAllTop },
+                                    },
+                                    onLikeClick = { viewModel.onLikeToggled(track) },
+                                    onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
+                                    onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
+                                    onDownloadClick = { viewModel.onDownloadClicked(track) },
                                 )
                             }
-                        }
-                        items(topPreview, key = { "top:${it.source}:${it.sourceId}" }) { track ->
-                            ArtistTrackRow(
-                                track = track,
-                                thumbnailSize = 52.dp,
-                                isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
-                                onClick = {
-                                    viewModel.onTrackClicked(track, artist.topTracks)
-                                    onTrackSelected()
-                                },
-                                onLikeClick = { viewModel.onLikeToggled(track) },
-                                onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
-                                onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
-                                onDownloadClick = { viewModel.onDownloadClicked(track) },
-                            )
-                        }
 
-                        if (artist.latestTracks.isNotEmpty()) {
-                            item {
-                                CanopySectionHeader(
-                                    title = "Neueste Titel",
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).then(rememberFadeUp()),
-                                    action = shelfActionLabel(artist.latestTracks.size, showAllLatest),
-                                    onActionClick = { showAllLatest = !showAllLatest },
-                                )
+                            if (artist.albums.isNotEmpty()) {
+                                item {
+                                    ArtistPlaylistShelf(
+                                        title = "Alben & Singles",
+                                        items = artist.albums.map { it.toShelfItem() },
+                                        onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
+                                    )
+                                }
                             }
-                        }
-                        items(latestPreview, key = { "latest:${it.source}:${it.sourceId}" }) { track ->
-                            ArtistTrackRow(
-                                track = track,
-                                thumbnailSize = 46.dp,
-                                isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
-                                onClick = {
-                                    viewModel.onTrackClicked(track, artist.latestTracks)
-                                    onTrackSelected()
-                                },
-                                onLikeClick = { viewModel.onLikeToggled(track) },
-                                onAddToPlaylistClick = { viewModel.onAddToPlaylistClicked(track) },
-                                onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
-                                onDownloadClick = { viewModel.onDownloadClicked(track) },
-                            )
-                        }
 
-                        if (artist.albums.isNotEmpty()) {
-                            item {
-                                ArtistPlaylistShelf(
-                                    title = "Alben & Singles",
-                                    items = artist.albums.map { it.toShelfItem() },
-                                    onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
-                                )
+                            if (artist.playlists.isNotEmpty()) {
+                                item {
+                                    ArtistPlaylistShelf(
+                                        title = "Playlists",
+                                        items = artist.playlists.map { it.toShelfItem() },
+                                        onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
+                                    )
+                                }
                             }
-                        }
 
-                        if (artist.playlists.isNotEmpty()) {
-                            item {
-                                ArtistPlaylistShelf(
-                                    title = "Playlists",
-                                    items = artist.playlists.map { it.toShelfItem() },
-                                    onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
-                                )
-                            }
-                        }
-
-                        // The design also has a "Folgt" (who this artist follows) row next
-                        // to Follower, and both an "Im Spotlight gepinnt" shelf and an
-                        // "Ähnliche Künstler" shelf above/below the track lists. None of
-                        // those have any backing field on ArtistDetailDto or a repository
-                        // call this screen can reach, so they're omitted rather than wired
-                        // to fabricated content -- see the task report for the full list.
-                        if (artist.source == "soundcloud") {
-                            item {
-                                ArtistListRow(
-                                    label = "Follower",
-                                    icon = phosphorIcon("user"),
-                                    onClick = viewModel::onFollowersClicked,
-                                    modifier = Modifier.padding(top = 8.dp).then(rememberFadeUp()),
-                                )
+                            // The design also has a "Folgt" (who this artist follows) row next
+                            // to Follower, and both an "Im Spotlight gepinnt" shelf and an
+                            // "Ähnliche Künstler" shelf above/below the track lists. None of
+                            // those have any backing field on ArtistDetailDto or a repository
+                            // call this screen can reach, so they're omitted rather than wired
+                            // to fabricated content -- see the task report for the full list.
+                            if (artist.source == "soundcloud") {
+                                item {
+                                    ArtistListRow(
+                                        label = "Follower",
+                                        icon = phosphorIcon("user"),
+                                        onClick = viewModel::onFollowersClicked,
+                                        modifier = Modifier.padding(top = 8.dp).then(rememberFadeUp()),
+                                    )
+                                }
                             }
                         }
                     }

@@ -127,16 +127,16 @@ class SearchViewModel @Inject constructor(
         if (_uiState.value.query.isNotBlank()) runSearch()
     }
 
-    fun runSearch() {
+    fun runSearch(): Job? {
         val query = _uiState.value.query
-        if (query.isBlank()) return
+        if (query.isBlank()) return null
 
         val source = _uiState.value.source
         // Without this the in-flight debounce from the last keystroke lands after the
         // search and re-covers the results with a suggestion list.
         suggestionJob?.cancel()
         _uiState.value = _uiState.value.copy(isLoading = true, error = null, suggestions = emptyList())
-        viewModelScope.launch {
+        return viewModelScope.launch {
             // Record search query into history
             runCatching { searchHistoryRepository.addQuery(query) }
 
