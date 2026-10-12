@@ -35,6 +35,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -284,19 +285,43 @@ class PlayerController @Inject constructor(
 
     // Sleep timer: pauses playback once, independent of queue/track changes -- a
     // plain delay()+pause() on the shared scope rather than anything queue-aware,
-    // since "stop whatever is playing after N minutes" is the whole feature.
+    // since "stop whatever is playing after N minutes" is the whole feature. The last
+    // SLEEP_FADE_MS fade the volume out first, so falling asleep isn't ended by music
+    // that stops dead.
     private var sleepTimerJob: Job? = null
     private val _sleepTimerEndAtMs = MutableStateFlow<Long?>(null)
     val sleepTimerEndAtMs: StateFlow<Long?> = _sleepTimerEndAtMs.asStateFlow()
+
+    private val _sleepFadeVolume = MutableStateFlow(1f)
+    /** The sleep timer's volume factor, 1 except while it fades out - applied by
+     * PlaybackService to the player (and by CrossfadeController during a crossfade). */
+    val sleepFadeVolume: StateFlow<Float> = _sleepFadeVolume.asStateFlow()
 
     fun startSleepTimer(minutes: Int) {
         sleepTimerJob?.cancel()
         val durationMs = minutes * 60_000L
         _sleepTimerEndAtMs.value = System.currentTimeMillis() + durationMs
         sleepTimerJob = scope.launch {
-            delay(durationMs)
-            controller?.pause()
-            _sleepTimerEndAtMs.value = null
+            try {
+                val fadeMs = SLEEP_FADE_MS.coerceAtMost(durationMs)
+                delay(durationMs - fadeMs)
+                val fadeStart = android.os.SystemClock.elapsedRealtime()
+                while (true) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime() - fadeStart
+                    if (elapsed >= fadeMs) break
+                    _sleepFadeVolume.value = sleepFadeVolume(elapsed, fadeMs)
+                    delay(SLEEP_FADE_STEP_MS)
+                }
+                _sleepFadeVolume.value = 0f
+                controller?.pause()
+                _sleepTimerEndAtMs.value = null
+                // The pause reaches the player asynchronously - restoring the volume
+                // before it lands would play the last moment at full volume again.
+                withTimeoutOrNull(2_000L) { playbackState.first { !it.playWhenReady } }
+            } finally {
+                // Also on cancel: a timer cancelled mid-fade must not leave playback quiet.
+                _sleepFadeVolume.value = 1f
+            }
         }
     }
 

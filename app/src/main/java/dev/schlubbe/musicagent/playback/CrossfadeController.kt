@@ -76,6 +76,10 @@ class CrossfadeController(
     private val onTailStarted: (mediaId: String) -> Unit = {},
     private val scope: CoroutineScope,
     private val trackAnalysisDao: TrackAnalysisDao,
+    // The level both players are scaled to: 1 normally, lower while the sleep timer
+    // fades playback out (see PlayerController.sleepFadeVolume). Read on every ramp
+    // step, so a fade running into the sleep fade still ends up quiet.
+    private val masterVolume: () -> Float = { 1f },
 ) {
     private var secondaryPlayer: ExoPlayer? = null
     private var fadeJob: Job? = null
@@ -99,6 +103,11 @@ class CrossfadeController(
     private var fadeOutgoingId: String? = null
     private var fadeIncomingId: String? = null
     private var fadeAdvanced = false
+
+    /** Whether the fade's ramp currently sets the main player's volume - from the
+     * hand-over to the end of the fade. Before the hand-over (the tail still loading)
+     * the main player plays on at the normal level. */
+    val controlsMainVolume: Boolean get() = isFading && fadeAdvanced
 
     /**
      * Called by [PlaybackService] whenever the main player's playlist changes. Most such
@@ -135,7 +144,8 @@ class CrossfadeController(
         // Self-heal: a fade left the main player silenced only if some path skipped
         // cleanup. Cheap to check every tick, and the alternative is an app that plays
         // nothing until it is restarted.
-        if (mainPlayer.volume != 1f) mainPlayer.volume = 1f
+        val master = masterVolume()
+        if (mainPlayer.volume != master) mainPlayer.volume = master
         if (crossfadeDurationMs <= 0L) return
         if (!mainPlayer.isPlaying) return
         // A repeated single track fading into itself would need to crossfade against
@@ -237,7 +247,7 @@ class CrossfadeController(
         fadeAdvanced = false
         secondary.setMediaItem(MediaItem.fromUri(uri))
         secondary.playWhenReady = false
-        secondary.volume = 1f
+        secondary.volume = masterVolume()
         secondary.seekTo(fadeAtMs)
         secondary.prepare()
 
@@ -303,8 +313,9 @@ class CrossfadeController(
                     // roughly constant through the middle of the fade, unlike a plain
                     // linear ramp on both players (which dips there).
                     val angle = t * HALF_PI
-                    mainPlayer.volume = sin(angle)
-                    secondary.volume = cos(angle)
+                    val master = masterVolume()
+                    mainPlayer.volume = sin(angle) * master
+                    secondary.volume = cos(angle) * master
                 }
             } finally {
                 cleanup()
@@ -326,7 +337,7 @@ class CrossfadeController(
     private fun cleanup() {
         // Never leave the main player at volume 0 - that would silence the app
         // permanently once a fade is interrupted.
-        mainPlayer.volume = 1f
+        mainPlayer.volume = masterVolume()
         secondaryPlayer?.release()
         secondaryPlayer = null
         fadeJob = null

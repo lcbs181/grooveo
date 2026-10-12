@@ -369,7 +369,15 @@ class PlaybackService : MediaLibraryService() {
             },
             scope = serviceScope,
             trackAnalysisDao = trackAnalysisDao,
+            masterVolume = { playerController.sleepFadeVolume.value },
         )
+        // The sleep timer's fade-out. During a crossfade the ramp applies it itself
+        // (masterVolume above) - writing it here too would undo the ramp's levels.
+        serviceScope.launch {
+            playerController.sleepFadeVolume.collect { v ->
+                if (crossfadeController?.controlsMainVolume != true) exoPlayer.volume = v
+            }
+        }
         // Cancels any in-flight fade once something outside CrossfadeController's own
         // control moves the main player on. User commands (skip/seek/previous, whether
         // from the app or the notification/lock screen) are caught where they enter -
