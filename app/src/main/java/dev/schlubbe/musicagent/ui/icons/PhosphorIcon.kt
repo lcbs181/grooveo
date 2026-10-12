@@ -101,6 +101,7 @@ import com.adamglin.phosphoricons.regular.HardDrives
 import com.adamglin.phosphoricons.regular.ShuffleAngular
 import com.adamglin.phosphoricons.regular.SpeakerHigh
 import com.adamglin.phosphoricons.regular.Broadcast
+import com.adamglin.phosphoricons.regular.Headphones
 import com.adamglin.phosphoricons.fill.Cloud
 import com.adamglin.phosphoricons.fill.YoutubeLogo
 import com.adamglin.phosphoricons.fill.Heart
@@ -185,6 +186,7 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "shuffle-angular" -> PhosphorIcons.Regular.ShuffleAngular
         "speaker-high" -> PhosphorIcons.Regular.SpeakerHigh
         "broadcast" -> PhosphorIcons.Regular.Broadcast
+        "headphones" -> PhosphorIcons.Regular.Headphones
         "cloud" -> PhosphorIcons.Regular.Cloud
         "youtube-logo" -> PhosphorIcons.Regular.YoutubeLogo
         "magnifying-glass" -> PhosphorIcons.Regular.MagnifyingGlass

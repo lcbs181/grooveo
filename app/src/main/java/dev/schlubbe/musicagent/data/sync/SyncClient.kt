@@ -2,6 +2,8 @@ package dev.schlubbe.musicagent.data.sync
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.schlubbe.musicagent.data.backup.BackupManager
 import dev.schlubbe.musicagent.data.backup.BackupPayload
@@ -10,6 +12,7 @@ import dev.schlubbe.musicagent.data.backup.SyncTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -80,6 +83,51 @@ class SyncClient @Inject constructor(
             String(answer.json ?: ByteArray(0), Charsets.UTF_8)
         }
     }
+
+    private val rpcIds = AtomicLong()
+
+    /** Calls one of the PC's MCP tools; its JSON result, or null on any error. */
+    suspend fun tool(name: String, args: JsonObject = JsonObject(), timeoutMs: Long = TOOL_TIMEOUT_MS): JsonObject? {
+        val req = JsonObject().apply {
+            addProperty("jsonrpc", "2.0")
+            addProperty("id", rpcIds.incrementAndGet())
+            addProperty("method", "tools/call")
+            add("params", JsonObject().apply { addProperty("name", name); add("arguments", args) })
+        }
+        val text = call(SyncProtocol.MCP_PATH, req.toString(), timeoutMs).getOrNull() ?: return null
+        return runCatching {
+            val result = JsonParser.parseString(text).asJsonObject.getAsJsonObject("result") ?: return null
+            if (result.get("isError")?.asBoolean == true) return null
+            val content = result.getAsJsonArray("content")[0].asJsonObject.get("text").asString
+            JsonParser.parseString(content).asJsonObject
+        }.getOrNull()
+    }
+
+    /** What plays on the PC right now (its `get_now_playing` tool); null when it cannot be reached. */
+    suspend fun pcNowPlaying(): PcNowPlaying? = tool("get_now_playing")?.let(PcNowPlaying::of)
+
+    /**
+     * "Auf dem Handy hören": asks the PC for a ticket to its live mix and returns the stream's
+     * address (scheme [LiveStreamDataSource.SCHEME]). [muteDevice] silences the PC meanwhile.
+     */
+    suspend fun liveStreamUri(muteDevice: Boolean): Result<String> {
+        val req = gson.toJson(mapOf("muteDevice" to muteDevice))
+        return call(SyncProtocol.LIVE_PATH, req, LIVE_TIMEOUT_MS).mapCatching { answer ->
+            val path = gson.fromJson(answer, LiveTicket::class.java)?.path ?: error("Ungültige Antwort vom PC")
+            val p = peer ?: error("PC nicht erreichbar")
+            val host = if (':' in p.host) "[${p.host}]" else p.host
+            "${LiveStreamDataSource.SCHEME}://$host:${p.port}$path"
+        }.recoverCatching { e ->
+            // an older PC app knows the KI tab but not the live stream
+            if (e.message?.contains("KI-Tab") == true) error("Die PC-App kann noch nicht streamen – bitte Grooveo am PC aktualisieren.") else throw e
+        }
+    }
+
+    /** Ends every live stream of the PC (and un-mutes it). */
+    suspend fun stopLiveStream(): Result<Unit> =
+        call(SyncProtocol.LIVE_PATH, gson.toJson(mapOf("stop" to true)), LIVE_TIMEOUT_MS).map { }
+
+    private class LiveTicket(val path: String?)
 
     /** The PC with our key: at its last address, else by broadcast; remembered for [call]. */
     private fun findPeer(keys: SyncProtocol.Keys, key: String): SyncTransport.Peer {
@@ -156,5 +204,23 @@ class SyncClient @Inject constructor(
         private const val HOST = "host"
         private const val PORT = "port"
         private const val TOTAL_TIMEOUT_MS = 120_000L
+        private const val LIVE_TIMEOUT_MS = 15_000L
+        private const val TOOL_TIMEOUT_MS = 20_000L
+    }
+}
+
+/** What plays on the PC, from its `get_now_playing` tool. */
+data class PcNowPlaying(val title: String?, val artist: String?, val playing: Boolean, val artworkUrl: String? = null) {
+    companion object {
+        fun of(o: JsonObject): PcNowPlaying {
+            fun JsonObject.str(k: String) = get(k)?.takeIf { it.isJsonPrimitive }?.asString
+            val t = o.get("track")?.takeIf { it.isJsonObject }?.asJsonObject
+            return PcNowPlaying(
+                title = t?.str("title"),
+                artist = t?.str("artist"),
+                playing = o.get("playing")?.takeIf { it.isJsonPrimitive }?.asBoolean == true,
+                artworkUrl = o.str("artwork_url"),
+            )
+        }
     }
 }

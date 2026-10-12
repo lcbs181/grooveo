@@ -51,6 +51,11 @@ object SyncProtocol {
     const val AI_PATH = "/sync/ai"
     /** MCP tool calls (JSON-RPC: tools/list, tools/call) from the phone to the PC. */
     const val MCP_PATH = "/sync/mcp"
+    /**
+     * "Auf dem Handy hören": a signed POST here returns a ticket ({"path": ...}); a plain GET of
+     * that path is the PC's live mix as an AAC (ADTS) stream.
+     */
+    const val LIVE_PATH = "/sync/live"
     /** Largest request body for [AI_PATH] and [MCP_PATH]. */
     const val MAX_SMALL_SEALED = 256 * 1024
     const val VERSION_HEADER = "X-Grooveo-Sync"

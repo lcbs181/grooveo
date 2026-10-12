@@ -108,8 +108,8 @@ private val PlaybackUiState.wrapsAround: Boolean
 
 /** Whether the app's Next button does anything - mirrors PlayerController.skipToNext. */
 val PlaybackUiState.hasNext: Boolean
-    get() = queueIndex >= 0 && (wrapsAround || upNextIndices.isNotEmpty())
+    get() = isPcLive || queueIndex >= 0 && (wrapsAround || upNextIndices.isNotEmpty())
 
 /** Whether the app's Previous button does anything - mirrors PlayerController.skipToPrevious. */
 val PlaybackUiState.hasPrevious: Boolean
-    get() = queueIndex >= 0 && (wrapsAround || if (shuffledUpNext != null) shuffledHasPrevious else queueIndex > 0)
+    get() = isPcLive || queueIndex >= 0 && (wrapsAround || if (shuffledUpNext != null) shuffledHasPrevious else queueIndex > 0)

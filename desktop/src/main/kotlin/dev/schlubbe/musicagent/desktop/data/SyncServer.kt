@@ -56,6 +56,8 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     private var boundPort = port
     /** Assistant and tools for the phone; null answers those paths with 404. */
     @Volatile var remote: PhoneRemote? = null
+    /** The PC's mix for the phone ([SyncProtocol.LIVE_PATH]); null answers with 404. */
+    @Volatile var live: dev.schlubbe.musicagent.desktop.audio.LiveStream? = null
 
     val running: Boolean get() = http != null
     /** The user wants the server on (it starts again with the app). */
@@ -97,6 +99,7 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
 
     /** Stops the sockets without changing what the user chose (app exit). */
     @Synchronized fun shutdown() {
+        live?.revokeAll()
         http?.stop(0); http = null
         udp?.close(); udp = null
     }
@@ -127,6 +130,8 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         if (!SyncProtocol.isLocalAddress(from)) return reply(ex, 403, "local network only")
         val ip = from.hostAddress
         if (isLocked(ip)) return reply(ex, 429, "locked")
+        // the audio itself: a plain GET (the phone's player cannot sign), allowed by the ticket in the path
+        if (ex.requestURI.path.startsWith(LiveStreamPrefix)) return serveLive(ex, ip)
         if (ex.requestHeaders.getFirst(SyncProtocol.VERSION_HEADER) != SyncProtocol.VERSION.toString()) return reply(ex, 426, SyncProtocol.UPDATE_BOTH)
         val nonce = ex.requestHeaders.getFirst(SyncProtocol.NONCE_HEADER)?.takeIf { SyncProtocol.isNonce(it) }
             ?: return reply(ex, 400, "bad nonce")
@@ -138,6 +143,19 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
                     SyncMerge.merge(backup.payload(), theirs).also { backup.applySynced(it); lastSyncAt = System.currentTimeMillis() }
                 }
                 gson.toJson(merged).toByteArray(Charsets.UTF_8)
+            }
+            SyncProtocol.LIVE_PATH -> {
+                val l = live ?: return reply(ex, 404, "not found")
+                sealed(ex, ip, nonce, SyncProtocol.LIVE_PATH, SyncProtocol.MAX_SMALL_SEALED) { json ->
+                    val req = runCatching { gson.fromJson(String(json, Charsets.UTF_8), LiveRequest::class.java) }.getOrNull() ?: return@sealed null
+                    if (req.stop) {
+                        l.revokeAll()
+                        "{}".toByteArray()
+                    } else {
+                        val t = l.ticket(muteDevice = req.muteDevice)
+                        gson.toJson(mapOf("path" to LiveStreamPrefix + t.token, "bitrate" to dev.schlubbe.musicagent.desktop.audio.LiveStream.BITRATE)).toByteArray()
+                    }
+                }
             }
             SyncProtocol.AI_PATH, SyncProtocol.MCP_PATH -> {
                 val r = remote ?: return reply(ex, 404, "not found")
@@ -176,6 +194,33 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         send(ex, 200, out, "application/octet-stream")
     }
 
+    private class LiveRequest(val muteDevice: Boolean = false, val stop: Boolean = false)
+
+    /**
+     * Streams the live mix on its own thread (it runs for as long as the phone listens, and
+     * must not take one of the few request threads). A wrong ticket counts as a bad signature.
+     */
+    private fun serveLive(ex: HttpExchange, ip: String) {
+        val l = live ?: return reply(ex, 404, "not found")
+        val token = ex.requestURI.path.removePrefix(LiveStreamPrefix)
+        if (ex.requestMethod != "GET" || !TICKET.matches(token) || !l.isValid(token)) {
+            strike(ip)
+            return reply(ex, 404, "not found")
+        }
+        Thread({
+            try {
+                ex.responseHeaders.add("Content-Type", "audio/aac")
+                ex.responseHeaders.add("Cache-Control", "no-store")
+                // a fixed, huge length instead of chunked encoding: the phone reads it as a plain endless body
+                ex.sendResponseHeaders(200, LIVE_LENGTH)
+                ex.responseBody.use { l.serve(token, it) }
+            } catch (_: Exception) {
+            } finally {
+                ex.close()
+            }
+        }, "sync-live").apply { isDaemon = true; start() }
+    }
+
     private fun isLocked(ip: String) = synchronized(strikes) { (strikes[ip]?.lockedUntil ?: 0) > System.currentTimeMillis() }
 
     private fun strike(ip: String) = synchronized(strikes) {
@@ -199,6 +244,9 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
         const val MAX_FAILURES = 5
         const val LOCK_MS = 30_000L
         const val THREADS = 4
+        private const val LiveStreamPrefix = SyncProtocol.LIVE_PATH + "/"
+        private val TICKET = Regex("[0-9a-f]{32}")
+        private const val LIVE_LENGTH = 1L shl 52
 
         /** First private IPv4 address of this machine (the one the phone can reach). */
         fun localAddress(): String? = runCatching {

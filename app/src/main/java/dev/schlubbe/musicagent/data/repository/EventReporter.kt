@@ -19,6 +19,8 @@ class EventReporter @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private fun send(event: EventCreateDto) {
+        // the PC's live mix is no track of its own
+        if (event.track?.source == "pc") return
         scope.launch { runCatching { backendApi.recordEvent(event) } }
     }
 

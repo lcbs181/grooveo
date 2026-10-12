@@ -225,4 +225,44 @@ class SyncTest {
         val b = BackupPayload(createdAt = "x", likes = listOf(dto(track("t"), "2026-01-01T00:00:00Z")), settings = settings)
         assertEquals("2026-01-01T00:00:00Z", SyncMerge.merge(a, b).likes.single().likedAt)
     }
+
+    @Test fun `the phone gets a ticket over the signed path and then the live mix`() {
+        val (_, _, server) = pc()
+        val engine = dev.schlubbe.musicagent.desktop.audio.AudioEngine(
+            { dev.schlubbe.musicagent.desktop.audio.FakeDeck(30.0) }, dev.schlubbe.musicagent.desktop.audio.CaptureSink(),
+        )
+        val live = dev.schlubbe.musicagent.desktop.audio.LiveStream(engine).also { engine.liveTap = it::tap }
+        server.live = live
+        server.start()
+        try {
+            // without a ticket: nothing
+            assertEquals(404, rawStatus(server, "127.0.0.1", "GET /sync/live/${"0".repeat(32)} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
+            val keys = SyncProtocol.keys(server.key)
+            val a = SyncTransport.call(peer(server), keys, SyncProtocol.LIVE_PATH, "{\"muteDevice\":true}".toByteArray(), System.currentTimeMillis() + 10_000)
+            assertEquals(200, a.status)
+            val path = com.google.gson.JsonParser.parseString(a.json!!.decodeToString()).asJsonObject.get("path").asString
+            assertTrue(path.startsWith(SyncProtocol.LIVE_PATH + "/"))
+            Socket().use { s ->
+                s.connect(InetSocketAddress("127.0.0.1", server.boundPortOrDefault), 2000)
+                s.soTimeout = 5000
+                s.getOutputStream().write("GET $path HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".toByteArray())
+                val inp = java.io.BufferedInputStream(s.getInputStream())
+                val head = StringBuilder()
+                while (!head.endsWith("\r\n\r\n")) head.append(inp.read().toChar())
+                assertTrue(head.startsWith("HTTP/1.1 200"), head.toString())
+                assertTrue("audio/aac" in head.toString().lowercase())
+                // the PC is paused: silence, encoded, arrives anyway
+                val first = ByteArray(2).also { var n = 0; while (n < 2) n += inp.read(it, n, 2 - n) }
+                assertEquals(0xFF, first[0].toInt() and 0xFF)
+                assertEquals(0xF0, first[1].toInt() and 0xF0)
+                assertTrue(engine.deviceMuted)
+            }
+            // the phone stops: the ticket is gone and the PC plays aloud again
+            assertEquals(200, SyncTransport.call(peer(server), keys, SyncProtocol.LIVE_PATH, "{\"stop\":true}".toByteArray(), System.currentTimeMillis() + 10_000).status)
+            val end = System.currentTimeMillis() + 3000
+            while (engine.deviceMuted && System.currentTimeMillis() < end) Thread.sleep(20)
+            assertFalse(engine.deviceMuted)
+            assertEquals(404, rawStatus(server, "127.0.0.1", "GET $path HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
+        } finally { server.stop(); engine.close() }
+    }
 }

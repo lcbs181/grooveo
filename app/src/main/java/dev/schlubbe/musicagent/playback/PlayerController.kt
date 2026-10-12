@@ -71,6 +71,14 @@ private const val EXTEND_BATCH_SIZE = 8
  * weighted so heavily over the user's lifetime history. */
 private const val SESSION_CONTEXT_SIZE = 5
 
+/** Source of the PC's live mix ([PlayerController.playPcLive]); never liked, downloaded or reported. */
+const val PC_LIVE_SOURCE = "pc"
+private const val PC_LIVE_SOURCE_ID = "live"
+const val PC_LIVE_ID = "$PC_LIVE_SOURCE:$PC_LIVE_SOURCE_ID"
+
+/** Whether the PC's live mix plays (no seeking, no duration). */
+val PlaybackUiState.isPcLive: Boolean get() = currentTrackId == PC_LIVE_ID
+
 data class PlaybackUiState(
     val isPlaying: Boolean = false,
     // playWhenReady: true the moment play() is issued, before buffering finishes.
@@ -1139,6 +1147,7 @@ class PlayerController @Inject constructor(
 
     /** Moves one track on in the play order, past any that cannot play (named in a toast). */
     private suspend fun skip(forward: Boolean) {
+        if (isPlayingPcLive) { pcLiveSkip?.invoke(forward); return }
         val mediaController = ensureConnectedOrReportError() ?: return
         val skipped = ArrayList<TrackResultDto>()
         var candidate = if (forward) nextLogicalIndex() else previousLogicalIndex()
@@ -1300,6 +1309,7 @@ class PlayerController @Inject constructor(
      * offset-restart-only pipe. So this is just a plain seek, unlike the old
      * source-dependent branching. */
     suspend fun seekTo(positionMs: Long) {
+        if (isPlayingPcLive) return // live: nothing to seek in
         ensureConnectedOrReportError()?.seekTo(positionMs)
     }
 
@@ -1344,7 +1354,94 @@ class PlayerController @Inject constructor(
     fun currentDurationMs(): Long =
         controller?.duration?.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
 
-    fun nowPlayingTrack(): TrackResultDto? = currentTrack
+    /** The current track; null for the PC's live mix, which cannot be liked, downloaded or followed. */
+    fun nowPlayingTrack(): TrackResultDto? = currentTrack?.takeUnless { it.source == PC_LIVE_SOURCE }
+
+    /** Address of the PC's live mix while it plays (see [playPcLive]). */
+    private var pcLiveUri: String? = null
+
+    /**
+     * "Auf dem Handy hören": plays the PC's live mix from [uri]
+     * ([dev.schlubbe.musicagent.data.sync.SyncClient.liveStreamUri]) as a single, endless item.
+     * [title] and [artist] are what the PC plays; [updatePcLive] keeps them current.
+     */
+    suspend fun playPcLive(uri: String, title: String?, artist: String?, artworkUrl: String?) {
+        val myGeneration = ++playRequestGeneration
+        resetPlaybackErrorState()
+        val mediaController = ensureConnected()
+        if (myGeneration != playRequestGeneration) return
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+        val track = pcLiveTrack(title, artist, artworkUrl)
+        pcLiveUri = uri
+        currentQueue = listOf(track)
+        exoIndexForLogical = listOf(0)
+        currentQueueIndex = 0
+        currentTrack = track
+        currentTrackCompleted = false
+        _playbackState.value = _playbackState.value.copy(
+            isLoading = false,
+            loadingTrackId = null,
+            title = track.title,
+            artist = track.artist,
+            artworkUrl = track.thumbnailUrl,
+            durationMs = 0L,
+            currentTrackId = PC_LIVE_ID,
+            queue = listOf(track),
+            queueIndex = 0,
+            isLocalPlayback = false,
+            hasLocalDownload = false,
+            isUnavailable = false,
+            unavailableMessage = null,
+        )
+        mediaController.setMediaItem(buildMediaItem(track, ResolvedStream(url = uri, isHls = false)))
+        mediaController.prepare()
+        mediaController.play()
+    }
+
+    /** Shows what the PC plays now, while its live mix is playing here; without a gap in the audio. */
+    fun updatePcLive(title: String?, artist: String?, artworkUrl: String?) {
+        val uri = pcLiveUri ?: return
+        if (currentTrack?.source != PC_LIVE_SOURCE) return
+        val track = pcLiveTrack(title, artist, artworkUrl)
+        if (track == currentTrack) return
+        currentTrack = track
+        currentQueue = listOf(track)
+        _playbackState.value = _playbackState.value.copy(
+            title = track.title,
+            artist = track.artist,
+            artworkUrl = track.thumbnailUrl,
+            queue = listOf(track),
+        )
+        // same URI: the player keeps the running stream and only takes the new metadata
+        controller?.takeIf { it.mediaItemCount == 1 }?.replaceMediaItem(0, buildMediaItem(track, ResolvedStream(url = uri, isHls = false)))
+    }
+
+    /** Next (true) or Previous on the phone while the PC's live mix plays: skips on the PC. */
+    var pcLiveSkip: ((forward: Boolean) -> Unit)? = null
+
+    /** Opens the PC's live mix afresh (after a pause, so it is live again rather than behind). */
+    suspend fun restartPcLive() {
+        val uri = pcLiveUri ?: return
+        val track = currentTrack?.takeIf { it.source == PC_LIVE_SOURCE } ?: return
+        val mediaController = ensureConnectedOrReportError() ?: return
+        mediaController.setMediaItem(buildMediaItem(track, ResolvedStream(url = uri, isHls = false)))
+        mediaController.prepare()
+        mediaController.play()
+    }
+
+    /** Whether the PC's live mix is what plays. */
+    val isPlayingPcLive: Boolean get() = currentTrack?.source == PC_LIVE_SOURCE
+
+    private fun pcLiveTrack(title: String?, artist: String?, artworkUrl: String?) = TrackResultDto(
+        source = PC_LIVE_SOURCE,
+        sourceId = PC_LIVE_SOURCE_ID,
+        title = title ?: "Live vom PC",
+        artist = artist?.let { "$it · vom PC" } ?: "Grooveo am PC",
+        album = null,
+        durationSec = null,
+        thumbnailUrl = artworkUrl,
+        webpageUrl = "",
+    )
 
     // Whether the current item's own URI is a local file/content uri rather than a
     // network stream. Derived from the actual loaded MediaItem (not a hand-tracked

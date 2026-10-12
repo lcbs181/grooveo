@@ -559,6 +559,10 @@ class AudioEngine(
     }
 
     private var lastGain = Float.NaN
+    /** Receives every finished block before the volume (the phone's live stream); mixer thread. */
+    @Volatile var liveTap: ((FloatArray, Int) -> Unit)? = null
+    /** Silences the PC's own output (a phone listens instead); glides like the volume. */
+    @Volatile var deviceMuted = false
 
     private fun output(buf: FloatArray) {
         if (lastGain.isNaN()) lastGain = volume.coerceIn(0f, 1f).let { it * it * it }
@@ -570,7 +574,9 @@ class AudioEngine(
         // the room comes before the EQ and its limiter, so the limiter also catches the reverb's peaks
         reverb.process(buf)
         equalizer.process(buf, BLOCK)
-        val v = volume.coerceIn(0f, 1f)
+        // "Auf dem Handy hören" gets the finished mix before the PC's own volume
+        liveTap?.invoke(buf, BLOCK)
+        val v = if (deviceMuted) 0f else volume.coerceIn(0f, 1f)
         val g = v * v * v // perceptual curve
         // ramped over the block: dragging the slider or muting must not zipper or click
         val g0 = lastGain

@@ -174,6 +174,7 @@ class GrooveoTools(
         val e = g.player.engineState.value
         return mapOf(
             "track" to q.current?.let(::view),
+            "artwork_url" to q.current?.thumbnailUrl,
             "playing" to e.playing,
             "buffering" to (e.buffering || q.resolving),
             "position_sec" to e.positionSec,

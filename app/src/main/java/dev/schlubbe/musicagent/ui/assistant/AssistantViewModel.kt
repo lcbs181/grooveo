@@ -5,10 +5,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.schlubbe.musicagent.data.backup.SyncProtocol
 import dev.schlubbe.musicagent.data.sync.RemoteAi
+import dev.schlubbe.musicagent.data.sync.PcNowPlaying
+import dev.schlubbe.musicagent.playback.PcLivePlayer
+import dev.schlubbe.musicagent.playback.PlayerController
+import dev.schlubbe.musicagent.playback.isPcLive
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import dev.schlubbe.musicagent.data.sync.SyncClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,11 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
-
-/** What plays on the PC, from its `get_now_playing` tool. */
-data class PcNowPlaying(val title: String?, val artist: String?, val playing: Boolean)
 
 data class AssistantUiState(
     val paired: Boolean = false,
@@ -29,6 +32,8 @@ data class AssistantUiState(
     /** Why the PC cannot be reached right now. */
     val error: String? = null,
     val nowPlaying: PcNowPlaying? = null,
+    /** Waiting for the PC to start the stream. */
+    val startingLive: Boolean = false,
 )
 
 /**
@@ -40,9 +45,10 @@ data class AssistantUiState(
 @HiltViewModel
 class AssistantViewModel @Inject constructor(
     private val sync: SyncClient,
+    private val pcLive: PcLivePlayer,
+    player: PlayerController,
 ) : ViewModel() {
     private val gson = Gson()
-    private val rpcIds = AtomicLong()
     private val _state = MutableStateFlow(AssistantUiState(paired = sync.isPaired))
     val state: StateFlow<AssistantUiState> = _state.asStateFlow()
 
@@ -91,6 +97,24 @@ class AssistantViewModel @Inject constructor(
     fun deleteChat(id: String) = op(RemoteAi.Request(RemoteAi.Op.DELETE, chat = id))
 
     /** Play/pause, next, previous on the PC. */
+    /** Whether the PC's mix plays here, for the PC bar. */
+    val listening: StateFlow<Boolean> = player.playbackState.map { it.isPcLive }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** "Auf dem Handy hören"; [muteDevice] silences the PC meanwhile. */
+    fun listenOnPhone(muteDevice: Boolean) {
+        if (_state.value.startingLive) return
+        _state.update { it.copy(startingLive = true) }
+        viewModelScope.launch {
+            val r = pcLive.start(muteDevice)
+            _state.update { it.copy(startingLive = false, error = r.exceptionOrNull()?.let { e -> e.message ?: "Stream konnte nicht starten" }) }
+        }
+    }
+
+    fun stopListening() {
+        viewModelScope.launch { pcLive.stop() }
+    }
+
     fun playback(action: String) {
         viewModelScope.launch {
             tool("playback", JsonObject().apply { addProperty("action", action) })?.let(::applyNowPlaying)
@@ -123,32 +147,11 @@ class AssistantViewModel @Inject constructor(
     }
 
     private fun applyNowPlaying(o: JsonObject) {
-        val t = o.get("track")?.takeIf { it.isJsonObject }?.asJsonObject
-        _state.update {
-            it.copy(nowPlaying = PcNowPlaying(
-                title = t?.get("title")?.takeIf { e -> e.isJsonPrimitive }?.asString,
-                artist = t?.get("artist")?.takeIf { e -> e.isJsonPrimitive }?.asString,
-                playing = o.get("playing")?.takeIf { e -> e.isJsonPrimitive }?.asBoolean == true,
-            ))
-        }
+        _state.update { it.copy(nowPlaying = PcNowPlaying.of(o)) }
     }
 
     /** Calls one of the PC's MCP tools; its JSON result, or null on any error. */
-    private suspend fun tool(name: String, args: JsonObject): JsonObject? {
-        val req = JsonObject().apply {
-            addProperty("jsonrpc", "2.0")
-            addProperty("id", rpcIds.incrementAndGet())
-            addProperty("method", "tools/call")
-            add("params", JsonObject().apply { addProperty("name", name); add("arguments", args) })
-        }
-        val text = sync.call(SyncProtocol.MCP_PATH, req.toString(), OP_TIMEOUT_MS).getOrNull() ?: return null
-        return runCatching {
-            val result = JsonParser.parseString(text).asJsonObject.getAsJsonObject("result") ?: return null
-            if (result.get("isError")?.asBoolean == true) return null
-            val content = result.getAsJsonArray("content")[0].asJsonObject.get("text").asString
-            JsonParser.parseString(content).asJsonObject
-        }.getOrNull()
-    }
+    private suspend fun tool(name: String, args: JsonObject): JsonObject? = sync.tool(name, args, OP_TIMEOUT_MS)
 
     private companion object {
         const val OP_TIMEOUT_MS = 20_000L

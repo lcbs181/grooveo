@@ -29,6 +29,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.schlubbe.musicagent.data.sync.PcNowPlaying
 import dev.schlubbe.musicagent.data.sync.RemoteAi
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
@@ -130,7 +133,16 @@ fun AssistantScreen(onOpenSettings: () -> Unit, viewModel: AssistantViewModel = 
             return@Column
         }
 
-        ui.nowPlaying?.let { np -> PcPlayer(np, viewModel::playback) }
+        val listening by viewModel.listening.collectAsState()
+        ui.nowPlaying?.let { np ->
+            PcPlayer(
+                np, viewModel::playback,
+                listening = listening,
+                starting = ui.startingLive,
+                onListen = viewModel::listenOnPhone,
+                onStopListening = viewModel::stopListening,
+            )
+        }
         ui.error?.let { err ->
             Text(
                 err,
@@ -304,7 +316,15 @@ private fun NotPaired(onOpenSettings: () -> Unit) {
 }
 
 @Composable
-private fun PcPlayer(np: PcNowPlaying, playback: (String) -> Unit) {
+private fun PcPlayer(
+    np: PcNowPlaying,
+    playback: (String) -> Unit,
+    listening: Boolean,
+    starting: Boolean,
+    onListen: (muteDevice: Boolean) -> Unit,
+    onStopListening: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clip(CanopyShapes.medium)
             .background(Canopy.surface).border(1.dp, Canopy.divider, CanopyShapes.medium)
@@ -319,6 +339,30 @@ private fun PcPlayer(np: PcNowPlaying, playback: (String) -> Unit) {
         CanopyIconButton(phosphorIcon("skip-back"), onClick = { playback("previous") }, size = 36.dp, contentDescription = "Zurück")
         CanopyIconButton(phosphorIcon(if (np.playing) "pause" else "play", filled = true), onClick = { playback("toggle") }, size = 36.dp, contentDescription = if (np.playing) "Pause" else "Abspielen")
         CanopyIconButton(phosphorIcon("skip-forward"), onClick = { playback("next") }, size = 36.dp, contentDescription = "Weiter")
+        // "Auf dem Handy hören": the PC's mix, transitions and all, live on the phone
+        Box {
+            if (starting) {
+                CircularProgressIndicator(Modifier.padding(9.dp).size(18.dp), color = Canopy.accent, strokeWidth = 2.dp)
+            } else {
+                CanopyIconButton(
+                    phosphorIcon("headphones"),
+                    onClick = { if (listening) onStopListening() else menu = true },
+                    size = 36.dp,
+                    variant = if (listening) CanopyButtonVariant.Primary else CanopyButtonVariant.Ghost,
+                    contentDescription = if (listening) "Nicht mehr auf dem Handy hören" else "Auf dem Handy hören",
+                )
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Auf dem Handy hören") },
+                    onClick = { menu = false; onListen(false) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Nur auf dem Handy (PC stumm)") },
+                    onClick = { menu = false; onListen(true) },
+                )
+            }
+        }
     }
 }
 

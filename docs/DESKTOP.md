@@ -258,6 +258,18 @@ answered on either device.
   with the same tools as the MCP server. The phone uses it for the small player
   bar (what plays on the PC, play/pause, skip). Tools that delete data are not
   offered there; they only run through the assistant, which asks first.
+- `POST /sync/live`: "Auf dem Handy hören" (headphones button in the KI tab's
+  PC bar). It returns a ticket path, and a plain `GET` of that path is the
+  PC's finished mix as a live AAC stream (ADTS, 256 kbit/s): DJ transitions,
+  FX, EQ and limiter, before the PC's volume (`audio/LiveStream.kt`). The
+  ticket is a random 128-bit value. It ends with `{"stop": true}`, with the
+  app, or 10 minutes after the last listener left. The audio itself is not
+  encrypted, only the ticket request is. While the PC is paused the stream
+  carries silence. With "PC stumm" the PC's own output is silent while a
+  phone listens, and pausing on the phone pauses the PC. On the phone,
+  Next/Previous skip on the PC and the title follows the PC every 4 s. The
+  phone reads the stream through its own LAN-only socket reader
+  (`LiveStreamDataSource`), since Android blocks cleartext HTTP.
 - Both paths use the sync protocol's signed, encrypted requests and need the
   sync server switched on. Settings → KI-Assistent → "KI vom Handy" switches
   them off.

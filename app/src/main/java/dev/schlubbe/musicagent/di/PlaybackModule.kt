@@ -6,6 +6,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import dagger.Module
+import dev.schlubbe.musicagent.data.sync.LiveStreamDataSource
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,7 +28,8 @@ object PlaybackModule {
         // playback despite the file itself being fine (playable in any other app).
         // DefaultDataSource.Factory keeps OkHttp for http(s) streaming and falls back
         // to Android's own ContentDataSource/FileDataSource for everything else.
-        val dataSourceFactory = DefaultDataSource.Factory(context, okHttpDataSourceFactory)
+        // The PC's live mix ("Auf dem Handy hören") comes over its own LAN-only reader.
+        val dataSourceFactory = LiveStreamDataSource.Factory(DefaultDataSource.Factory(context, okHttpDataSourceFactory))
         return DefaultMediaSourceFactory(dataSourceFactory)
     }
 }
