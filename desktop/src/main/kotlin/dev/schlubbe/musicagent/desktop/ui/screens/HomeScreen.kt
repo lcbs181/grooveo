@@ -66,6 +66,7 @@ import dev.schlubbe.musicagent.desktop.ui.Cover
 import dev.schlubbe.musicagent.desktop.ui.IconBtn
 import dev.schlubbe.musicagent.desktop.ui.LibraryTab
 import dev.schlubbe.musicagent.desktop.ui.LocalUi
+import dev.schlubbe.musicagent.desktop.ui.engineValue
 import dev.schlubbe.musicagent.desktop.ui.Pill
 import dev.schlubbe.musicagent.desktop.ui.PrimaryButton
 import dev.schlubbe.musicagent.desktop.ui.Route
@@ -356,12 +357,14 @@ private fun ResumeCard(lastPlayed: TrackResultDto?, history: List<TrackResultDto
     val g = ui.graph
     val c = C.c
     val q by g.player.state.collectAsState()
-    val e by g.player.engineState.collectAsState()
+    // the position is read only by the progress bar below, so the card does not recompose with it
+    val playing by g.player.engineValue { it.playing }
+    val pastStart by g.player.engineValue { it.positionSec >= 5.0 }
+    val engineDur by g.player.engineValue { it.durationSec }
     val current = q.current
     val t = current ?: lastPlayed ?: return
-    val positionMs = if (current != null) (e.positionSec * 1000).toLong() else 0L
-    val label = HomeLogic.resumeStatusLabel(current != null && e.playing, positionMs)
-    val dur = e.durationSec?.takeIf { current != null && it > 0 } ?: t.durationSec?.toDouble()
+    val label = HomeLogic.resumeStatusLabel(current != null && playing, if (current != null && pastStart) 5_000L else 0L)
+    val dur = engineDur?.takeIf { current != null && it > 0 } ?: t.durationSec?.toDouble()
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
     val action = { if (current != null) g.player.togglePlay() else g.player.playQueue(history, 0) }
@@ -380,11 +383,7 @@ private fun ResumeCard(lastPlayed: TrackResultDto?, history: List<TrackResultDto
                 Text(listOfNotNull(t.artist, sourceLabel(t.source)).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1)
                 if (current != null && dur != null && dur > 0) {
                     Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { (e.positionSec / dur).toFloat().coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth(0.6f).height(4.dp).clip(RoundedCornerShape(2.dp)),
-                        color = c.accent, trackColor = c.divider, drawStopIndicator = {},
-                    )
+                    ResumeProgress(dur)
                 }
             }
             Spacer(Modifier.width(12.dp))
@@ -392,10 +391,21 @@ private fun ResumeCard(lastPlayed: TrackResultDto?, history: List<TrackResultDto
                 Modifier.size(52.dp).clip(CircleShape).background(c.accent2).clickable(onClick = action),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(if (current != null && e.playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play, if (e.playing) "Pause" else "Abspielen", tint = Color.White, modifier = Modifier.size(22.dp))
+                Icon(if (current != null && playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play, if (playing) "Pause" else "Abspielen", tint = Color.White, modifier = Modifier.size(22.dp))
             }
         }
     }
+}
+
+@Composable
+private fun ResumeProgress(dur: Double) {
+    val c = C.c
+    val e by LocalUi.current.graph.player.engineState.collectAsState()
+    LinearProgressIndicator(
+        progress = { (e.positionSec / dur).toFloat().coerceIn(0f, 1f) },
+        modifier = Modifier.fillMaxWidth(0.6f).height(4.dp).clip(RoundedCornerShape(2.dp)),
+        color = c.accent, trackColor = c.divider, drawStopIndicator = {},
+    )
 }
 
 @Composable

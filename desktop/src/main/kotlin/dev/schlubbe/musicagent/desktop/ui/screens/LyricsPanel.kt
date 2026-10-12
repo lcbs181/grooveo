@@ -42,6 +42,7 @@ import dev.schlubbe.musicagent.desktop.ui.EmptyState
 import dev.schlubbe.musicagent.desktop.ui.IconBtn
 import dev.schlubbe.musicagent.desktop.ui.LoadingBox
 import dev.schlubbe.musicagent.desktop.ui.LocalUi
+import dev.schlubbe.musicagent.desktop.ui.engineValue
 import dev.schlubbe.musicagent.desktop.ui.SidePanel
 
 /** Index of the line being sung at [posMs] (last line with timeMs <= pos), -1 before the first line. Binary search. */
@@ -104,8 +105,7 @@ fun LyricsPanel(modifier: Modifier = Modifier) {
 private fun SyncedLyrics(lines: List<LyricLine>) {
     val g = LocalUi.current.graph
     val c = C.c
-    val e by g.player.engineState.collectAsState()
-    val active = activeLyricIndex(lines, (e.positionSec * 1000).toLong() + 250)
+    val active by g.player.engineValue(lines) { activeLyricIndex(lines, (it.positionSec * 1000).toLong() + 250) }
     val list = rememberLazyListState()
     var userScrolledAt by remember { mutableStateOf(0L) }
     val auto = remember { booleanArrayOf(false) }

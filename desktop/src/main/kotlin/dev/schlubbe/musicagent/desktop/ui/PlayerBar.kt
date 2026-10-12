@@ -22,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,11 @@ import com.adamglin.phosphoricons.regular.SpeakerLow
 import com.adamglin.phosphoricons.regular.SpeakerX
 import com.adamglin.phosphoricons.regular.Timer
 import dev.schlubbe.musicagent.desktop.data.key
+import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import dev.schlubbe.musicagent.desktop.audio.EngineState
+import dev.schlubbe.musicagent.desktop.playback.PlayerController
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import dev.schlubbe.musicagent.desktop.playback.RepeatMode
 import kotlin.math.abs
 import kotlin.math.sin
@@ -141,15 +147,27 @@ fun VolumeControl(modifier: Modifier = Modifier, sliderWidth: Dp = 110.dp) {
     }
 }
 
+/**
+ * One value of the engine state that recomposes only when it changes; the state itself
+ * changes about 12 times a second with the position. [pick] is kept until [key] changes,
+ * so whatever else it reads must be in [key].
+ */
+@Composable
+fun <T> PlayerController.engineValue(key: Any? = null, pick: (EngineState) -> T): State<T> {
+    val flow = remember(this, key) { engineState.map(pick).distinctUntilChanged() }
+    return flow.collectAsState(pick(engineState.value))
+}
+
 @Composable
 fun PlayPauseButton(size: Dp = 44.dp) {
     val g = LocalUi.current.graph
-    val e by g.player.engineState.collectAsState()
+    val playing by g.player.engineValue { it.playing }
+    val buffering by g.player.engineValue { it.buffering }
     val q by g.player.state.collectAsState()
     val c = C.c
     Box(Modifier.size(size).clip(CircleShape).background(c.text).clickable { g.player.togglePlay() }, contentAlignment = Alignment.Center) {
-        if (q.resolving || (e.buffering && e.playing)) CircularProgressIndicator(Modifier.size(size), color = c.accent2, strokeWidth = 2.dp)
-        Icon(if (e.playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play, if (e.playing) "Pause" else "Abspielen", tint = c.bg, modifier = Modifier.size(size * 0.42f))
+        if (q.resolving || (buffering && playing)) CircularProgressIndicator(Modifier.size(size), color = c.accent2, strokeWidth = 2.dp)
+        Icon(if (playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play, if (playing) "Pause" else "Abspielen", tint = c.bg, modifier = Modifier.size(size * 0.42f))
     }
 }
 
@@ -171,13 +189,25 @@ fun TransportControls(big: Boolean = false) {
     }
 }
 
+/** Position, seek bar and length: the only part of the bar that follows the position. */
+@Composable
+private fun NowPlayingSeek(t: TrackResultDto?, style: String) {
+    val g = LocalUi.current.graph
+    val c = C.c
+    val e by g.player.engineState.collectAsState()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(formatDuration(e.positionSec), style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.width(44.dp))
+        SeekBar(e.positionSec, e.durationSec ?: t?.durationSec?.toDouble(), t?.key ?: "", style, Modifier.weight(1f), height = 22.dp) { g.player.seek(it) }
+        Text(formatDuration(e.durationSec ?: t?.durationSec?.toDouble()), style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.width(44.dp).padding(start = 8.dp))
+    }
+}
+
 @Composable
 fun NowPlayingBar(modifier: Modifier = Modifier) {
     val ui = LocalUi.current
     val g = ui.graph
     val c = C.c
     val q by g.player.state.collectAsState()
-    val e by g.player.engineState.collectAsState()
     val settings by g.settings.state.collectAsState()
     val data by g.store.data.collectAsState()
     val t = q.current
@@ -205,11 +235,7 @@ fun NowPlayingBar(modifier: Modifier = Modifier) {
         }
         Column(Modifier.weight(1.4f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             TransportControls()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatDuration(e.positionSec), style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.width(44.dp))
-                SeekBar(e.positionSec, e.durationSec ?: t?.durationSec?.toDouble(), t?.key ?: "", settings.playerStyle, Modifier.weight(1f), height = 22.dp) { g.player.seek(it) }
-                Text(formatDuration(e.durationSec ?: t?.durationSec?.toDouble()), style = MaterialTheme.typography.labelSmall, color = c.textFaint, modifier = Modifier.width(44.dp).padding(start = 8.dp))
-            }
+            NowPlayingSeek(t, settings.playerStyle)
         }
         Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             if (q.sleepTimerEndAt != null) Icon(PhosphorIcons.Regular.Timer, "Sleep-Timer aktiv", tint = c.accent2, modifier = Modifier.size(18.dp).padding(end = 4.dp))

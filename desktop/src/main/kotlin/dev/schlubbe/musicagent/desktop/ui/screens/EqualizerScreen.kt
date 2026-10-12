@@ -88,6 +88,7 @@ import dev.schlubbe.musicagent.desktop.audio.SpectrumAnalyzer
 import dev.schlubbe.musicagent.desktop.ui.C
 import dev.schlubbe.musicagent.desktop.ui.IconBtn
 import dev.schlubbe.musicagent.desktop.ui.LocalUi
+import dev.schlubbe.musicagent.desktop.ui.engineValue
 import dev.schlubbe.musicagent.desktop.ui.Panel
 import dev.schlubbe.musicagent.desktop.ui.Pill
 import dev.schlubbe.musicagent.desktop.ui.PrimaryButton
@@ -242,9 +243,9 @@ private fun ResponseGraph(eq: EqProfile, selected: Int, onSelect: (Int) -> Unit,
     val c = C.c
     val measurer = rememberTextMeasurer()
     var spectrum by remember { mutableStateOf(FloatArray(SpectrumAnalyzer.BANDS)) }
-    val engine by g.player.engineState.collectAsState()
-    LaunchedEffect(engine.playing) {
-        while (engine.playing) withFrameNanos { spectrum = g.player.spectrum.latest.bands }
+    val playing by g.player.engineValue { it.playing }
+    LaunchedEffect(playing) {
+        while (playing) withFrameNanos { spectrum = g.player.spectrum.latest.bands }
     }
     var dragging by remember { mutableStateOf<Int?>(null) }
     var menuFor by remember { mutableStateOf<Int?>(null) }

@@ -35,6 +35,7 @@ import dev.schlubbe.musicagent.desktop.ui.AppShell
 import dev.schlubbe.musicagent.desktop.ui.AppUi
 import dev.schlubbe.musicagent.desktop.ui.GrooveoTheme
 import dev.schlubbe.musicagent.desktop.ui.LocalUi
+import dev.schlubbe.musicagent.desktop.ui.engineValue
 import dev.schlubbe.musicagent.desktop.ui.Route
 import dev.schlubbe.musicagent.desktop.mpris.Mpris
 import okio.Path.Companion.toOkioPath
@@ -50,7 +51,8 @@ fun main() {
         val settings by graph.settings.state.collectAsState()
         val windowState = rememberWindowState(size = DpSize(1360.dp, 860.dp), position = WindowPosition.PlatformDefault)
         val q by graph.player.state.collectAsState()
-        val e by graph.player.engineState.collectAsState()
+        // only "playing": the full engine state changes with every position tick
+        val playing by graph.player.engineValue { it.playing }
         val quit = {
             mpris?.close()
             graph.close()
@@ -79,7 +81,7 @@ fun main() {
             tooltip = q.current?.let { "${it.title} – ${it.artist ?: ""}" } ?: "Grooveo",
             onAction = { ui.windowVisible = true },
             menu = {
-                Item(if (e.playing) "Pause" else "Abspielen", onClick = graph.player::togglePlay)
+                Item(if (playing) "Pause" else "Abspielen", onClick = graph.player::togglePlay)
                 Item("Weiter", onClick = graph.player::next)
                 Item("Zurück", onClick = graph.player::previous)
                 Separator()
@@ -88,7 +90,7 @@ fun main() {
             },
         )
         Window(
-            onCloseRequest = { if (settings.minimizeToTray && q.current != null && e.playing) ui.windowVisible = false else quit() },
+            onCloseRequest = { if (settings.minimizeToTray && q.current != null && playing) ui.windowVisible = false else quit() },
             visible = ui.windowVisible,
             state = windowState,
             title = q.current?.let { "${it.title} · ${it.artist ?: ""} – Grooveo" } ?: "Grooveo",
