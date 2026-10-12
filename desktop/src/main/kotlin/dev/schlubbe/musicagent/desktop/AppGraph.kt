@@ -61,7 +61,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
         .also { if (it.enabled) runCatching { it.start() } }
     val updates = UpdateChecker(http, APP_VERSION, File(dataDir, "updates"))
     val player = PlayerController(
-        AudioEngine({ FfmpegDeck(it) }, JavaSoundSink()).apply { loudnessCache = LoudnessCache(File(dataDir, "loudness.json")) },
+        AudioEngine({ FfmpegDeck(it) }, JavaSoundSink.orSilent()).apply { loudnessCache = LoudnessCache(File(dataDir, "loudness.json")) },
         resolveRemote = { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec) },
         recommend = { recent, exclude, limit -> feed.predictNext(recent, exclude, limit) },
         store = store,

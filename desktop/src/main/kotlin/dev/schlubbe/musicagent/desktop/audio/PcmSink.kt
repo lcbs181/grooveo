@@ -40,4 +40,22 @@ class JavaSoundSink(bufferFrames: Int = 4096) : PcmSink {
     override fun flush() = line.flush()
     override val latencySec: Double get() = (line.bufferSize - line.available()) / 4 / SAMPLE_RATE
     override fun close() = line.close()
+
+    companion object {
+        /** The default sound device, or [SilentSink] when there is none (no sound card, headless CI). */
+        fun orSilent(): PcmSink = runCatching { JavaSoundSink() }.getOrElse {
+            System.err.println("No audio output available, playing silently: $it")
+            SilentSink()
+        }
+    }
+}
+
+/** Discards the audio, paced like a real device so playback still advances in real time. */
+class SilentSink : PcmSink {
+    override fun write(buf: FloatArray, frames: Int) = Thread.sleep((frames * 1000L / SAMPLE_RATE.toLong()).coerceAtLeast(1))
+    override fun start() {}
+    override fun stop() {}
+    override fun flush() {}
+    override val latencySec: Double get() = 0.0
+    override fun close() {}
 }
