@@ -54,10 +54,17 @@ class SpectrumAnalyzer(private val sampleRate: Double = SAMPLE_RATE) {
     private val fastCoef = (1 - exp(-1 / (0.005 * sampleRate))).toFloat()
     private val slowCoef = (1 - exp(-1 / (0.25 * sampleRate))).toFloat()
 
+    /** The newest frame. Reading it keeps the analysis running (see [push]). */
     @Volatile var latest: VisualizerFrame = VisualizerFrame.EMPTY
+        get() { lastRead = System.nanoTime(); return field }
         private set
+    /** When [latest] was last read; also set at creation, so a new analyser starts working. */
+    @Volatile private var lastRead = System.nanoTime()
 
-    /** Feeds interleaved stereo [buf] ([frames] frames) and publishes a new frame. */
+    /**
+     * Feeds interleaved stereo [buf] ([frames] frames) and publishes a new frame. The
+     * spectrum itself is only computed while someone reads [latest].
+     */
     fun push(buf: FloatArray, frames: Int) {
         var sumSq = 0.0
         var kick = false
@@ -78,6 +85,8 @@ class SpectrumAnalyzer(private val sampleRate: Double = SAMPLE_RATE) {
             }
         }
         onset = if (kick) 1f else onset * 0.82f
+        // nobody looked for a while (no visualizer or EQ screen open): skip the FFT
+        if (System.nanoTime() - lastRead > IDLE_NS) return
         for (i in 0 until FFT_SIZE) {
             re[i] = history[(histPos + i) % FFT_SIZE] * window[i]
             im[i] = 0f
@@ -109,5 +118,6 @@ class SpectrumAnalyzer(private val sampleRate: Double = SAMPLE_RATE) {
     companion object {
         const val FFT_SIZE = 2048
         const val BANDS = 256
+        private const val IDLE_NS = 1_000_000_000L
     }
 }
