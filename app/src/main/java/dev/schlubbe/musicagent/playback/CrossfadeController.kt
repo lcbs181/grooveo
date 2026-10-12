@@ -32,9 +32,6 @@ private const val PREPARE_TIMEOUT_MS = 6_000L
 /** The main player may be this far past the hand-over point when the tail starts (one audio buffer or so). */
 private const val HANDOVER_SLACK_MS = 60L
 
-/** See [CrossfadeController.isOwnAdvance]. */
-private const val OWN_ADVANCE_GRACE_MS = 700L
-
 private val HALF_PI = (Math.PI / 2).toFloat()
 
 /**
@@ -54,7 +51,8 @@ private val HALF_PI = (Math.PI / 2).toFloat()
  * fade triggers at the outgoing track's marked mix-out point and lands the incoming
  * track at its marked mix-in point instead of blind position 0 - the "positions to
  * jump to" a track's own analysis picked out, same idea as djay's Automix. A track
- * with no analysis (streamed-only, or not analyzed yet) falls back to today's plain
+ * with no analysis (streamed-only, or not analyzed yet) - or one that is playing from
+ * its stream rather than the download the analysis was measured on - falls back to today's plain
  * fixed-duration fade from the raw file's end - the two behaviors mix freely per pair
  * of tracks, there's no "smart mode" toggle.
  *
@@ -78,6 +76,10 @@ class CrossfadeController(
     private val onTailStarted: (mediaId: String) -> Unit = {},
     private val scope: CoroutineScope,
     private val trackAnalysisDao: TrackAnalysisDao,
+    // The level both players are scaled to: 1 normally, lower while the sleep timer
+    // fades playback out (see PlayerController.sleepFadeVolume). Read on every ramp
+    // step, so a fade running into the sleep fade still ends up quiet.
+    private val masterVolume: () -> Float = { 1f },
 ) {
     private var secondaryPlayer: ExoPlayer? = null
     private var fadeJob: Job? = null
@@ -96,18 +98,34 @@ class CrossfadeController(
      * on top of an in-progress fade. */
     val isFading: Boolean get() = fadeJob != null
 
-    private var ownAdvanceAtMs = 0L
+    // The two tracks the running fade is between, and whether the main player has
+    // already moved on to the incoming one - see onPlaylistChanged.
+    private var fadeOutgoingId: String? = null
+    private var fadeIncomingId: String? = null
+    private var fadeAdvanced = false
 
-    /** Whether the player events arriving right now are the echo of this class's own
-     * [ExoPlayer.seekToNextMediaItem] rather than a real user skip - [PlaybackService]
-     * checks it before cancelling a fade. A short time window, not a flag cleared
-     * straight after the call: ExoPlayer delivers the resulting transition,
-     * discontinuity and isPlaying events across several dispatches, so a flag only set
-     * during the call itself was already false when they arrived and every fade
-     * cancelled itself. A real skip within the first [OWN_ADVANCE_GRACE_MS] of a fade is
-     * ignored as a result, which is a fair trade for fades lasting seconds. */
-    val isOwnAdvance: Boolean
-        get() = android.os.SystemClock.elapsedRealtime() - ownAdvanceAtMs < OWN_ADVANCE_GRACE_MS
+    /** Whether the fade's ramp currently sets the main player's volume - from the
+     * hand-over to the end of the fade. Before the hand-over (the tail still loading)
+     * the main player plays on at the normal level. */
+    val controlsMainVolume: Boolean get() = isFading && fadeAdvanced
+
+    /**
+     * Called by [PlaybackService] whenever the main player's playlist changes. Most such
+     * changes don't touch the fade at all - the background queue fill, "add to queue" and
+     * the autoplay radio all just add items around it - so the fade only stops when the
+     * track it fades from (before the hand-over) or to (both before and after) is no
+     * longer the one in that place. Cancelling on every change cut fades off at random.
+     */
+    fun onPlaylistChanged() {
+        if (!isFading) return
+        val current = mainPlayer.currentMediaItem?.mediaId
+        val stillValid = if (fadeAdvanced) {
+            current == fadeIncomingId
+        } else {
+            current == fadeOutgoingId && nextMediaId() == fadeIncomingId
+        }
+        if (!stillValid) cancelFade()
+    }
 
     /** Call roughly every 200ms from [PlaybackService]'s poll loop with the user's
      * configured crossfade length (0 = off) and a hook to mark the outgoing track as
@@ -126,7 +144,8 @@ class CrossfadeController(
         // Self-heal: a fade left the main player silenced only if some path skipped
         // cleanup. Cheap to check every tick, and the alternative is an app that plays
         // nothing until it is restarted.
-        if (mainPlayer.volume != 1f) mainPlayer.volume = 1f
+        val master = masterVolume()
+        if (mainPlayer.volume != master) mainPlayer.volume = master
         if (crossfadeDurationMs <= 0L) return
         if (!mainPlayer.isPlaying) return
         // A repeated single track fading into itself would need to crossfade against
@@ -151,7 +170,12 @@ class CrossfadeController(
             cachedNextTrackId = nextTrackId
             cachedMixInMs = nextTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixInMs }
         }
-        val mixInMs = cachedMixInMs
+        // Mix points are measured on the downloaded file (see TrackAnalyzer). A stream of
+        // the same track can be a different cut or encode - a YouTube upload with a
+        // longer intro, say - so they only apply when the local file is what plays.
+        val mixInMs = cachedMixInMs?.takeIf {
+            isLocalMediaUri(mainPlayer.getMediaItemAt(nextIndex).localConfiguration?.uri?.scheme)
+        }
 
         // mediaId is the app's own "source:sourceId" track id (see
         // PlayerController.buildMediaItem) - looking it straight up here means this
@@ -162,6 +186,7 @@ class CrossfadeController(
             cachedMixOutMs = currentTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixOutMs }
         }
         val mixOutMs = cachedMixOutMs
+            ?.takeIf { isLocalMediaUri(mainPlayer.currentMediaItem?.localConfiguration?.uri?.scheme) }
             // Always leaves at least MIN_FADE_MS of runway - an analysis result a few
             // ms off the container's own duration (measured independently by decoding,
             // see TrackAnalyzer) should never produce a negative/zero fade window.
@@ -183,6 +208,8 @@ class CrossfadeController(
         return timeline.getNextWindowIndex(mainPlayer.currentMediaItemIndex, mainPlayer.repeatMode, mainPlayer.shuffleModeEnabled)
     }
 
+    private fun nextMediaId(): String? = nextWindowIndex().takeIf { it != C.INDEX_UNSET }?.let { mainPlayer.getMediaItemAt(it).mediaId }
+
     /**
      * Fades from the current track into the next one at [fadeAtMs] of the current track. A
      * second player takes over the outgoing tail; it is prepared first and only once it is
@@ -194,6 +221,7 @@ class CrossfadeController(
     private fun startFade(fadeAtMs: Long, fadeDurationMs: Long, mixInMs: Long?, onBeforeAdvance: () -> Unit) {
         val uri = mainPlayer.currentMediaItem?.localConfiguration?.uri ?: return
         val outgoingId = mainPlayer.currentMediaItem?.mediaId
+        val incomingId = nextMediaId()
 
         // Only the EQ is wired up here (see renderersFactory); the visualizer tap and
         // 3D-sound stay on the main player.
@@ -214,9 +242,12 @@ class CrossfadeController(
         // Published before prepare so an immediate load error's cancelFade() finds
         // and releases this player instead of leaving it running under a cancelled fade.
         secondaryPlayer = secondary
+        fadeOutgoingId = outgoingId
+        fadeIncomingId = incomingId
+        fadeAdvanced = false
         secondary.setMediaItem(MediaItem.fromUri(uri))
         secondary.playWhenReady = false
-        secondary.volume = 1f
+        secondary.volume = masterVolume()
         secondary.seekTo(fadeAtMs)
         secondary.prepare()
 
@@ -246,14 +277,18 @@ class CrossfadeController(
                 }
                 val fadeMs = if (mainPlayer.duration != C.TIME_UNSET) min(fadeDurationMs, mainPlayer.duration - startAt) else fadeDurationMs
 
+                // The queue may have changed after the PLAYLIST_CHANGED callback last
+                // checked it - the mix-in point belongs to the track picked at the start.
+                val nextIndex = nextWindowIndex()
+                if (nextIndex == C.INDEX_UNSET || mainPlayer.getMediaItemAt(nextIndex).mediaId != incomingId) return@launch
+
                 outgoingId?.takeIf { it.isNotEmpty() }?.let(onTailStarted)
                 secondary.play()
                 // Marks the outgoing track completed *before* the seek below so the resulting
                 // onMediaItemTransition (reason SEEK, not AUTO) doesn't report it to analytics
                 // as a user skip.
                 onBeforeAdvance()
-                ownAdvanceAtMs = android.os.SystemClock.elapsedRealtime()
-                val nextIndex = nextWindowIndex()
+                fadeAdvanced = true
                 mainPlayer.volume = 0f
                 if (mixInMs != null && nextIndex != C.INDEX_UNSET) {
                     mainPlayer.seekTo(nextIndex, mixInMs)
@@ -278,8 +313,9 @@ class CrossfadeController(
                     // roughly constant through the middle of the fade, unlike a plain
                     // linear ramp on both players (which dips there).
                     val angle = t * HALF_PI
-                    mainPlayer.volume = sin(angle)
-                    secondary.volume = cos(angle)
+                    val master = masterVolume()
+                    mainPlayer.volume = sin(angle) * master
+                    secondary.volume = cos(angle) * master
                 }
             } finally {
                 cleanup()
@@ -288,7 +324,7 @@ class CrossfadeController(
     }
 
     /** Cancels an in-flight fade immediately - a manual skip/seek/pause, a queue
-     * change, playback stopping, or the service being destroyed all call this. Safe to
+     * change that replaces either track of the fade, playback stopping, or the service being destroyed all call this. Safe to
      * call when no fade is running. Cleans up synchronously here (rather than only
      * relying on the ramp coroutine's own cancellation) so the main player is never
      * left silenced for even one more poll tick, and [cleanup] being idempotent means
@@ -301,9 +337,17 @@ class CrossfadeController(
     private fun cleanup() {
         // Never leave the main player at volume 0 - that would silence the app
         // permanently once a fade is interrupted.
-        mainPlayer.volume = 1f
+        mainPlayer.volume = masterVolume()
         secondaryPlayer?.release()
         secondaryPlayer = null
         fadeJob = null
+        fadeOutgoingId = null
+        fadeIncomingId = null
+        fadeAdvanced = false
     }
 }
+
+/** Whether a media item's URI scheme points at a file on the device (a download) rather
+ * than a network stream - the only case where analysed mix points are trusted. */
+internal fun isLocalMediaUri(scheme: String?): Boolean =
+    scheme.equals("content", ignoreCase = true) || scheme.equals("file", ignoreCase = true)

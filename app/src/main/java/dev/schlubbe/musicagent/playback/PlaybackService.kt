@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -57,6 +58,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.pow
 import javax.inject.Inject
 
@@ -305,7 +308,7 @@ class PlaybackService : MediaLibraryService() {
                 .setAudioProcessors(arrayOf(eqAudioProcessor, TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
                 .build()
         }.apply {
-            if (settingsRepository.hiResAudioCached) {
+            if (readHiResAudioSetting()) {
                 setEnableAudioFloatOutput(true)
             }
         }
@@ -368,12 +371,21 @@ class PlaybackService : MediaLibraryService() {
             },
             scope = serviceScope,
             trackAnalysisDao = trackAnalysisDao,
+            masterVolume = { playerController.sleepFadeVolume.value },
         )
-        // Cancels any in-flight fade the moment something outside CrossfadeController's
-        // own control touches the main player - a manual pause, a real skip/seek (not
-        // our own seekToNextMediaItem() call, see CrossfadeController.isOwnAdvance), or
-        // the queue itself changing - so the main player is never left silenced by a
-        // fade the user has since moved past.
+        // The sleep timer's fade-out. During a crossfade the ramp applies it itself
+        // (masterVolume above) - writing it here too would undo the ramp's levels.
+        serviceScope.launch {
+            playerController.sleepFadeVolume.collect { v ->
+                if (crossfadeController?.controlsMainVolume != true) exoPlayer.volume = v
+            }
+        }
+        // Cancels any in-flight fade once something outside CrossfadeController's own
+        // control moves the main player on. User commands (skip/seek/previous, whether
+        // from the app or the notification/lock screen) are caught where they enter -
+        // see userCommandPlayer below - so the fade's own advance, which goes straight
+        // to exoPlayer, never cancels itself and no time window is needed to tell the
+        // two apart.
         exoPlayer.addListener(object : Player.Listener {
             // playWhenReady distinguishes a real pause from the brief not-playing gap
             // while the next item buffers right after a fade's own advance - cancelling
@@ -384,25 +396,15 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 onTrackChangedForLoudness(mediaItem)
-                if (crossfadeController?.isOwnAdvance == true) return
-                crossfadeController?.cancelFade()
-            }
-
-            override fun onPositionDiscontinuity(
-                oldPosition: Player.PositionInfo,
-                newPosition: Player.PositionInfo,
-                reason: Int,
-            ) {
-                if (crossfadeController?.isOwnAdvance == true) return
-                if (reason == Player.DISCONTINUITY_REASON_SEEK) crossfadeController?.cancelFade()
+                // The current item itself was replaced (a new queue, a source switch).
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) crossfadeController?.cancelFade()
             }
 
             // SOURCE_UPDATE (e.g. an HLS live window refreshing) is not a queue change
-            // and must NOT cancel a fade - only an actual playlist edit
-            // (setMediaItems/addMediaItem/removeMediaItem, all via PlayerController)
-            // should.
+            // and must NOT cancel a fade. A real playlist edit only does when it
+            // replaces one of the two tracks being faded - see onPlaylistChanged.
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) crossfadeController?.cancelFade()
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) crossfadeController?.onPlaylistChanged()
             }
         })
         serviceScope.launch {
@@ -477,7 +479,7 @@ class PlaybackService : MediaLibraryService() {
             PendingIntent.FLAG_IMMUTABLE,
         )
 
-        mediaSession = MediaLibrarySession.Builder(this, exoPlayer, sessionCallback)
+        mediaSession = MediaLibrarySession.Builder(this, userCommandPlayer(exoPlayer), sessionCallback)
             .setSessionActivity(sessionActivity)
             .build()
 
@@ -496,8 +498,41 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** The Hi-Res setting, read from storage rather than SettingsRepository's cache:
+     * that cache starts out false and is filled asynchronously, so on a cold start (the
+     * service created together with the app process) it had usually not arrived yet
+     * and the setting was silently ignored. It can only be applied while the player is
+     * built - hence the short blocking read, bounded so a slow disk can't stall the
+     * service's start. */
+    private fun readHiResAudioSetting(): Boolean =
+        runBlocking { withTimeoutOrNull(HI_RES_READ_TIMEOUT_MS) { settingsRepository.hiResAudio.first() } }
+            ?: settingsRepository.hiResAudioCached
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
+
+    /** The player the media session drives: every command from a controller - the
+     * app's own PlayerController as well as the notification, lock screen and Android
+     * Auto - arrives through it, so a skip, seek or stop cancels a running crossfade
+     * right away, before the player even moves. CrossfadeController advances the
+     * ExoPlayer directly and is never seen here. */
+    private fun userCommandPlayer(exoPlayer: ExoPlayer): Player = object : ForwardingPlayer(exoPlayer) {
+        private fun userMoved() {
+            crossfadeController?.cancelFade()
+        }
+
+        override fun seekToDefaultPosition() { userMoved(); super.seekToDefaultPosition() }
+        override fun seekToDefaultPosition(mediaItemIndex: Int) { userMoved(); super.seekToDefaultPosition(mediaItemIndex) }
+        override fun seekTo(positionMs: Long) { userMoved(); super.seekTo(positionMs) }
+        override fun seekTo(mediaItemIndex: Int, positionMs: Long) { userMoved(); super.seekTo(mediaItemIndex, positionMs) }
+        override fun seekBack() { userMoved(); super.seekBack() }
+        override fun seekForward() { userMoved(); super.seekForward() }
+        override fun seekToPreviousMediaItem() { userMoved(); super.seekToPreviousMediaItem() }
+        override fun seekToPrevious() { userMoved(); super.seekToPrevious() }
+        override fun seekToNextMediaItem() { userMoved(); super.seekToNextMediaItem() }
+        override fun seekToNext() { userMoved(); super.seekToNext() }
+        override fun stop() { userMoved(); super.stop() }
+    }
 
     /** Stores the loudness measured for the track that just ended and tells the
      * normaliser which track plays now (with its stored loudness, if heard before). */
@@ -533,6 +568,7 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val STALE_CHECK_INTERVAL_MS = 250L
         private const val VOLUME_POLL_MS = 1_000L
+        private const val HI_RES_READ_TIMEOUT_MS = 500L
 
         /** How often queued spectra are released to the UI - one display frame at 60Hz. */
 
