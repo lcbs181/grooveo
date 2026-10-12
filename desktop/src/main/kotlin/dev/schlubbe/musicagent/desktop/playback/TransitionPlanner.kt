@@ -42,6 +42,8 @@ data class TransitionRecipe(
     val releaseBars: Int = 8,
     /** Transpose the incoming track to a key that fits the outgoing one (Camelot). */
     val harmonic: Boolean = false,
+    /** The user's crossfade time: how long an unsynced fade or filter mix overlaps (default 8 s). */
+    val crossfadeSec: Double? = null,
     /** Explicit transposition in semitones (overrides [harmonic]). */
     val semitones: Int? = null,
     /** Echo delay in beats. */
@@ -90,8 +92,9 @@ object TransitionPlanner {
         var style = recipe.style.lowercase()
         if (style !in STYLES) style = "auto"
         if (style == "auto") style = autoStyle(out, inn, syncable)
-        // two beats running on top of each other only work in sync
-        if (!wantSync && style in setOf("blend", "bass_swap", "filter")) style = if (stretch > MAX_STRETCH) "echo_out" else "fade"
+        // two beats running on top of each other only work in sync: unsynced, the filter stays
+        // (short, the high-pass takes the outgoing kick away) and the EQ blends become a fade
+        if (!wantSync && style in setOf("blend", "bass_swap")) style = "fade"
 
         val outBar = 4 * outBeat
         val outD0 = (og.firstBeatMs + og.downbeatOffset * og.beatMs) / 1000
@@ -101,6 +104,11 @@ object TransitionPlanner {
 
         // length: what fits into the outgoing outro and the incoming intro
         var bars = (recipe.bars ?: defaultBars(style, out, inn, outLast, outBar)).coerceIn(1, 64)
+        // unsynced beats drift apart: keep the overlap short (about the crossfade time, at most 4 bars)
+        if (!wantSync && recipe.bars == null && (style == "filter" || style == "fade")) {
+            val xfBars = Math.round((recipe.crossfadeSec ?: 8.0) / outBar).toInt()
+            bars = xfBars.coerceIn(2, 4)
+        }
 
         // where the outgoing track starts the transition (always on a downbeat)
         fun barAt(sec: Double, roundUp: Boolean) = (if (roundUp) ceil((sec - outD0) / outBar - 1e-6) else floor((sec - outD0) / outBar + 1e-6)).toInt()
@@ -202,7 +210,8 @@ object TransitionPlanner {
     }
 
     private fun autoStyle(out: TrackAnalysis, inn: TrackAnalysis, syncable: Boolean): String {
-        if (!syncable) return "echo_out"
+        // unsynced: a short filter mix still sounds like a transition; echo out only on request
+        if (!syncable) return "filter"
         val outro = out.structure?.sections?.lastOrNull()
         val intro = inn.structure?.sections?.firstOrNull()
         // long DJ-friendly outro and intro: a long blend; else the quicker bass swap

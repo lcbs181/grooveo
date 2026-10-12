@@ -114,6 +114,11 @@ internal fun handleShortcut(e: KeyEvent, ui: AppUi): Boolean {
     return when {
         e.isCtrlPressed && e.key == Key.K -> { ui.openAssistant(); true }
         e.isCtrlPressed && e.key == Key.F -> { ui.navigateRoot(Route.Search()); ui.searchFocusRequest++; true }
+        e.key == Key.MediaPlayPause -> { p.togglePlay(); true }
+        e.key == Key.MediaNext -> { p.next(); true }
+        e.key == Key.MediaPrevious -> { p.previous(); true }
+        // while typing, Ctrl+arrows jump words and Ctrl+S/R/L/E are the field's
+        focusInText -> false
         e.isCtrlPressed && e.key == Key.DirectionRight -> { p.next(); true }
         e.isCtrlPressed && e.key == Key.DirectionLeft -> { p.previous(); true }
         e.isCtrlPressed && e.key == Key.DirectionUp -> { p.setVolume(ui.graph.settings.current.volume + 0.05f); true }
@@ -123,10 +128,6 @@ internal fun handleShortcut(e: KeyEvent, ui: AppUi): Boolean {
         e.isCtrlPressed && e.key == Key.L -> { p.state.value.current?.let(ui::toggleLike); true }
         e.isCtrlPressed && e.key == Key.E -> { ui.navigateRoot(Route.Equalizer); true }
         e.isAltPressed && e.key == Key.DirectionLeft -> { ui.back(); true }
-        e.key == Key.MediaPlayPause -> { p.togglePlay(); true }
-        e.key == Key.MediaNext -> { p.next(); true }
-        e.key == Key.MediaPrevious -> { p.previous(); true }
-        focusInText -> false
         e.key == Key.Spacebar -> { p.togglePlay(); true }
         e.key == Key.DirectionRight -> { p.seek(p.engineState.value.positionSec + 5); true }
         e.key == Key.DirectionLeft -> { p.seek((p.engineState.value.positionSec - 5).coerceAtLeast(0.0)); true }

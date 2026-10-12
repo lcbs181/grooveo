@@ -62,8 +62,20 @@ class TransitionPlannerTest {
         assertTrue(bass.valueAt(10.0) <= -40)
     }
 
-    @Test fun `far apart tempos fall back to an unsynced echo out`() {
-        val p = assertNotNull(TransitionPlanner.plan(track(128.0), track(100.0), "b", TransitionRecipe(), 10.0, 190.0, canSync = true))
+    @Test fun `far apart tempos mix with a short unsynced filter, blends become a fade`() {
+        val auto = assertNotNull(TransitionPlanner.plan(track(128.0), track(100.0), "b", TransitionRecipe(), 10.0, 190.0, canSync = true))
+        assertEquals("filter", auto.plan.style)
+        assertFalse(auto.plan.sync)
+        assertEquals(16.0, auto.plan.lengthBeats) // 8 s at 128 BPM = 4 bars
+        val chosen = assertNotNull(TransitionPlanner.plan(track(128.0), track(100.0), "b", TransitionRecipe(style = "filter", crossfadeSec = 4.0), 10.0, 190.0, canSync = true))
+        assertEquals("filter", chosen.plan.style)
+        assertEquals(8.0, chosen.plan.lengthBeats) // 4 s = 2 bars
+        val blend = assertNotNull(TransitionPlanner.plan(track(128.0), track(100.0), "b", TransitionRecipe(style = "blend"), 10.0, 190.0, canSync = true))
+        assertEquals("fade", blend.plan.style)
+    }
+
+    @Test fun `far apart tempos keep an unsynced echo out`() {
+        val p = assertNotNull(TransitionPlanner.plan(track(128.0), track(100.0), "b", TransitionRecipe(style = "echo_out"), 10.0, 190.0, canSync = true))
         assertEquals("echo_out", p.plan.style)
         assertFalse(p.plan.sync)
         assertTrue(p.summary["note"].toString().contains("no sync"))

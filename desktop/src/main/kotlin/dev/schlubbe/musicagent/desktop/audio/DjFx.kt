@@ -199,6 +199,7 @@ internal class SweepFilter(private val highpass: Boolean) {
     private var wet = 0.0
 
     fun setCutoff(hz: Double) { targetLog = ln(hz.coerceIn(20.0, 20_000.0)) }
+    val targetLogCut: Double get() = targetLog
 
     /** Sets the cutoff without gliding there (a filter that starts in place). */
     fun jumpTo(hz: Double) { setCutoff(hz); logCut = targetLog; wet = if (atOff) 0.0 else 1.0 }
@@ -345,6 +346,14 @@ class DeckFx {
         if (echo.silent) return
         post.fill(0f, 0, frames * 2)
         echo.process(post, mix, 0, frames)
+    }
+
+    /** Jumps fader, isolator and filters to their set values: a deck that starts mid-transition must not fade from neutral (a click). */
+    fun settle() {
+        gain = gainTarget
+        iso.settle()
+        hpf.jumpTo(kotlin.math.exp(hpf.targetLogCut))
+        lpf.jumpTo(kotlin.math.exp(lpf.targetLogCut))
     }
 
     /** All parameters neutral at once (new track); the echo tail keeps ringing unless [clearEcho]. */

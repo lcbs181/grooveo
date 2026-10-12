@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.playback
 
+import dev.schlubbe.musicagent.desktop.audio.TransitionStatus
+import kotlinx.coroutines.flow.drop
 import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudDrmOnlyException
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
@@ -83,6 +85,7 @@ class PlayerController(
     private var consecutiveFailures = 0
     /** Stream retries for the current track (reset when a track starts), see [onPlaybackError]. */
     private var streamRetries = 0
+    @Volatile private var retrying = false
     /** Transition wishes for the transition into a track (by track key), e.g. from the AI. */
     private val recipes = ConcurrentHashMap<String, TransitionRecipe>()
     private val _planned = MutableStateFlow<PlannedTransition?>(null)
@@ -92,17 +95,26 @@ class PlayerController(
 
     init {
         engine.listener = object : EngineListener {
-            override fun onStarted(source: AudioSource, automatic: Boolean) = onEngineStarted(source, automatic)
+            // called on the mixer thread: library writes and planning must not hold up the audio
+            override fun onStarted(source: AudioSource, automatic: Boolean) { scope.launch { onEngineStarted(source, automatic) } }
             override fun onEnded(source: AudioSource) { scope.launch { onEngineEnded() } }
             override fun onError(source: AudioSource, message: String) { scope.launch { onPlaybackError(source, message) } }
         }
         scope.launch {
-            settings.state.distinctUntilChangedBy { listOf(it.eq, it.sound3dPreset, it.crossfadeSeconds, it.loudnessNormalization, it.fxChain) }.collect { s ->
+            settings.state.distinctUntilChangedBy { listOf(it.eq, it.sound3dPreset, it.crossfadeSeconds, it.loudnessNormalization, it.fxChain, it.djTransitions) }.collect { s ->
                 engine.masterFx.set(s.fxChain)
                 engine.setEq(s.eq)
                 engine.setReverb(Sound3dPreset.of(s.sound3dPreset))
-                engine.crossfadeSec = s.crossfadeSeconds
+                // DJ mode falls back to a crossfade where it cannot plan (no beat found), never to a gap
+                engine.crossfadeSec = if (s.djTransitions && s.crossfadeSeconds <= 0) DJ_FALLBACK_CROSSFADE_SEC else s.crossfadeSeconds
                 engine.normalize = s.loudnessNormalization != false
+            }
+        }
+        // a changed DJ setting applies to the very next track, not the one after it
+        scope.launch {
+            settings.state.map { listOf(it.djTransitions, it.djStyle, it.djHarmonic, it.crossfadeSeconds) }.distinctUntilChanged().drop(1).collect {
+                val phase = engine.transition.value.phase
+                if (phase == TransitionStatus.Phase.NONE || phase == TransitionStatus.Phase.ARMED) schedulePreload()
             }
         }
         engine.volume = settings.current.volume
@@ -203,7 +215,9 @@ class PlayerController(
 
     fun previous() {
         val s = _state.value
-        if (engine.state.value.positionSec > 3 || s.index <= 0) { seek(0.0); return }
+        // a track that came in at its mix-in point counts from there, else "back" could never go back
+        val from = engine.activeSource?.takeIf { it.id == s.current?.key }?.startSec ?: 0.0
+        if (engine.state.value.positionSec - from > 3 || s.index <= 0) { seek(0.0); return }
         _state.update { it.copy(index = s.index - 1) }
         startCurrent()
     }
@@ -212,6 +226,8 @@ class PlayerController(
         val e = engine.state.value
         when {
             e.playing -> engine.pause()
+            // the queue played to its end: play the last track again instead of resuming a finished deck
+            e.currentId != null && e.durationSec != null && e.positionSec >= e.durationSec - 0.5 -> startCurrent()
             e.currentId != null -> engine.resume()
             _state.value.current != null -> startCurrent()
         }
@@ -270,7 +286,9 @@ class PlayerController(
     private suspend fun planInto(t: TrackResultDto, wish: TransitionRecipe? = null, force: Boolean = false): PlannedTransition? {
         val cur = _state.value.current ?: return null
         val s = settings.current
-        val recipe = wish ?: recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else return null
+        val xf = s.crossfadeSeconds.takeIf { it > 0 }?.toDouble()
+        val recipe = (wish ?: recipes[t.key] ?: if (s.djTransitions) TransitionRecipe(style = s.djStyle, harmonic = s.djHarmonic) else return null)
+            .let { if (it.crossfadeSec == null && xf != null) it.copy(crossfadeSec = xf) else it }
         suspend fun analysisOf(x: TrackResultDto) = store.current.analysis[x.key]?.takeIf { it.upToDate } ?: analyze(x)
         val a = analysisOf(cur) ?: return null
         val b = analysisOf(t) ?: return null
@@ -383,7 +401,8 @@ class PlayerController(
     }
 
     private fun onEngineStarted(source: AudioSource, automatic: Boolean) {
-        streamRetries = 0
+        // a retry's restart is no fresh start: the count only resets for a new track
+        if (retrying) retrying = false else streamRetries = 0
         if (automatic) {
             val s = _state.value
             val idx = nextIndex(s, userAction = false)?.takeIf { s.queue.getOrNull(it)?.key == source.id }
@@ -455,6 +474,7 @@ class PlayerController(
         delay(500L * streamRetries)
         if (_state.value.current?.key != t.key) return
         val src = runCatching { resolveStream(t) }.getOrElse { return onEngineError(message) }
+        retrying = true
         engine.play(src.copy(startSec = pos))
     }
 
@@ -471,5 +491,6 @@ class PlayerController(
 
     private companion object {
         const val MAX_STREAM_RETRIES = 2
+        const val DJ_FALLBACK_CROSSFADE_SEC = 6
     }
 }

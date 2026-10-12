@@ -250,7 +250,7 @@ class AudioEngine(
         active = null
         next = null
         plan = null
-        mixOutSec = null
+        // mixOutSec stays: onStarted already set the incoming track's own mix-out point
         syncErrMs = null
         val c = current
         phase = if (p != null && p.sync && p.releaseBeats != null && c.mode == DeckChain.Mode.STRETCH && c.rate != 1.0) {
@@ -502,6 +502,7 @@ class AudioEngine(
         o.fx.echo.delayFrames = echo
         // the incoming deck's effects start where its lanes start, not at neutral
         p.lanes.filter { it.deck == DeckRole.IN }.forEach { o.fx.set(it.param, it.valueAt(0.0)) }
+        o.fx.settle()
     }
 
     /**
@@ -555,16 +556,27 @@ class AudioEngine(
         if (err != null) listener.onError(src, err) else listener.onEnded(src)
     }
 
+    private var lastGain = Float.NaN
+
     private fun output(buf: FloatArray) {
+        if (lastGain.isNaN()) lastGain = volume.coerceIn(0f, 1f).let { it * it * it }
         norms.forEach { it.allowBoost = equalizer.limiterEnabled }
         equalizer.upstreamGainDb = norms.maxOf { it.currentGainDb }
         equalizer.setVolume(volume)
         masterFx.process(buf, BLOCK)
-        equalizer.process(buf, BLOCK)
+        // the room comes before the EQ and its limiter, so the limiter also catches the reverb's peaks
         reverb.process(buf)
+        equalizer.process(buf, BLOCK)
         val v = volume.coerceIn(0f, 1f)
         val g = v * v * v // perceptual curve
-        for (i in buf.indices) buf[i] = softClip(buf[i] * g)
+        // ramped over the block: dragging the slider or muting must not zipper or click
+        val g0 = lastGain
+        lastGain = g
+        for (i in 0 until BLOCK) {
+            val gi = g0 + (g - g0) * (i + 1) / BLOCK
+            buf[2 * i] = softClip(buf[2 * i] * gi)
+            buf[2 * i + 1] = softClip(buf[2 * i + 1] * gi)
+        }
         spectrum.push(buf, BLOCK)
         sink.write(buf, BLOCK)
         playedFrames += BLOCK
