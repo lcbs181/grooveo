@@ -79,14 +79,16 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     )
 
     init {
-        // "Automatische Sicherung": weekly backup on start (keeps the newest 5)
-        if (settings.current.autoBackup) runCatching {
-            val last = settings.current.lastBackupAt?.let { java.time.Instant.parse(it) }
-            if (last == null || last.isBefore(java.time.Instant.now().minus(java.time.Duration.ofDays(7)))) {
-                backup.export()
-                backup.listBackups().drop(5).forEach { it.delete() }
-            }
-        }
+        // "Automatische Sicherung": weekly backup on start (keeps the newest 5), off the startup thread
+        if (settings.current.autoBackup) Thread({
+            runCatching {
+                val last = settings.current.lastBackupAt?.let { java.time.Instant.parse(it) }
+                if (last == null || last.isBefore(java.time.Instant.now().minus(java.time.Duration.ofDays(7)))) {
+                    backup.export()
+                    backup.listBackups().drop(5).forEach { it.delete() }
+                }
+            }.onFailure { java.util.logging.Logger.getLogger("AppGraph").warning("automatic backup failed: $it") }
+        }, "auto-backup").apply { isDaemon = true; priority = Thread.MIN_PRIORITY; start() }
     }
 
     /** "KI-Steuerung (MCP)", started with the app when the user left it on. */
