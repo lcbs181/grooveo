@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.data.repository
 
 import dev.schlubbe.musicagent.data.remote.BackendApi
+import dev.schlubbe.musicagent.di.LoginBackendApi
 import dev.schlubbe.musicagent.data.remote.dto.LoginRequestDto
 import dev.schlubbe.musicagent.data.remote.dto.UserDto
 import javax.inject.Inject
@@ -13,10 +14,13 @@ import javax.inject.Singleton
 @Singleton
 class AuthRepository @Inject constructor(
     private val backendApi: BackendApi,
+    // Not [backendApi]: login runs from inside ServiceAccountAuthenticator, see
+    // LoginBackendApi's kdoc.
+    @LoginBackendApi private val loginApi: BackendApi,
     private val authTokenHolder: AuthTokenHolder,
 ) {
     suspend fun login(email: String, password: String) {
-        val token = backendApi.login(LoginRequestDto(email, password))
+        val token = loginApi.login(LoginRequestDto(email, password))
         authTokenHolder.saveToken(token.accessToken)
     }
 

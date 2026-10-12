@@ -10,6 +10,8 @@ import dev.schlubbe.musicagent.data.remote.AuthInterceptor
 import dev.schlubbe.musicagent.data.remote.BackendApi
 import dev.schlubbe.musicagent.data.remote.DynamicBaseUrlInterceptor
 import dev.schlubbe.musicagent.data.remote.ServiceAccountAuthenticator
+import okhttp3.Authenticator
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -34,6 +36,15 @@ import javax.inject.Singleton
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class PlaybackHttpClient
+
+/** Marks the [BackendApi] that [dev.schlubbe.musicagent.data.repository.AuthRepository.login]
+ * uses - built on a copy of the main backend client with no authenticator and its own
+ * [Dispatcher]. See [ServiceAccountAuthenticator]'s kdoc: logging in from inside the
+ * authenticator through the main client could deadlock on that client's per-host
+ * request limit, and a 401 on the login itself must not recurse into another login. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class LoginBackendApi
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -64,6 +75,24 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideBackendApi(retrofit: Retrofit): BackendApi = retrofit.create(BackendApi::class.java)
+
+    @Provides
+    @Singleton
+    @LoginBackendApi
+    fun provideLoginBackendApi(okHttpClient: OkHttpClient): BackendApi = Retrofit.Builder()
+        .baseUrl("http://localhost/")
+        // newBuilder() keeps the base-URL/API-key interceptors and shares the
+        // connection pool, but a fresh Dispatcher is the point: the main client's
+        // request slots may all be held by calls blocked in the authenticator.
+        .client(
+            okHttpClient.newBuilder()
+                .authenticator(Authenticator.NONE)
+                .dispatcher(Dispatcher())
+                .build(),
+        )
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(BackendApi::class.java)
 
     // @PlaybackHttpClient, not @ExtractionHttpClient/the main backend client -- see
     // that annotation's kdoc. Still deliberately not the backend-authed client either
