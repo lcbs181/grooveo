@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.mcp
 
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import dev.schlubbe.musicagent.desktop.AppGraph
@@ -58,6 +60,7 @@ class McpServiceTest {
         return (r["isError"]?.asBoolean != true) to r.getAsJsonArray("content")[0].asJsonObject["text"].asString
     }
 
+    @DisabledOnOs(OS.WINDOWS, disabledReason = "POSIX file permissions")
     @Test fun `the token file is readable by the owner only`() {
         val f = java.io.File(dir, "mcp-test.json")
         assertTrue(f.isFile)

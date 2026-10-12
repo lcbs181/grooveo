@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.ai
 
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 import dev.schlubbe.musicagent.desktop.AppGraph
 import dev.schlubbe.musicagent.desktop.audio.FxChain
 import dev.schlubbe.musicagent.desktop.audio.FxUnit
@@ -448,6 +450,7 @@ class AiAssistantTest {
         assertFalse(localLlmHttp.followRedirects)
     }
 
+    @DisabledOnOs(OS.WINDOWS, disabledReason = "POSIX file permissions")
     @Test fun `API keys are written readable by the owner only`() {
         ai.saveApiKey("sk-ant-test")
         ai.saveOpenAiKey("sk-local")

@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.data
 
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -118,6 +120,7 @@ class UpdaterTest {
         } finally { server.stop(0) }
     }
 
+    @DisabledOnOs(OS.WINDOWS, disabledReason = "restartCommand runs a shell script")
     @Test fun `restart waits for the old process to exit`() {
         val out = File(dir, "started")
         val launcher = File(dir, "launch.sh").apply { writeText("#!/bin/sh\ntouch '${out.path}'\n"); setExecutable(true) }
