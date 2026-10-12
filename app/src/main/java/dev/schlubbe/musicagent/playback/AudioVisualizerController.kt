@@ -71,11 +71,6 @@ private const val MAX_QUEUED_FRAMES = 16
  * anything, while still bounding how far behind the analysis can fall. */
 private const val PCM_RING_CAPACITY = 1 shl 15
 
-/** How long the analysis thread waits when the ring is empty. It is also unparked by
- * the producer, so this is only a backstop against a missed wake-up, not the normal
- * path. */
-private const val ANALYSIS_IDLE_PARK_NANOS = 2_000_000L
-
 /** Size of the fixed scratch arrays used to move samples across the ring. */
 private const val TRANSFER_CHUNK = 2048
 
@@ -435,7 +430,13 @@ class AudioVisualizerController : TeeAudioProcessor.AudioBufferSink {
             }
             val count = pcmRing.read(analysisScratch, TRANSFER_CHUNK)
             if (count == 0) {
-                LockSupport.parkNanos(ANALYSIS_IDLE_PARK_NANOS)
+                // Untimed: every producer of work - handleBuffer, flush, release -
+                // unparks this thread after publishing it, and LockSupport keeps that
+                // permit if it lands before we get here, so no wake-up can be missed.
+                // The old 2ms timed park was a backstop for exactly that, and woke the
+                // thread ~500 times a second for the whole process lifetime, paused or
+                // not, visualizer on screen or not.
+                LockSupport.park(this)
                 continue
             }
             applyPendingResetIfNeeded()

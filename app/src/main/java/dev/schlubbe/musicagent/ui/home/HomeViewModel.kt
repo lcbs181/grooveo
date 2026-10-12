@@ -21,8 +21,10 @@ import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.playback.PlayerController
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -505,11 +507,26 @@ class HomeViewModel @Inject constructor(
 
     /** Reloads every shelf backed by a suspend call. Called from the screen on first
      * composition and every time it's revisited (e.g. after coming back from the
-     * Player), so it reflects likes/playlist edits made elsewhere. */
+     * Player), so it reflects likes/playlist edits made elsewhere.
+     *
+     * Every loader runs as a child of one [refreshJob] that the next refresh() cancels
+     * first. Revisiting Home several times while a slow network was still answering
+     * used to stack up a full set of searches per visit (Mixes alone is up to seven),
+     * all still running, and whichever answered last won each shelf. The returned job
+     * ends when every loader has (pull-to-refresh waits for it). */
     fun refresh(): Job {
-        val jobs = listOf(loadCharts(), loadFeed(), loadPlaylists(), loadLikes(), loadMixCards(), loadGenreTracks(_uiState.value.selectedGenre))
-        return viewModelScope.launch { jobs.joinAll() }
+        refreshJob?.cancel()
+        return viewModelScope.launch {
+            loadCharts(this)
+            loadFeed(this)
+            loadPlaylists(this)
+            loadLikes(this)
+            loadMixCards(this)
+            loadGenreTracks(_uiState.value.selectedGenre, this)
+        }.also { refreshJob = it }
     }
+
+    private var refreshJob: Job? = null
 
     /** "Trends nach Genre" chip tap. Reloads only that shelf; the chip genuinely
      * reselects the list rather than filtering an already-fetched set, since each
@@ -539,9 +556,9 @@ class HomeViewModel @Inject constructor(
         return preferredFilters + remaining
     }
 
-    private fun loadGenreTracks(genre: GenreFilter): Job {
+    private fun loadGenreTracks(genre: GenreFilter, scope: CoroutineScope = viewModelScope): Job {
         _uiState.value = _uiState.value.copy(isGenreLoading = true)
-        return viewModelScope.launch {
+        return scope.launch {
             runCatching { searchRepository.getTrendingByGenre(genre.label, limit = GENRE_SHELF_LIMIT) }
                 .onSuccess { tracks ->
                     // Guard against a slow response for a genre the user has since
@@ -564,9 +581,9 @@ class HomeViewModel @Inject constructor(
     // build a feed from at all. YouTube-Music-only: SoundCloud's own "trending"
     // charts skew toward tracks with locked/DRM-only transcodings often enough
     // that mixing them in here made Charts unreliable to tap into.
-    private fun loadCharts(): Job {
+    private fun loadCharts(scope: CoroutineScope = viewModelScope): Job {
         _uiState.value = _uiState.value.copy(isChartsLoading = true)
-        return viewModelScope.launch {
+        return scope.launch {
             runCatching { searchRepository.getTrending(limit = CHART_OVERFETCH_COUNT, source = "ytmusic") }
                 .onSuccess { tracks ->
                     _uiState.value = _uiState.value.copy(
@@ -624,8 +641,8 @@ class HomeViewModel @Inject constructor(
      *   reupload-culture mixes - so that's the primary source here, with the
      *   keyword search only as a fallback if genre coverage is too sparse to
      *   fill the card. */
-    private fun loadMixCards(): Job {
-        return viewModelScope.launch {
+    private fun loadMixCards(scope: CoroutineScope = viewModelScope): Job {
+        return scope.launch {
             // Genre-tagged first, same reasoning as the party pool below (real
             // uploader-set genre metadata is a more legitimate population than a
             // free-text keyword match) - falls back to a plain search only if
@@ -703,13 +720,17 @@ class HomeViewModel @Inject constructor(
                     )
                 }
             }
+            // Every pool above is runCatching'd, which also swallows the
+            // CancellationException of a refresh() superseded mid-way - a cancelled
+            // run would otherwise get here with all-empty pools and wipe the shelf.
+            coroutineContext.ensureActive()
             _uiState.value = _uiState.value.copy(mixCards = cards)
         }
     }
 
-    private fun loadFeed(): Job {
+    private fun loadFeed(scope: CoroutineScope = viewModelScope): Job {
         _uiState.value = _uiState.value.copy(isFeedLoading = true)
-        return viewModelScope.launch {
+        return scope.launch {
             val preferredGenres = settingsRepository.preferredGenres.first()
             val preferredArtists = settingsRepository.preferredArtists.first()
             runCatching { feedRepository.getFeed(preferredGenres = preferredGenres, preferredArtists = preferredArtists) }
@@ -727,9 +748,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadPlaylists(): Job {
+    private fun loadPlaylists(scope: CoroutineScope = viewModelScope): Job {
         _uiState.value = _uiState.value.copy(isPlaylistsLoading = true)
-        return viewModelScope.launch {
+        return scope.launch {
             runCatching { playlistRepository.list() }
                 .onSuccess { playlists ->
                     _uiState.value = _uiState.value.copy(
@@ -741,9 +762,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadLikes(): Job {
+    private fun loadLikes(scope: CoroutineScope = viewModelScope): Job {
         _uiState.value = _uiState.value.copy(isLikesLoading = true)
-        return viewModelScope.launch {
+        return scope.launch {
             runCatching { likesRepository.refresh() }
                 .onSuccess { likes ->
                     _uiState.value = _uiState.value.copy(

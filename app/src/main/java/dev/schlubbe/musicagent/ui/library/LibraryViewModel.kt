@@ -143,7 +143,12 @@ class LibraryViewModel @Inject constructor(
                 combine(entities.map { entity -> entity.toLiveFlow(workManager) }) { it.toList() }
             }
         }
-        .map { items -> items.map { it.copy(track = trackDao.getById(it.entity.trackId)) } }
+        // One joined query per change of either table, rather than a getById() for
+        // every row on every emission - and the live-progress flows above emit on each
+        // progress tick of each running download.
+        .combine(trackDao.observeWithDownload().map { tracks -> tracks.associateBy { it.id } }) { items, tracksById ->
+            items.map { it.copy(track = tracksById[it.entity.trackId]) }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val likedTrackIds: StateFlow<Set<String>> = likesRepository.likedTrackIds

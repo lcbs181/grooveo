@@ -21,6 +21,12 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :id")
     suspend fun delete(id: String)
 
+    /** Metadata for every track that has a downloads row, in one query - the Downloads
+     * list joins against this instead of a getById() per row. A JOIN rather than
+     * `WHERE id IN (:ids)`: minSdk 30's SQLite caps bound variables at 999. */
+    @Query("SELECT tracks.* FROM tracks INNER JOIN downloads ON downloads.trackId = tracks.id")
+    fun observeWithDownload(): Flow<List<TrackEntity>>
+
     @Query("SELECT * FROM tracks ORDER BY lastAccessedAt DESC LIMIT :limit")
     fun observeRecentlyPlayed(limit: Int = 50): Flow<List<TrackEntity>>
 }
