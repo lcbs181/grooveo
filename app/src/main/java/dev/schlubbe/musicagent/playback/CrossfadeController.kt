@@ -170,13 +170,6 @@ class CrossfadeController(
             cachedNextTrackId = nextTrackId
             cachedMixInMs = nextTrackId?.let { trackAnalysisDao.getByTrackId(it)?.mixInMs }
         }
-        // Mix points are measured on the downloaded file (see TrackAnalyzer). A stream of
-        // the same track can be a different cut or encode - a YouTube upload with a
-        // longer intro, say - so they only apply when the local file is what plays.
-        val mixInMs = cachedMixInMs?.takeIf {
-            isLocalMediaUri(mainPlayer.getMediaItemAt(nextIndex).localConfiguration?.uri?.scheme)
-        }
-
         // mediaId is the app's own "source:sourceId" track id (see
         // PlayerController.buildMediaItem) - looking it straight up here means this
         // needs no coupling back to PlayerController's own queue bookkeeping.
@@ -191,6 +184,22 @@ class CrossfadeController(
             // ms off the container's own duration (measured independently by decoding,
             // see TrackAnalyzer) should never produce a negative/zero fade window.
             ?.coerceAtMost(duration - MIN_FADE_MS)
+
+        // The two Room lookups above suspend, and the queue can change underneath them
+        // (a skip, a queue edit, the background fill inserting items) - every value
+        // read before them would then describe some other pair of tracks. Bail out and
+        // let the next tick start over against the player's current state.
+        if (mainPlayer.currentMediaItem?.mediaId != currentTrackId) return
+        val nextIndexNow = nextWindowIndex()
+        if (nextIndexNow == C.INDEX_UNSET || nextIndexNow >= mainPlayer.mediaItemCount) return
+        if (mainPlayer.getMediaItemAt(nextIndexNow).mediaId != nextTrackId) return
+
+        // Mix points are measured on the downloaded file (see TrackAnalyzer). A stream of
+        // the same track can be a different cut or encode - a YouTube upload with a
+        // longer intro, say - so they only apply when the local file is what plays.
+        val mixInMs = cachedMixInMs?.takeIf {
+            isLocalMediaUri(mainPlayer.getMediaItemAt(nextIndexNow).localConfiguration?.uri?.scheme)
+        }
 
         // the tail player is prepared PREPARE_LEAD_MS ahead, so it is ready (buffered) when the fade begins
         val fadeAtMs = mixOutMs ?: (duration - crossfadeDurationMs)
@@ -318,7 +327,12 @@ class CrossfadeController(
                     secondary.volume = cos(angle) * master
                 }
             } finally {
-                cleanup()
+                // Only if this fade still owns the player state: a cancelled fade's
+                // finally runs on a later dispatch, by which time cancelFade() already
+                // cleaned up and the next poll may have started a new fade - releasing
+                // that one's secondary player (and un-silencing its main player) here
+                // would cut it off mid-ramp.
+                if (secondaryPlayer === secondary) cleanup()
             }
         }
     }
