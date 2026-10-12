@@ -18,6 +18,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
 
 val TrackResultDto.key: String get() = "$source:$sourceId"
@@ -124,8 +128,10 @@ data class LibraryData(
 
 /**
  * Whole local library in one JSON document (`library.json`). Small enough to keep in
- * memory; every mutation is persisted atomically. Also serves as the desktop
- * implementation of the DAO interfaces the shared sources expect.
+ * memory; mutations apply at once and are written atomically by a background writer,
+ * [WRITE_DELAY_MS] later, so a burst of changes (play stats, analyses, downloads) is one
+ * write and no caller ever waits for the disk. [flush] (and [close]) writes right away.
+ * Also serves as the desktop implementation of the DAO interfaces the shared sources expect.
  */
 class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
     private val file = File(dir, "library.json")
@@ -133,12 +139,47 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
     val data: StateFlow<LibraryData> = _data.asStateFlow()
     val current: LibraryData get() = _data.value
 
+    private val writer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "library-writer").apply { isDaemon = true } }
+    /** Changes not on disk yet (a write is scheduled while this is set). */
+    private val dirty = AtomicBoolean(false)
+    private val writeLock = Any()
+    @Volatile private var closed = false
+
+    /**
+     * Applies [transform] in memory and schedules the write. With [persist] false the change
+     * stays in memory until the next write of something else (download progress ticks).
+     */
     @Synchronized
-    fun mutate(transform: (LibraryData) -> LibraryData) {
+    fun mutate(persist: Boolean = true, transform: (LibraryData) -> LibraryData) {
         val next = transform(_data.value)
         if (next == _data.value) return
         _data.value = next
-        writeJson(file, next)
+        if (persist) scheduleWrite(WRITE_DELAY_MS)
+    }
+
+    private fun scheduleWrite(delayMs: Long) {
+        if (dirty.getAndSet(true)) return
+        try {
+            writer.schedule(::flush, delayMs, TimeUnit.MILLISECONDS)
+        } catch (_: RejectedExecutionException) {
+            flush() // closed: write at once
+        }
+    }
+
+    /** Writes pending changes now. Never throws; a failed write is tried again later. */
+    fun flush() {
+        synchronized(writeLock) {
+            if (!dirty.getAndSet(false)) return
+            if (writeJsonSafely(file, _data.value)) return
+            if (!closed) scheduleWrite(RETRY_DELAY_MS) else dirty.set(true)
+        }
+    }
+
+    /** Writes what is pending and stops the writer (app exit). */
+    fun close() {
+        closed = true
+        writer.shutdownNow()
+        flush()
     }
 
     private fun load(): LibraryData =
@@ -228,7 +269,8 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
 
     // ---------- downloads ----------
     fun download(key: String) = current.downloads.firstOrNull { it.track.key == key }
-    fun upsertDownload(r: DownloadRecord) = mutate { d ->
+    /** Progress ticks of a running download stay in memory; state changes are written. */
+    fun upsertDownload(r: DownloadRecord) = mutate(persist = !(r.state == DownloadState.DOWNLOADING && download(r.track.key)?.state == DownloadState.DOWNLOADING)) { d ->
         d.copy(downloads = if (d.downloads.any { it.track.key == r.track.key }) d.downloads.map { if (it.track.key == r.track.key) r else it } else listOf(r) + d.downloads)
     }
     fun removeDownload(key: String) = mutate { d -> d.copy(downloads = d.downloads.filterNot { it.track.key == key }) }
@@ -264,6 +306,8 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
     companion object {
         const val HISTORY_MAX = 200
         const val SEARCHES_MAX = 20
+        const val WRITE_DELAY_MS = 1500L
+        private const val RETRY_DELAY_MS = 10_000L
         fun isoNow(): String = Instant.now().toString()
     }
 }

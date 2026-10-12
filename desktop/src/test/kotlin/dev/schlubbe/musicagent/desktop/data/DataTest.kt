@@ -37,11 +37,31 @@ class LibraryStoreTest {
         s.removeFromPlaylist(p.id, 1)
         assertEquals(listOf("3", "2"), s.current.playlists.single().tracks.map { it.track.sourceId })
         s.updatePlaylist(p.id) { it.copy(name = "Gym", moodTags = listOf("workout")) }
+        s.flush()
 
         val reloaded = LibraryStore(dir)
         assertEquals(s.current, reloaded.current)
         reloaded.deletePlaylist(p.id)
         assertTrue(reloaded.current.playlists.isEmpty())
+    }
+
+    @Test fun `a failing write never reaches the caller and is retried`() {
+        val s = LibraryStore(dir)
+        // library.json is blocked (here: a directory in its place), so no write can succeed
+        val blocker = File(dir, "library.json").apply { mkdirs(); File(this, "x").writeText("x") }
+        s.toggleLike(track("a"))
+        s.flush()
+        assertEquals(listOf("soundcloud:a"), s.current.likes.map { it.track.key })
+        blocker.deleteRecursively()
+        s.flush()
+        assertEquals(s.current, LibraryStore(dir).current)
+    }
+
+    @Test fun `writes are batched and flushed on close`() {
+        val s = LibraryStore(dir)
+        repeat(20) { s.addListenSeconds(15) }
+        s.close()
+        assertEquals(300L, LibraryStore(dir).weeklyListenSeconds())
     }
 
     @Test fun `history dedupes, searches capped, listen stats per week`() = runBlocking {

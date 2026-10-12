@@ -41,7 +41,10 @@ import java.io.File
 class AppGraph(val dataDir: File = defaultDataDir()) {
     val http = extractionHttpClient()
     val settings = SettingsRepository(File(dataDir, "settings.json"))
-    val store = LibraryStore(dataDir)
+    val store = LibraryStore(dataDir).also { s ->
+        // library changes are written with a short delay: a logout or kill must not lose them
+        Runtime.getRuntime().addShutdownHook(Thread({ s.flush() }, "library-flush"))
+    }
 
     init {
         NewPipe.init(NewPipeDownloader(http), Localization("de", "DE"), ContentCountry("DE"))
@@ -130,5 +133,6 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
         sync.shutdown()
         settings.flush()
         player.close()
+        store.close()
     }
 }

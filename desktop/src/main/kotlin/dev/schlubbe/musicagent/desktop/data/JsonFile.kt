@@ -35,9 +35,40 @@ fun <T> readJson(file: File, type: Type): T? {
 }
 
 /** Atomic write: temp file + rename, so a crash never leaves a half-written file. */
-fun writeJson(file: File, value: Any) {
+fun writeJson(file: File, value: Any) = writeTextAtomic(file, gson.toJson(value))
+
+private fun writeTextAtomic(file: File, text: String) {
     file.parentFile?.mkdirs()
     val tmp = File(file.path + ".tmp")
-    tmp.writeText(gson.toJson(value))
+    tmp.writeText(text)
     Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+}
+
+/**
+ * [writeJson] that never throws: retries the atomic write briefly (on Windows a virus
+ * scanner or indexer may hold the file for a moment), then replaces the file without the
+ * atomic rename. Returns false, after logging, when nothing worked (disk full, no access);
+ * the old file is then left as it was.
+ */
+fun writeJsonSafely(file: File, value: Any): Boolean {
+    val log = java.util.logging.Logger.getLogger("JsonFile")
+    val text = try { gson.toJson(value) } catch (e: Exception) { log.warning("cannot serialise ${file.name}: $e"); return false }
+    var error: Exception? = null
+    for (attempt in 0 until 3) {
+        try { writeTextAtomic(file, text); return true } catch (e: Exception) { error = e }
+        try { Thread.sleep(50L shl attempt) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+    }
+    // the temp file is complete, only the atomic rename failed: a plain replace then
+    try {
+        val tmp = File(file.path + ".tmp")
+        if (tmp.isFile && tmp.length() == text.toByteArray(Charsets.UTF_8).size.toLong()) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            log.warning("${file.name}: atomic rename failed ($error), replaced it without")
+            return true
+        }
+    } catch (e: Exception) {
+        error = e
+    }
+    log.warning("cannot write ${file.name}: $error")
+    return false
 }
