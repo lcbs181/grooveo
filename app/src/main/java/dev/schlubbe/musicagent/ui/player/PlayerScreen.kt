@@ -1,6 +1,9 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.playback.hasNext
+import dev.schlubbe.musicagent.playback.hasPrevious
 import dev.schlubbe.musicagent.playback.playBlocked
+import dev.schlubbe.musicagent.playback.upNextIndices
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
@@ -222,18 +225,15 @@ fun PlayerScreen(
     val durationMs = polledDurationMs.takeIf { it > 0 } ?: playbackState.durationMs
     val progress = (positionMs.toFloat() / durationMs.coerceAtLeast(1L).toFloat()).coerceIn(0f, 1f)
 
-    val upNext = if (playbackState.queueIndex >= 0) {
-        playbackState.queue.drop(playbackState.queueIndex + 1)
-    } else {
-        emptyList()
-    }
-    // With repeat-all, skip wraps around the ends of the queue - hasNextMediaItem()/
-    // hasPreviousMediaItem() (used by skipToNext/Previous) already account for this,
-    // so mirror it here too rather than leaving the buttons looking disabled at the
-    // queue's edges when they'd actually still work.
-    val wrapsAround = playbackState.repeatMode == Player.REPEAT_MODE_ALL && playbackState.queue.size > 1
-    val hasPrevious = wrapsAround || playbackState.queueIndex > 0
-    val hasNext = wrapsAround || playbackState.queueIndex in 0 until playbackState.queue.size - 1
+    // In play order: the logical queue after the current track, or - with shuffle on -
+    // the player's own shuffle order, the one Next, the notification and the crossfade
+    // follow (see QueueNavigation).
+    val upNextIndices = playbackState.upNextIndices
+    val upNext = upNextIndices.map { playbackState.queue[it] }
+    // Repeat-all wraps around the queue's ends, so the buttons stay enabled there -
+    // the same rule PlayerController.skipToNext/skipToPrevious apply.
+    val hasPrevious = playbackState.hasPrevious
+    val hasNext = playbackState.hasNext
     val sourceLabel = when ((playbackState.currentTrackId ?: playbackState.loadingTrackId)?.substringBefore(":")) {
         "soundcloud" -> "SoundCloud"
         "ytmusic" -> "YouTube Music"
@@ -855,16 +855,20 @@ fun PlayerScreen(
                     modifier = Modifier.padding(top = 22.dp),
                 )
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    // Reordering moves a track in the logical queue, which the shuffle
+                    // order does not follow (the player gives a moved item a new random
+                    // place) - so with shuffle on only play and remove are offered.
+                    val canReorder = !playbackState.shuffleEnabled
                     upNext.take(MAX_RENDERED_UPCOMING).forEachIndexed { i, track ->
-                        val queueIndex = playbackState.queueIndex + 1 + i
+                        val queueIndex = upNextIndices[i]
                         val firstUpcoming = playbackState.queueIndex + 1
                         val lastUpcoming = playbackState.queueIndex + upNext.size
                         UpNextRow(
                             track = track,
                             onClick = { viewModel.playQueueItem(queueIndex) },
-                            onPlayNext = { viewModel.moveInQueue(queueIndex, firstUpcoming) }.takeIf { queueIndex > firstUpcoming },
-                            onMoveUp = { viewModel.moveInQueue(queueIndex, queueIndex - 1) }.takeIf { queueIndex > firstUpcoming },
-                            onMoveDown = { viewModel.moveInQueue(queueIndex, queueIndex + 1) }.takeIf { queueIndex < lastUpcoming },
+                            onPlayNext = { viewModel.moveInQueue(queueIndex, firstUpcoming) }.takeIf { canReorder && queueIndex > firstUpcoming },
+                            onMoveUp = { viewModel.moveInQueue(queueIndex, queueIndex - 1) }.takeIf { canReorder && queueIndex > firstUpcoming },
+                            onMoveDown = { viewModel.moveInQueue(queueIndex, queueIndex + 1) }.takeIf { canReorder && queueIndex < lastUpcoming },
                             onRemove = { viewModel.removeFromQueue(queueIndex) },
                         )
                     }

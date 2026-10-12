@@ -89,6 +89,12 @@ data class PlaybackUiState(
     val queue: List<TrackResultDto> = emptyList(),
     val queueIndex: Int = -1,
     val shuffleEnabled: Boolean = false,
+    // With shuffle on: the logical queue indices still to come, in the player's shuffle
+    // order (see QueueNavigation). Null with shuffle off, where the order is simply the
+    // logical queue after queueIndex - read it through upNextIndices.
+    val shuffledUpNext: List<Int>? = null,
+    // With shuffle on: whether the shuffle order has anything before the current track.
+    val shuffledHasPrevious: Boolean = false,
     // Player.REPEAT_MODE_OFF / _ONE / _ALL.
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     // Whether the currently loaded item is playing from its local download rather than
@@ -419,8 +425,10 @@ class PlayerController @Inject constructor(
                 // on the first one instead of letting the transition to newLogicalIndex
                 // happen; the real track ExoPlayer already moved to stays loaded
                 // (paused) there, ready for when the user manually skips past it.
-                // only a real gap: every slot in between is unloaded (a shuffle jump is no gap)
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && newLogicalIndex > currentQueueIndex + 1 &&
+                // only a real gap: every slot in between is unloaded (a shuffle jump is no gap).
+                // With shuffle on the queue order is the player's own, which has no gaps.
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && controller?.shuffleModeEnabled != true &&
+                    newLogicalIndex > currentQueueIndex + 1 &&
                     (currentQueueIndex + 1 until newLogicalIndex).all { exoIndexForLogical.getOrNull(it) == null }
                 ) {
                     val gapIndex = currentQueueIndex + 1
@@ -504,6 +512,12 @@ class PlayerController @Inject constructor(
 
             override fun onRepeatModeChanged(repeatMode: Int) {
                 _playbackState.value = _playbackState.value.copy(repeatMode = repeatMode)
+            }
+
+            // Runs after each batch of the callbacks above, so the shuffle order shown
+            // is read with currentQueueIndex already updated for this batch.
+            override fun onEvents(player: Player, events: Player.Events) {
+                refreshShuffledUpNext()
             }
         })
 
@@ -825,6 +839,7 @@ class PlayerController @Inject constructor(
         val exoIndex = newMapping[logicalIndex]!!
         mediaController.addMediaItem(exoIndex, buildMediaItem(track, resolved))
         exoIndexForLogical = newMapping
+        refreshShuffledUpNext()
         return exoIndex
     }
 
@@ -840,6 +855,7 @@ class PlayerController @Inject constructor(
 
     private fun publishQueue() {
         _playbackState.value = _playbackState.value.copy(queue = currentQueue, queueIndex = currentQueueIndex)
+        refreshShuffledUpNext()
     }
 
     /** Removes the queue entry at logical [index] (never the current track). */
@@ -872,8 +888,16 @@ class PlayerController @Inject constructor(
 
     /** Drops everything after the current track. */
     suspend fun clearUpNext() {
-        if (currentQueueIndex < 0 || currentQueueIndex >= currentQueue.size - 1) return
         val mediaController = ensureConnected()
+        // With shuffle on, "up next" is the rest of the shuffle order, which is spread
+        // across the whole logical queue - remove exactly those, back to front so the
+        // indices still to remove stay valid.
+        if (mediaController.shuffleModeEnabled) {
+            refreshShuffledUpNext()
+            _playbackState.value.shuffledUpNext?.sortedDescending()?.forEach { removeFromQueue(it) }
+            return
+        }
+        if (currentQueueIndex < 0 || currentQueueIndex >= currentQueue.size - 1) return
         val currentExo = exoIndexForLogical.getOrNull(currentQueueIndex)
             ?: exoIndexForLogical.take(currentQueueIndex).lastOrNull { it != null }
         val firstRemoved = (currentExo ?: -1) + 1
@@ -996,7 +1020,7 @@ class PlayerController @Inject constructor(
             .map { exoIndex -> if (exoIndex != null && exoIndex >= insertExoIndex) exoIndex + 1 else exoIndex }
             .toMutableList()
             .apply { add(insertLogicalIndex, insertExoIndex) }
-        _playbackState.value = _playbackState.value.copy(queue = currentQueue)
+        publishQueue()
     }
 
     suspend fun playFromUri(uriString: String) {
@@ -1112,23 +1136,63 @@ class PlayerController @Inject constructor(
         moveToLogicalIndex(index)
     }
 
+    // With shuffle on these follow the player's own shuffle order, so the in-app buttons
+    // land on the same track the notification's buttons and the crossfade would; with
+    // shuffle off they walk the logical queue (DRM gaps included) as before. See
+    // QueueNavigation.
     private fun nextLogicalIndex(): Int? {
-        if (currentQueueIndex < 0 || currentQueue.isEmpty()) return null
-        val next = currentQueueIndex + 1
-        return when {
-            next < currentQueue.size -> next
-            controller?.repeatMode == Player.REPEAT_MODE_ALL && currentQueue.size > 1 -> 0
-            else -> null
-        }
+        val mediaController = controller
+        if (mediaController?.shuffleModeEnabled == true) return shuffledNeighbour(mediaController, forward = true)
+        return QueueNavigation.logicalNext(currentQueueIndex, currentQueue.size, mediaController?.repeatMode ?: Player.REPEAT_MODE_OFF)
     }
 
     private fun previousLogicalIndex(): Int? {
-        if (currentQueueIndex < 0 || currentQueue.isEmpty()) return null
-        val previous = currentQueueIndex - 1
-        return when {
-            previous >= 0 -> previous
-            controller?.repeatMode == Player.REPEAT_MODE_ALL && currentQueue.size > 1 -> currentQueue.size - 1
-            else -> null
+        val mediaController = controller
+        if (mediaController?.shuffleModeEnabled == true) return shuffledNeighbour(mediaController, forward = false)
+        return QueueNavigation.logicalPrevious(currentQueueIndex, currentQueue.size, mediaController?.repeatMode ?: Player.REPEAT_MODE_OFF)
+    }
+
+    /** The player item the shuffle order is read from: the current slot's own item, or -
+     * when the current slot has nothing loaded (an unavailable track) - whatever item the
+     * player is actually sitting on. */
+    private fun shuffleAnchor(mediaController: MediaController): Int? {
+        val timeline = mediaController.currentTimeline
+        if (timeline.isEmpty || currentQueueIndex < 0) return null
+        val anchor = exoIndexForLogical.getOrNull(currentQueueIndex) ?: mediaController.currentMediaItemIndex
+        return anchor.takeIf { it in 0 until timeline.windowCount }
+    }
+
+    private fun shuffledNeighbour(mediaController: MediaController, forward: Boolean, repeatMode: Int = mediaController.repeatMode): Int? {
+        val anchor = shuffleAnchor(mediaController) ?: return null
+        val timeline = mediaController.currentTimeline
+        val repeat = QueueNavigation.navigationRepeatMode(repeatMode)
+        return QueueNavigation.neighbourInPlayerOrder(anchor, exoIndexForLogical, currentQueueIndex) { exo ->
+            if (forward) timeline.getNextWindowIndex(exo, repeat, true) else timeline.getPreviousWindowIndex(exo, repeat, true)
+        }
+    }
+
+    /** Publishes the shuffle-order view of the queue ([PlaybackUiState.shuffledUpNext])
+     * for the Player screen and mini player. Called after every player event batch and
+     * after every change to the logical queue mapping, since either can change it. */
+    private fun refreshShuffledUpNext() {
+        val mediaController = controller
+        var upNext: List<Int>? = null
+        var hasPrevious = false
+        if (mediaController != null && mediaController.shuffleModeEnabled) {
+            val anchor = shuffleAnchor(mediaController)
+            upNext = if (anchor == null) {
+                emptyList()
+            } else {
+                val timeline = mediaController.currentTimeline
+                QueueNavigation.upNextInPlayerOrder(anchor, exoIndexForLogical, currentQueueIndex) { exo ->
+                    timeline.getNextWindowIndex(exo, Player.REPEAT_MODE_OFF, true)
+                }
+            }
+            hasPrevious = shuffledNeighbour(mediaController, forward = false, repeatMode = Player.REPEAT_MODE_OFF) != null
+        }
+        val state = _playbackState.value
+        if (state.shuffledUpNext != upNext || state.shuffledHasPrevious != hasPrevious) {
+            _playbackState.value = state.copy(shuffledUpNext = upNext, shuffledHasPrevious = hasPrevious)
         }
     }
 
@@ -1176,6 +1240,7 @@ class PlayerController @Inject constructor(
                 isUnavailable = true,
                 unavailableMessage = DRM_UNAVAILABLE_MESSAGE,
             )
+            refreshShuffledUpNext()
         } else if (exoIndex == mediaController.currentMediaItemIndex) {
             currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
             currentTrack = track
@@ -1195,6 +1260,7 @@ class PlayerController @Inject constructor(
                 isUnavailable = false,
                 unavailableMessage = null,
             )
+            refreshShuffledUpNext()
         } else {
             // Clear the unavailable state here rather than waiting for the resulting
             // onMediaItemTransition to do it: that callback has several early returns
@@ -1393,7 +1459,8 @@ class PlayerController @Inject constructor(
                     exoIndexForLogical = exoIndexForLogical + exoIndex
                     exoIndex++
                 }
-                _playbackState.value = _playbackState.value.copy(queue = currentQueue)
+                val firstAppended = currentQueue.size - resolved.size
+                publishQueue()
 
                 // The player sat at STATE_ENDED with nothing left; now there is.
                 // moveToLogicalIndex handles the DRM-unavailable case itself, so this
@@ -1401,7 +1468,9 @@ class PlayerController @Inject constructor(
                 // DRM-blocked (it shouldn't - predictNext's own search results aren't
                 // annotated that way at this layer - but resolveWithRetry already
                 // dropped anything that failed to resolve above regardless).
-                val next = currentQueueIndex + 1
+                // With shuffle on, the slot after the current one may be a track the
+                // shuffle already played - start the new batch itself instead.
+                val next = if (ensureConnected().shuffleModeEnabled) firstAppended else currentQueueIndex + 1
                 if (next < currentQueue.size) moveToLogicalIndex(next)
             }
         }

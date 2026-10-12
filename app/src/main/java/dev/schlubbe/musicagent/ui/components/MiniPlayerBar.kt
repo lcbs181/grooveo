@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.components
 
+import dev.schlubbe.musicagent.playback.hasNext
 import dev.schlubbe.musicagent.playback.playBlocked
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -184,7 +185,9 @@ fun MiniPlayerBar(
                         },
                 )
 
-                val hasNext = playbackState.queueIndex in 0 until playbackState.queue.size - 1
+                // Same rule as the Player screen's button (repeat-all wraps, shuffle
+                // follows the player's order) - see PlaybackUiState.hasNext.
+                val hasNext = playbackState.hasNext
                 Icon(
                     phosphorIcon("skip-forward"),
                     contentDescription = "Nächster Titel",
