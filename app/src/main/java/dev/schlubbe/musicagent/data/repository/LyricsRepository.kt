@@ -31,6 +31,11 @@ data class LyricLine(val timeMs: Long, val text: String)
  * [synced] when it's there. */
 data class Lyrics(val synced: List<LyricLine>?, val plain: String?)
 
+/** LRCLIB could not answer right now (rate limit, server error, no network), so whether the
+ * track has lyrics is still unknown. Worth asking again after [retryAfterMs]. */
+class LyricsUnavailableException(val retryAfterMs: Long, cause: Throwable? = null) :
+    Exception("LRCLIB unavailable, retry in ${retryAfterMs / 1000}s", cause)
+
 /** Strips common track-title decorations ("(feat. X)", "[Official Video]",
  * "(Remastered 2009)", " - Live") before querying LRCLIB, since those rarely
  * appear in LRCLIB's own metadata and can make an otherwise-exact match miss. */
@@ -86,26 +91,56 @@ private fun parseLrc(lrc: String): List<LyricLine> {
 /** Fetches lyrics from LRCLIB (https://lrclib.net) - free, no API key. Tries the
  * exact-match `/api/get` endpoint first (cleaned title, then the raw title if
  * that finds nothing), then falls back to `/api/search` and picks the closest
- * duration match. Every outcome (including "nothing found") is cached in memory
- * per track key so re-opening the lyrics sheet, or a track looping back around,
- * doesn't re-hit the network. */
+ * duration match. Answers (including "nothing found") are cached in memory per
+ * track key so re-opening the lyrics sheet, or a track looping back around,
+ * doesn't re-hit the network. A failed request is not an answer: it throws
+ * [LyricsUnavailableException], is not cached, and pauses all lookups for a
+ * growing while when LRCLIB rate-limits us, so retries never pile up. */
 @Singleton
 class LyricsRepository @Inject constructor(
     @ExtractionHttpClient private val client: OkHttpClient,
 ) {
     private val cache = mutableMapOf<String, Lyrics?>()
     private val cacheMutex = Mutex()
+    @Volatile private var blockedUntil = 0L
+    @Volatile private var backoffMs = MIN_BACKOFF_MS
 
+    /** The track's lyrics, or null when LRCLIB has none.
+     * @throws LyricsUnavailableException when LRCLIB cannot be asked right now. */
     suspend fun lyricsFor(title: String, artist: String?, durationSec: Int?): Lyrics? {
         val key = "$title\u0000${artist.orEmpty()}\u0000${durationSec ?: -1}"
         cacheMutex.withLock {
             if (cache.containsKey(key)) return cache.getValue(key)
         }
-        val result = runCatching { fetchLyrics(title, artist.orEmpty(), durationSec) }
-            .onFailure { Log.w(TAG, "lyricsFor failed for '$title'", it) }
-            .getOrNull()
+        val wait = blockedUntil - System.currentTimeMillis()
+        if (wait > 0) throw LyricsUnavailableException(wait)
+        val result = try {
+            fetchLyrics(title, artist.orEmpty(), durationSec)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: LyricsUnavailableException) {
+            Log.w(TAG, "lyricsFor failed for '$title': ${e.message}")
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "lyricsFor failed for '$title'", e)
+            throw LyricsUnavailableException(MIN_BACKOFF_MS, e)
+        }
+        backoffMs = MIN_BACKOFF_MS
         cacheMutex.withLock { cache[key] = result }
         return result
+    }
+
+    /** Throws for a rate limit (429) or server error (5xx) and blocks every lookup until
+     * LRCLIB's Retry-After, but at least the current backoff, has passed. A 404 means
+     * "no such track" and passes. */
+    private fun checkResponse(response: okhttp3.Response) {
+        if (response.isSuccessful || response.code == 404) return
+        if (response.code != 429 && response.code < 500) return
+        val retryAfter = response.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000) ?: 0L
+        val wait = maxOf(retryAfter, backoffMs)
+        backoffMs = minOf(backoffMs * 2, MAX_BACKOFF_MS)
+        blockedUntil = System.currentTimeMillis() + wait
+        throw LyricsUnavailableException(wait)
     }
 
     private suspend fun fetchLyrics(title: String, artist: String, durationSec: Int?): Lyrics? {
@@ -130,6 +165,7 @@ class LyricsRepository @Inject constructor(
             val request = Request.Builder().url(urlBuilder.build()).header("User-Agent", USER_AGENT).build()
 
             client.newCall(request).execute().use { response ->
+                checkResponse(response)
                 if (!response.isSuccessful) return@use null
                 val body = response.body?.string() ?: return@use null
                 val obj = runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull() ?: return@use null
@@ -145,6 +181,7 @@ class LyricsRepository @Inject constructor(
             val request = Request.Builder().url(urlBuilder.build()).header("User-Agent", USER_AGENT).build()
 
             val results = client.newCall(request).execute().use { response ->
+                checkResponse(response)
                 if (!response.isSuccessful) return@use null
                 val body = response.body?.string() ?: return@use null
                 runCatching { JsonParser.parseString(body).asJsonArray }.getOrNull()
@@ -174,5 +211,10 @@ class LyricsRepository @Inject constructor(
         val synced = syncedRaw?.let { parseLrc(it) }?.takeIf { it.isNotEmpty() }
         val plain = plainRaw?.takeIf { it.isNotBlank() }
         return if (synced == null && plain == null) null else Lyrics(synced = synced, plain = plain)
+    }
+
+    private companion object {
+        const val MIN_BACKOFF_MS = 30_000L
+        const val MAX_BACKOFF_MS = 15 * 60_000L
     }
 }

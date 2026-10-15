@@ -4,6 +4,7 @@ import com.google.gson.JsonParser
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
+import dev.schlubbe.musicagent.data.repository.LyricsUnavailableException
 import dev.schlubbe.musicagent.desktop.AppGraph
 import dev.schlubbe.musicagent.desktop.audio.BeatGrid
 import dev.schlubbe.musicagent.desktop.audio.Curve
@@ -283,7 +284,11 @@ class GrooveoTools(
         }
         tool("get_lyrics", "Lyrics of a track (LRCLIB).", props = mapOf("track_id" to str("")), required = listOf("track_id"), openWorld = true) { a ->
             val t = track(a.string("track_id")!!)
-            val l = g.lyrics.lyricsFor(t.title, t.artist, t.durationSec) ?: return@tool "No lyrics found"
+            val l = try {
+                g.lyrics.lyricsFor(t.title, t.artist, t.durationSec)
+            } catch (e: LyricsUnavailableException) {
+                return@tool "LRCLIB is unavailable right now (try again in ${e.retryAfterMs / 1000}s)"
+            } ?: return@tool "No lyrics found"
             l.plain ?: l.synced?.joinToString("\n") { "[${it.timeMs / 1000}s] ${it.text}" } ?: "No lyrics found"
         }
     }

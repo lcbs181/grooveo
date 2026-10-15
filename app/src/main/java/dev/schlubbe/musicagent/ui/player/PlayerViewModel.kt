@@ -18,6 +18,7 @@ import dev.schlubbe.musicagent.data.repository.FollowRepository
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.Lyrics
 import dev.schlubbe.musicagent.data.repository.LyricsRepository
+import dev.schlubbe.musicagent.data.repository.LyricsUnavailableException
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
@@ -27,6 +28,7 @@ import dev.schlubbe.musicagent.playback.PlayerController
 import dev.schlubbe.musicagent.playback.VisualizerFrame
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -57,6 +59,8 @@ sealed class LyricsUiState {
     data object Loading : LyricsUiState()
     data class Found(val lyrics: Lyrics) : LyricsUiState()
     data object NotFound : LyricsUiState()
+    /** LRCLIB cannot be reached right now; the lookup retries by itself. */
+    data object Unavailable : LyricsUiState()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -111,8 +115,17 @@ class PlayerViewModel @Inject constructor(
                 }
                 emit(LyricsUiState.Loading)
                 val durationSec = durationMs.takeIf { it > 0 }?.let { (it / 1000L).toInt() }
-                val lyrics = lyricsRepository.lyricsFor(title, artist, durationSec)
-                emit(if (lyrics != null) LyricsUiState.Found(lyrics) else LyricsUiState.NotFound)
+                while (true) {
+                    try {
+                        val lyrics = lyricsRepository.lyricsFor(title, artist, durationSec)
+                        emit(if (lyrics != null) LyricsUiState.Found(lyrics) else LyricsUiState.NotFound)
+                        return@flow
+                    } catch (e: LyricsUnavailableException) {
+                        // ask again once LRCLIB lets us; a track change cancels the wait
+                        emit(LyricsUiState.Unavailable)
+                        delay(e.retryAfterMs)
+                    }
+                }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LyricsUiState.Loading)

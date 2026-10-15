@@ -36,6 +36,7 @@ import com.adamglin.phosphoricons.regular.Subtitles
 import com.adamglin.phosphoricons.regular.X
 import dev.schlubbe.musicagent.data.repository.LyricLine
 import dev.schlubbe.musicagent.data.repository.Lyrics
+import dev.schlubbe.musicagent.data.repository.LyricsUnavailableException
 import dev.schlubbe.musicagent.desktop.data.key
 import dev.schlubbe.musicagent.desktop.ui.C
 import dev.schlubbe.musicagent.desktop.ui.EmptyState
@@ -44,6 +45,7 @@ import dev.schlubbe.musicagent.desktop.ui.LoadingBox
 import dev.schlubbe.musicagent.desktop.ui.LocalUi
 import dev.schlubbe.musicagent.desktop.ui.engineValue
 import dev.schlubbe.musicagent.desktop.ui.SidePanel
+import kotlinx.coroutines.delay
 
 /** Index of the line being sung at [posMs] (last line with timeMs <= pos), -1 before the first line. Binary search. */
 fun activeLyricIndex(lines: List<LyricLine>, posMs: Long): Int {
@@ -70,9 +72,20 @@ fun LyricsPanel(modifier: Modifier = Modifier) {
     val q by g.player.state.collectAsState()
     val t = q.current
     val key = t?.key
+    // LRCLIB unreachable (rate limit, no network): not an answer, so it is not cached
+    var unavailable by remember(key) { mutableStateOf(false) }
     LaunchedEffect(key) {
         if (t == null || LyricsCache.map.containsKey(t.key)) return@LaunchedEffect
-        LyricsCache.map[t.key] = runCatching { g.lyrics.lyricsFor(t.title, t.artist, t.durationSec) }.getOrNull()
+        while (true) {
+            try {
+                LyricsCache.map[t.key] = g.lyrics.lyricsFor(t.title, t.artist, t.durationSec)
+                unavailable = false
+                return@LaunchedEffect
+            } catch (e: LyricsUnavailableException) {
+                unavailable = true
+                delay(e.retryAfterMs)
+            }
+        }
     }
     val loaded = key != null && LyricsCache.map.containsKey(key)
     val lyrics = key?.let { LyricsCache.map[it] }
@@ -88,6 +101,7 @@ fun LyricsPanel(modifier: Modifier = Modifier) {
         Column(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 t == null -> EmptyState(PhosphorIcons.Regular.Subtitles, "Nichts läuft", "Spiele einen Titel ab.")
+                !loaded && unavailable -> EmptyState(PhosphorIcons.Regular.Subtitles, "LRCLIB nicht erreichbar", "Neuer Versuch folgt automatisch.")
                 !loaded -> LoadingBox()
                 lyrics == null -> EmptyState(PhosphorIcons.Regular.Subtitles, "Keine Songtexte gefunden", "Für diesen Titel gibt es bei LRCLIB keinen Text.")
                 lyrics.synced != null -> SyncedLyrics(lyrics.synced!!)

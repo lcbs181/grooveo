@@ -100,6 +100,7 @@ fun LyricsSheet(
                         color = Canopy.accent,
                     )
                     is LyricsUiState.NotFound -> NotFoundText()
+                    is LyricsUiState.Unavailable -> NotFoundText("LRCLIB ist gerade nicht erreichbar. Neuer Versuch folgt automatisch.")
                     is LyricsUiState.Found -> {
                         val synced = state.lyrics.synced
                         val plain = state.lyrics.plain
@@ -131,9 +132,9 @@ fun LyricsSheet(
 }
 
 @Composable
-private fun NotFoundText() {
+private fun NotFoundText(message: String = "Kein Songtext gefunden") {
     Text(
-        "Kein Songtext gefunden",
+        message,
         style = MaterialTheme.typography.bodyMedium,
         color = Canopy.neutral500,
         modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
