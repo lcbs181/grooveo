@@ -311,9 +311,6 @@ data class HomeUiState(
     // playing" indicator on the genre-trends row that happens to match (see
     // GrooveoApp.dc.html's `g.isNow`, the only real call site this badge has).
     val nowPlayingId: String? = null,
-    // Home's PromoCard about the SoundCloud-HLS download limitation; sticks
-    // dismissed, same flag pattern as the Library import banner.
-    val scPromoDismissed: Boolean = false,
 )
 
 /** Converts a locally-cached [TrackEntity] back into a [TrackResultDto] for playback
@@ -390,11 +387,6 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.dataSaverMode.collect { on ->
                 _uiState.value = _uiState.value.copy(dataSaverMode = on)
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.homeScPromoDismissed.collect { dismissed ->
-                _uiState.value = _uiState.value.copy(scPromoDismissed = dismissed)
             }
         }
         // "Trends nach Genre" chip order: reorders (and possibly extends) the
@@ -535,10 +527,6 @@ class HomeViewModel @Inject constructor(
         if (genre == _uiState.value.selectedGenre && _uiState.value.genreTracks.isNotEmpty()) return
         _uiState.value = _uiState.value.copy(selectedGenre = genre)
         loadGenreTracks(genre)
-    }
-
-    fun dismissScPromo() {
-        viewModelScope.launch { settingsRepository.setHomeScPromoDismissed(true) }
     }
 
     /** Onboarding's picks go first (in whatever order the preference [Set] hands

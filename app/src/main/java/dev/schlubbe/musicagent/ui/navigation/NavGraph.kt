@@ -286,7 +286,6 @@ fun MusicAgentNavGraph(
                     onSearchClick = { navController.navigate(Routes.SEARCH) },
                     onSeeAllArtistsClick = { navController.navigate(Routes.LIBRARY) },
                     onSettingsClick = { navController.navigate(Routes.SETTINGS) },
-                    onDownloadsClick = { navController.navigate(Routes.DOWNLOADS) },
                     onArtistClick = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },

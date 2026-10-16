@@ -43,7 +43,6 @@ import dev.schlubbe.musicagent.data.repository.FeedItem
 import dev.schlubbe.musicagent.ui.components.CanopyAvatar
 import dev.schlubbe.musicagent.ui.components.CanopyBadge
 import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
-import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyChip
 import dev.schlubbe.musicagent.ui.components.GeneratedArtwork
@@ -72,7 +71,6 @@ fun HomeScreen(
     onTrackSelected: () -> Unit,
     onSearchClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onDownloadsClick: () -> Unit,
     // "Alle" on the followed-artists rail: the design points this at the artist
     // area, which in this app is Library's Künstler section.
     onSeeAllArtistsClick: () -> Unit,
@@ -164,10 +162,6 @@ fun HomeScreen(
                             },
                         )
                     }
-                }
-
-                if (!uiState.scPromoDismissed) {
-                    item { ScPromoCard(onDismiss = viewModel::dismissScPromo, onCta = onDownloadsClick) }
                 }
 
                 if (uiState.topArtists.isNotEmpty()) {
@@ -585,50 +579,6 @@ private fun DailyPickCard(pick: TrackResultDto, onPlay: () -> Unit) {
                 )
             }
         }
-    }
-}
-
-/** Canopy PromoCard: centred, dismissible, outlined CTA. Carries the app's
- * honest SoundCloud-HLS download limitation. */
-@Composable
-private fun ScPromoCard(onDismiss: () -> Unit, onCta: () -> Unit) {
-    Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = SECTION_GAP.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(CanopyShapes.large)
-                .background(Canopy.surface)
-                .border(1.dp, Canopy.divider, CanopyShapes.large)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                "SoundCloud-Downloads",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Canopy.text,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                "SoundCloud liefert HLS-Streams. Downloads von dort sind noch nicht möglich.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Canopy.neutral500,
-                textAlign = TextAlign.Center,
-            )
-            CanopyButton(
-                text = "Mehr erfahren",
-                onClick = onCta,
-                variant = CanopyButtonVariant.Secondary,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-        CanopyIconButton(
-            icon = phosphorIcon("x"),
-            onClick = onDismiss,
-            size = 32.dp,
-            contentDescription = "Ausblenden",
-            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
-        )
     }
 }
 
