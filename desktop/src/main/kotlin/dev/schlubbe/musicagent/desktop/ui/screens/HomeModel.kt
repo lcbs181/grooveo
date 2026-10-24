@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.ui.screens
 
+import dev.schlubbe.musicagent.data.repository.PersonalShelves
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -30,7 +31,7 @@ val <T> HomeLoad<T>.valueOrNull: T? get() = (this as? HomeLoad.Ready<T>)?.value
  */
 class HomeModel(private val ui: AppUi) {
     private val g = ui.graph
-    val logic = HomeLogic(RepoHomeSources(g.search, g.feed, g.settings))
+    val logic = HomeLogic(RepoHomeSources(g.search, g.feed, g.settings) { g.store.current.dislikedArtists.toSet() })
 
     /** Raw trending pool; featured = literal top, charts = daily rotated window. */
     var trending by mutableStateOf<HomeLoad<List<TrackResultDto>>>(HomeLoad.Loading); private set
@@ -40,6 +41,9 @@ class HomeModel(private val ui: AppUi) {
     var selectedGenre by mutableStateOf<String?>(null); private set
     var mixLoading by mutableStateOf(false); private set
     var refreshing by mutableStateOf(false); private set
+    var shelves by mutableStateOf(PersonalShelves(emptyList(), emptyList())); private set
+    /** Today's pick, kept once chosen: "Neu mischen" changes the pool it came from. */
+    private var pickOfDay: Pair<LocalDate, TrackResultDto>? = null
     private var lastLoad = 0L
     private var genreJob: Job? = null
     private var jobs: List<Job> = emptyList()
@@ -50,8 +54,13 @@ class HomeModel(private val ui: AppUi) {
 
     /** "Empfehlung des Tages": stable per day, prefers the personal feed over charts. */
     val dailyPick: TrackResultDto?
-        get() = (feed.valueOrNull?.items?.map { it.track }.orEmpty().ifEmpty { charts }).takeIf { it.isNotEmpty() }
-            ?.let { HomeLogic.pickForDay(LocalDate.now(), it) }
+        get() {
+            val today = LocalDate.now()
+            pickOfDay?.takeIf { it.first == today }?.let { return it.second }
+            if (feed is HomeLoad.Loading) return null
+            return (feed.valueOrNull?.items?.map { it.track }.orEmpty().ifEmpty { charts }).takeIf { it.isNotEmpty() }
+                ?.let { HomeLogic.pickForDay(today, it) }?.also { pickOfDay = today to it }
+        }
 
     fun dailyPickQueue(pick: TrackResultDto): List<TrackResultDto> {
         val f = feed.valueOrNull?.items?.map { it.track }.orEmpty()
@@ -73,6 +82,7 @@ class HomeModel(private val ui: AppUi) {
             load({ trending = it }, keep = trending) { g.search.getTrending(limit = HomeLogic.CHART_OVERFETCH_COUNT, source = "ytmusic") },
             load({ feed = it }, keep = feed) { g.feed.getFeed(preferredGenres = genres, preferredArtists = artists) },
             load({ mixes = it }, keep = mixes) { logic.mixCards(genres, artists) },
+            ui.scope.launch { shelves = withContext(Dispatchers.IO) { runCatching { g.feed.personalShelves() }.getOrDefault(shelves) } },
         )
         val chips = HomeLogic.genreChips(s.preferredGenres)
         selectGenre(selectedGenre?.takeIf { sel -> chips.any { it.equals(sel, true) } } ?: chips.first(), force = true)

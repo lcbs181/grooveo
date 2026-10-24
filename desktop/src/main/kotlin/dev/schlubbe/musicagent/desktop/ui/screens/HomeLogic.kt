@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.ui.screens
 
+import dev.schlubbe.musicagent.data.recommend.Recommender
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.FeedRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
@@ -36,13 +37,18 @@ interface HomeSources {
     suspend fun trendingByGenre(genre: String, limit: Int): List<TrackResultDto>
     suspend fun search(query: String, limit: Int, source: String = "all"): List<TrackResultDto>
     suspend fun personalizedMix(genres: Set<String>, artists: List<String>): List<TrackResultDto>
+    /** Radio after [seed]: song radio and more by its artist, scored against the history. */
+    suspend fun radio(seed: TrackResultDto, limit: Int): List<TrackResultDto> = emptyList()
 }
 
 class RepoHomeSources(
     private val search: SearchRepository,
     private val feed: FeedRepository,
     private val settings: SettingsRepository,
+    private val disliked: () -> Set<String> = { emptySet() },
 ) : HomeSources {
+    override suspend fun radio(seed: TrackResultDto, limit: Int) =
+        feed.predictNext(listOf(seed), setOf("${seed.source}:${seed.sourceId}"), limit, disliked())
     override val safetyFilter: Boolean get() = settings.current.contentSafetyFilter
     override suspend fun trendingByGenre(genre: String, limit: Int) = search.getTrendingByGenre(genre, limit)
     override suspend fun search(query: String, limit: Int, source: String) = search.search(query, source = source, limit = limit)
@@ -85,18 +91,25 @@ class HomeLogic(private val sources: HomeSources) {
     suspend fun moodQueue(mood: HomeMood, fallback: List<TrackResultDto>): List<TrackResultDto> {
         val kw = mood.searchKeyword ?: return fallback.distinctBy { it.key }.shuffled()
         return runCatching { sources.search(kw, MOOD_MIX_SEARCH_LIMIT) }.getOrDefault(emptyList())
-            .filterForDiscovery(sources.safetyFilter).shuffled()
+            .filterForDiscovery(sources.safetyFilter).shuffled().let(Recommender::spreadArtists)
     }
 
     /** "Sender entdecken": a shuffled search for that artist's tracks. */
-    suspend fun stationQueue(artist: HomeArtist): List<TrackResultDto> =
-        runCatching { sources.search(artist.name, STATION_POOL_LIMIT, artist.source) }.getOrDefault(emptyList())
-            .filterForDiscovery(sources.safetyFilter).shuffled()
+    /** A station: the artist's top track, then radio from it. Without radio (offline, a
+     * source hiccup) the artist's own tracks, spread out. */
+    suspend fun stationQueue(artist: HomeArtist): List<TrackResultDto> {
+        val own = runCatching { sources.search(artist.name, STATION_POOL_LIMIT, artist.source) }.getOrDefault(emptyList())
+            .filterForDiscovery(sources.safetyFilter)
+        val seed = own.firstOrNull { it.artist.equals(artist.name, ignoreCase = true) } ?: own.firstOrNull() ?: return emptyList()
+        val radio = runCatching { sources.radio(seed, STATION_RADIO_SIZE) }.getOrDefault(emptyList())
+        return if (radio.isNotEmpty()) listOf(seed) + radio else listOf(seed) + (own - seed).shuffled()
+    }
 
     companion object {
         const val MOOD_MIX_SEARCH_LIMIT = 25
         const val MIX_POOL_MINIMUM = 5
         const val STATION_POOL_LIMIT = 25
+        const val STATION_RADIO_SIZE = 24
         const val CHART_OVERFETCH_COUNT = 60
         const val CHART_DISPLAY_COUNT = 20
         const val FEATURED_CHART_COUNT = 5

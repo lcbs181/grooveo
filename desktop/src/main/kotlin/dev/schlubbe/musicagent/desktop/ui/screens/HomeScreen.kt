@@ -163,6 +163,15 @@ fun HomeScreen() {
                 }
             }
 
+            if (model.shelves.onRepeat.isNotEmpty()) item(key = "onrepeat") {
+                Pad {
+                    Column {
+                        SectionHeader("Dauerschleife", subtitle = "Was du gerade immer wieder hörst")
+                        TrackShelf(model.shelves.onRepeat)
+                    }
+                }
+            }
+
             item(key = "feed") {
                 Pad {
                     val sub = (model.feed as? HomeLoad.Ready)?.value?.let { if (it.isTasteBased) "Basierend auf deinen Lieblingsgenres" else "Auf dem Gerät aus Verlauf und Likes berechnet" }
@@ -268,6 +277,15 @@ fun HomeScreen() {
                     Column {
                         SectionHeader("Zuletzt gespielt", action = "Verlauf", onAction = { ui.navigate(Route.Library(LibraryTab.HISTORY)) })
                         TrackShelf(history.take(SHELF_MAX))
+                    }
+                }
+            }
+
+            if (model.shelves.rediscover.isNotEmpty()) item(key = "rediscover") {
+                Pad {
+                    Column {
+                        SectionHeader("Wiederentdecken", subtitle = "Lange nicht gehört, früher oft")
+                        TrackShelf(model.shelves.rediscover)
                     }
                 }
             }
