@@ -94,6 +94,7 @@ private fun sound3dIcon(preset: Sound3dPreset): String = when (preset) {
 fun SettingsScreen(
     onNavigateBack: () -> Unit = {},
     onWhatsNewClick: () -> Unit = {},
+    onAccountClick: () -> Unit = {},
     onNavigateToEqualizer: () -> Unit = {},
     onTastePickerClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -139,6 +140,14 @@ fun SettingsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {
+                // — Profil — name and colour for the Home greeting, followed artists, statistics
+                SettingsNavRow(
+                    icon = phosphorIcon("user-circle"),
+                    title = "Profil",
+                    subtitle = "Name, Farbe, gefolgte Künstler und Statistik",
+                    onClick = onAccountClick,
+                )
+
                 // — Wiedergabe —
                 Column {
                     CanopySectionHeader(title = "Wiedergabe")

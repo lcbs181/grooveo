@@ -312,6 +312,7 @@ fun MusicAgentNavGraph(
                 SettingsScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
+                    onAccountClick = { navController.navigate(Routes.ACCOUNT) },
                     onNavigateToEqualizer = { navController.navigate(Routes.EQUALIZER) },
                     onTastePickerClick = { navController.navigate(Routes.TASTE_PICKER) },
                 )

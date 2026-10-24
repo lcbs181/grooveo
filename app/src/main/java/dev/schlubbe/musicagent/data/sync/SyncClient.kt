@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.data.sync
 
+import kotlinx.coroutines.sync.withLock
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import android.content.Context
 import com.google.gson.Gson
@@ -171,6 +172,13 @@ class SyncClient @Inject constructor(
     }
 
     suspend fun sync(): Result<Unit> = withContext(Dispatchers.IO) {
+        // the automatic sync and "Jetzt synchronisieren" never run at once
+        syncLock.withLock { syncOnce() }
+    }
+
+    private val syncLock = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun syncOnce(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val key = prefs.getString(KEY, null) ?: error(NOT_PAIRED)
             val keys = keys(key)
