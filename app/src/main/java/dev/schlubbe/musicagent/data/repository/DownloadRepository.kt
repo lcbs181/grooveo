@@ -269,7 +269,10 @@ class DownloadRepository @Inject constructor(
             // KEEP only dedupes against *unfinished* work, so without this a finished
             // download would be fetched again from scratch (e.g. "Alle herunterladen"
             // on a list that's already partly offline).
-            if (downloadDao.getByTrackId(trackId)?.state == DownloadState.COMPLETED) return@launch
+            val known = downloadDao.getByTrackId(trackId)
+            if (known?.state == DownloadState.COMPLETED) return@launch
+            // listed right away as waiting, even while the worker waits for Wi-Fi
+            if (known == null) downloadDao.upsert(DownloadEntity(trackId, null, null, DownloadState.QUEUED, 0, System.currentTimeMillis()))
             trackDao.upsert(
                 TrackEntity(
                     id = trackId,
@@ -296,10 +299,12 @@ class DownloadRepository @Inject constructor(
     fun deleteDownload(trackId: String) {
         workManager.cancelUniqueWork(trackId)
         scope.launch {
-            downloadDao.getByTrackId(trackId)?.mediaStoreUri?.let { uri ->
+            val entity = downloadDao.getByTrackId(trackId)
+            downloadDao.delete(trackId)
+            entity?.mediaStoreUri?.let { uri ->
                 runCatching { context.contentResolver.delete(Uri.parse(uri), null, null) }
             }
-            downloadDao.delete(trackId)
+            entity?.tempFilePath?.let { runCatching { java.io.File(it).delete() } }
         }
     }
 
@@ -314,6 +319,11 @@ class DownloadRepository @Inject constructor(
      * progress) it had reached. */
     fun pauseDownload(trackId: String) {
         workManager.cancelUniqueWork(trackId)
+        // a worker that never ran writes nothing: without this the row stayed "Wartet"
+        scope.launch {
+            downloadDao.getByTrackId(trackId)?.takeIf { it.state == DownloadState.QUEUED }
+                ?.let { downloadDao.upsert(it.copy(state = DownloadState.PAUSED)) }
+        }
     }
 
     /** Continues a PAUSED download - re-enqueues the same worker, which resumes via

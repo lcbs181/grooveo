@@ -218,14 +218,19 @@ class DownloadWorker @AssistedInject constructor(
                 // down - without this, the persisted PAUSED state could be lost and
                 // "Fortsetzen" would have nothing to resume from.
                 withContext(NonCancellable) {
-                    downloadDao.upsert(
-                        DownloadEntity(
-                            trackId, existing?.mediaStoreUri, existing?.relativePath,
-                            if (userPaused) DownloadState.PAUSED else DownloadState.QUEUED,
-                            outcome.pct.takeIf { it >= 0 } ?: (existing?.progressPct ?: 0),
-                            createdAt, tempFile.absolutePath, outcome.bytesSoFar, outcome.totalBytes,
-                        ),
-                    )
+                    // deleted while running (DownloadRepository.deleteDownload): stay deleted
+                    if (downloadDao.getByTrackId(trackId) == null) {
+                        tempFile.delete()
+                    } else {
+                        downloadDao.upsert(
+                            DownloadEntity(
+                                trackId, existing?.mediaStoreUri, existing?.relativePath,
+                                if (userPaused) DownloadState.PAUSED else DownloadState.QUEUED,
+                                outcome.pct.takeIf { it >= 0 } ?: (existing?.progressPct ?: 0),
+                                createdAt, tempFile.absolutePath, outcome.bytesSoFar, outcome.totalBytes,
+                            ),
+                        )
+                    }
                 }
                 // Ignored by WorkManager for a stopped worker either way - a system stop
                 // is rescheduled regardless of what is returned here.

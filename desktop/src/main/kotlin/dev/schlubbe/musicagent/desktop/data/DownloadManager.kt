@@ -49,13 +49,15 @@ class DownloadManager(
         if (existing?.state == DownloadState.COMPLETED && existing.filePath?.let { File(it).isFile } == true) return
         if (jobs[track.key]?.isActive == true) return
         store.upsertDownload((existing ?: DownloadRecord(track, DownloadState.QUEUED)).copy(state = DownloadState.QUEUED, error = null))
-        jobs[track.key] = scope.launch { gate.withPermit { run(track) } }
+        // a paused job may still sit in a blocking read: it lets go of the file first
+        val old = jobs[track.key]
+        jobs[track.key] = scope.launch { old?.join(); gate.withPermit { run(track) } }
     }
 
     fun enqueueAll(tracks: List<TrackResultDto>) = tracks.forEach(::enqueue)
 
     fun pause(key: String) {
-        jobs.remove(key)?.cancel()
+        jobs[key]?.cancel() // stays listed until it has stopped, see enqueue
         store.download(key)?.takeIf { it.state != DownloadState.COMPLETED }?.let { store.upsertDownload(it.copy(state = DownloadState.PAUSED)) }
     }
 
@@ -65,10 +67,21 @@ class DownloadManager(
     fun resumeAll() = store.current.downloads.filter { it.state == DownloadState.PAUSED || it.state == DownloadState.FAILED }.forEach { enqueue(it.track) }
 
     fun remove(key: String) {
-        jobs.remove(key)?.cancel()
-        store.download(key)?.filePath?.let { File(it).delete(); File("$it.part").delete() }
+        val job = jobs[key]?.apply { cancel() }
+        val record = store.download(key)
         store.removeDownload(key)
+        scope.launch {
+            job?.join() // the job writes no more before its files go
+            record?.filePath?.let { File(it).delete() }
+            record?.track?.let { t ->
+                val dir = dirProvider()
+                runCatching { fileBase(t, dir) }.getOrNull()?.let { base -> partFiles(dir, base).forEach(File::delete) }
+            }
+        }
     }
+
+    /** Unfinished files of a download: the HTTP one and the HLS transcode. */
+    private fun partFiles(dir: File, base: String) = listOf(File(dir, "$base.part"), File(dir, "$base.m4a.part"))
 
     fun totalBytes(): Long = store.current.downloads.sumOf { r -> r.filePath?.let { File(it).takeIf(File::isFile)?.length() } ?: 0L }
 
@@ -80,7 +93,10 @@ class DownloadManager(
             val dir = dirProvider().apply { mkdirs() }
             val base = fileBase(track, dir)
             val file = if (stream.isHls) {
-                File(dir, "$base.m4a").also { transcodeHls(stream.url, stream.httpHeaders, it, key) }
+                // transcoded into a .part file, so a stopped download never leaves a broken .m4a
+                val part = File(dir, "$base.m4a.part")
+                transcodeHls(stream.url, stream.httpHeaders, part, key)
+                File(dir, "$base.m4a").also { if (!part.renameTo(it)) error("Datei konnte nicht gespeichert werden") }
             } else {
                 downloadHttp(stream.url, stream.httpHeaders, dir, base, key)
             }
@@ -90,7 +106,7 @@ class DownloadManager(
         } catch (e: Exception) {
             update(key) { it.copy(state = DownloadState.FAILED, error = e.message ?: "Download fehlgeschlagen") }
         } finally {
-            jobs.remove(key)
+            coroutineContext[Job]?.let { jobs.remove(key, it) } // not a newer job for the same track
         }
     }
 
