@@ -111,7 +111,7 @@ fun RemotePlaylistDetailScreen(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                 if (detail != null) {
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
@@ -157,11 +157,15 @@ fun RemotePlaylistDetailScreen(
                     modifier = Modifier.padding(16.dp),
                     color = Canopy.accent,
                 )
-                uiState.error != null -> Text(
-                    "Fehler: ${uiState.error}",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp),
-                )
+                uiState.error != null -> Column(modifier = Modifier.padding(16.dp)) {
+                    Text(uiState.error!!, color = MaterialTheme.colorScheme.error)
+                    CanopyButton(
+                        text = "Erneut versuchen",
+                        onClick = { viewModel.load() },
+                        variant = CanopyButtonVariant.Secondary,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
                 detail == null -> Text("Playlist nicht gefunden", modifier = Modifier.padding(16.dp))
                 else -> PullRefresh(onRefresh = viewModel::load, modifier = Modifier.fillMaxSize()) {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {

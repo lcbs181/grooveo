@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.search
 
+import dev.schlubbe.musicagent.ui.components.CanopyButton
+import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
@@ -143,11 +145,19 @@ fun SearchScreen(
                 when {
                     uiState.isLoading -> CenteredMessage { CircularProgressIndicator(color = Canopy.accent) }
                     uiState.error != null -> CenteredMessage {
-                        Text(
-                            uiState.error!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Canopy.accent2,
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                uiState.error!!,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Canopy.accent2,
+                            )
+                            CanopyButton(
+                                text = "Erneut versuchen",
+                                onClick = { viewModel.runSearch() },
+                                variant = CanopyButtonVariant.Secondary,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                        }
                     }
                     uiState.suggestions.isNotEmpty() -> SuggestionsList(
                         suggestions = uiState.suggestions,

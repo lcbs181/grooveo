@@ -119,20 +119,20 @@ private val PlayerArtSize = 232.dp
  * bars -- see [Waveform]/[Bars] below), so there is no backing field to wire this
  * purely-decorative choice to, and nothing is lost by not persisting it across
  * process death. */
-private data class VizOption(val id: String, val icon: String)
+private data class VizOption(val id: String, val icon: String, val label: String)
 private val VizOptions = listOf(
-    VizOption("circle", "vinyl-record"),
-    VizOption("bars", "chart-bar"),
+    VizOption("circle", "vinyl-record", "Visualizer: Kreis"),
+    VizOption("bars", "chart-bar", "Visualizer: Balken"),
     // The particle orb is the default variant (see PlayerController._vizVariant),
     // so it sits in the middle of the row rather than off to one side.
-    VizOption("particles", "sphere"),
+    VizOption("particles", "sphere", "Visualizer: Partikel"),
     // Design's icon here is "ph-circle-half", which isn't in PhosphorIcon.kt's map
     // (its fallback would silently render a warning-circle glyph) -- "circles-three"
     // is the closest mapped stand-in for a circular/orb concept.
-    VizOption("orb", "circles-three"),
-    VizOption("pulse", "broadcast"),
+    VizOption("orb", "circles-three", "Visualizer: Kugel"),
+    VizOption("pulse", "broadcast", "Visualizer: Puls"),
     // Off: nothing drawn, no spectrum analysis - the cheapest Player screen.
-    VizOption("none", "prohibit"),
+    VizOption("none", "prohibit", "Visualizer aus"),
 )
 
 @Composable
@@ -494,7 +494,7 @@ fun PlayerScreen(
                         onClick = { premiumHaptics.select(); viewModel.setVizVariant(option.id) },
                         variant = if (vizVariant == option.id) CanopyButtonVariant.Primary else CanopyButtonVariant.Ghost,
                         size = 34.dp,
-                        contentDescription = option.id,
+                        contentDescription = option.label,
                     )
                 }
             }

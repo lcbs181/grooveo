@@ -135,16 +135,20 @@ fun ArtistScreen(
             // consider since it doesn't model a loading state.
             if (uiState.artist == null) {
                 Row(modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp)) {
-                    CanopyIconButton(icon = phosphorIcon("arrow-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                    CanopyIconButton(icon = phosphorIcon("arrow-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                 }
             }
             when {
                 uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Canopy.accent)
-                uiState.error != null -> Text(
-                    "Fehler: ${uiState.error}",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp),
-                )
+                uiState.error != null -> Column(modifier = Modifier.padding(16.dp)) {
+                    Text(uiState.error!!, color = MaterialTheme.colorScheme.error)
+                    CanopyButton(
+                        text = "Erneut versuchen",
+                        onClick = { viewModel.retry() },
+                        variant = CanopyButtonVariant.Secondary,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
                 uiState.artist != null -> {
                     val artist = uiState.artist!!
                     val topPreview = artist.topTracks.take(if (showAllTop) artist.topTracks.size else SHELF_PREVIEW_COUNT)

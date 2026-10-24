@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.search
 
+import dev.schlubbe.musicagent.ui.util.friendlyError
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -147,7 +148,7 @@ class SearchViewModel @Inject constructor(
                         eventReporter.search(query)
                     }
                     .onFailure { e ->
-                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e))
                     }
                 "playlists" -> runCatching { searchRepository.searchPlaylists(query, source) }
                     .onSuccess { playlists ->
@@ -155,7 +156,7 @@ class SearchViewModel @Inject constructor(
                         eventReporter.search(query)
                     }
                     .onFailure { e ->
-                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e))
                     }
                 "albums" -> runCatching { searchRepository.searchAlbums(query, source) }
                     .onSuccess { albums ->
@@ -163,7 +164,7 @@ class SearchViewModel @Inject constructor(
                         eventReporter.search(query)
                     }
                     .onFailure { e ->
-                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e))
                     }
                 else -> runCatching { searchRepository.search(query, source) }
                     .onSuccess { results ->
@@ -171,7 +172,7 @@ class SearchViewModel @Inject constructor(
                         eventReporter.search(query)
                     }
                     .onFailure { e ->
-                        _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e))
                     }
             }
         }

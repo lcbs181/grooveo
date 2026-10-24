@@ -382,27 +382,13 @@ private fun QueueRow(
         }
         // A failed or paused download gets a retry/resume affordance instead of a
         // bare cancel, so the row isn't a dead end.
+        // 48 dp touch targets: the bare 18-20 dp icons were hard to hit
         if (failed) {
-            Icon(
-                phosphorIcon("arrow-clockwise"),
-                contentDescription = "Erneut versuchen",
-                tint = Canopy.accent,
-                modifier = Modifier.size(20.dp).clickable(onClick = onRetry),
-            )
+            CanopyIconButton(icon = phosphorIcon("arrow-clockwise"), onClick = onRetry, size = 48.dp, iconSize = 20.dp, contentDescription = "Erneut versuchen")
         } else if (item.entity.state == DownloadState.PAUSED) {
-            Icon(
-                phosphorIcon("play", filled = true),
-                contentDescription = "Fortsetzen",
-                tint = Canopy.accent,
-                modifier = Modifier.size(20.dp).clickable(onClick = onResume),
-            )
+            CanopyIconButton(icon = phosphorIcon("play", filled = true), onClick = onResume, size = 48.dp, iconSize = 20.dp, contentDescription = "Fortsetzen")
         }
-        Icon(
-            phosphorIcon("x"),
-            contentDescription = "Abbrechen",
-            tint = Canopy.neutral400,
-            modifier = Modifier.size(18.dp).clickable(onClick = onCancel),
-        )
+        CanopyIconButton(icon = phosphorIcon("x"), onClick = onCancel, size = 48.dp, iconSize = 18.dp, contentDescription = "Abbrechen")
     }
 }
 

@@ -125,6 +125,7 @@ fun EqualizerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val eq = uiState.eqProfile
     var selected by remember { mutableIntStateOf(0) }
+    var presetToDelete by remember { mutableStateOf<String?>(null) }
     var showSave by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -140,7 +141,7 @@ fun EqualizerScreen(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                 Text("Equalizer", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp).weight(1f))
                 CanopyToggle(checked = eq.enabled, onCheckedChange = { set(eq.copy(enabled = it)) })
             }
@@ -276,12 +277,24 @@ fun EqualizerScreen(
                                 label = p.name,
                                 active = eq.name == p.name,
                                 onClick = { set(eq.withPreset(p)); selected = 0 },
-                                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = {
-                                    viewModel.onDeleteEqPreset(p.name)
-                                    Toast.makeText(context, "„${p.name}“ gelöscht", Toast.LENGTH_SHORT).show()
-                                }),
+                                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { presetToDelete = p.name }),
                             )
                         }
+                    }
+                    presetToDelete?.let { name ->
+                        AlertDialog(
+                            onDismissRequest = { presetToDelete = null },
+                            title = { Text("Vorlage löschen?") },
+                            text = { Text("„$name“ wird entfernt.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    viewModel.onDeleteEqPreset(name)
+                                    Toast.makeText(context, "„$name“ gelöscht", Toast.LENGTH_SHORT).show()
+                                    presetToDelete = null
+                                }) { Text("Löschen") }
+                            },
+                            dismissButton = { TextButton(onClick = { presetToDelete = null }) { Text("Abbrechen") } },
+                        )
                     }
                     if (uiState.eqUserPresets.isNotEmpty()) {
                         Text("Eigene Vorlagen lange drücken zum Löschen.", style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, modifier = Modifier.padding(top = 6.dp))

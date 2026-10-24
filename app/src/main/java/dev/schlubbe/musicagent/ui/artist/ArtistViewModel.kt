@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.artist
 
+import dev.schlubbe.musicagent.ui.util.friendlyError
 import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -102,9 +103,15 @@ class ArtistViewModel @Inject constructor(
                     // leaving the screen mid-load cancels this coroutine; that is not an
                     // error to show (it surfaced as "StandaloneCoroutine was cancelled")
                     if (e is CancellationException) { loadedKey = null; throw e }
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e))
                 }
         }
+    }
+
+    /** "Erneut versuchen" after a failed load. */
+    fun retry() {
+        val (source, sourceId) = loadedKey?.split(':', limit = 2)?.takeIf { it.size == 2 } ?: return
+        load(source, sourceId)
     }
 
     /** Pull to refresh: fetches the shown page again, past the cache, and keeps it on screen meanwhile. */

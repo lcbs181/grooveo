@@ -69,7 +69,7 @@ fun ArtistFollowersScreen(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                 Text("Follower", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 6.dp))
             }
             when {

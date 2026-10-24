@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.playlist
 
+import dev.schlubbe.musicagent.ui.util.friendlyError
 import kotlinx.coroutines.Job
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -88,7 +89,7 @@ class RemotePlaylistDetailViewModel @Inject constructor(
                     // error to show (it surfaced as "StandaloneCoroutine was cancelled")
                     if (e is CancellationException) { throw e }
                     // a failed refresh keeps the page that is already shown
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = if (_uiState.value.detail == null) e.message else null)
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = if (_uiState.value.detail == null) friendlyError(e) else null)
                 }
         }
     }

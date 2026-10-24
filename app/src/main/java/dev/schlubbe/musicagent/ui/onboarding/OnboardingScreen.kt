@@ -250,7 +250,7 @@ fun TastePickerScreen(onNavigateBack: () -> Unit, viewModel: OnboardingViewModel
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                 Text(
                     "Musikgeschmack",
                     style = MaterialTheme.typography.headlineSmall,

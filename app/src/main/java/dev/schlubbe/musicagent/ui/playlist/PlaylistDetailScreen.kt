@@ -152,7 +152,7 @@ fun PlaylistDetailScreen(
                             modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp)
+                            CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                             Row {
                                 Box {
                                     CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
