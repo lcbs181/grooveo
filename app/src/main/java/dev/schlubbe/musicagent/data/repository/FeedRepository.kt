@@ -3,6 +3,7 @@ package dev.schlubbe.musicagent.data.repository
 import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.recommend.Candidate
+import dev.schlubbe.musicagent.data.recommend.EndReason
 import dev.schlubbe.musicagent.data.recommend.Origin
 import dev.schlubbe.musicagent.data.recommend.PlaybackSignals
 import dev.schlubbe.musicagent.data.recommend.Recommender
@@ -82,6 +83,9 @@ private const val SOURCE_TIMEOUT_MS = 6_000L
 /** A liked track comes back as a radio pick only after this long unheard. */
 private const val LIBRARY_REST_MS = 14L * 24 * 3600_000
 
+/** Recently heard-out tracks whose song radio fills "Mehr für dich". */
+private const val DISCOVERY_SEEDS = 2
+
 /** On-device analogue of the (removed) backend's MAYA feed: no server, no
  * cross-user data, so "familiar" comes from purely local signal (recently played +
  * liked tracks, weighted by recency-decayed (source, artist) frequency - see
@@ -156,14 +160,21 @@ class FeedRepository @Inject constructor(
         } else if (preferredGenres.isNotEmpty() || preferredArtists.isNotEmpty()) {
             for (artist in preferredArtists) {
                 if (familiar.size >= familiarTarget) break
-                val tracks = runCatching { searchRepository.search(artist, limit = 8) }
+                // one source: a name search across both can match a different account
+                val own = runCatching { searchRepository.search(artist, source = "ytmusic", limit = 8) }
                     .getOrDefault(emptyList())
                     .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
-                    .filterNot { "${it.source}:${it.sourceId}" in seenIds }
-                for (track in tracks) {
+                // a few of the artist's own, then the song radio of their top track
+                val similar = own.firstOrNull()?.let { top ->
+                    withTimeoutOrNull(SOURCE_TIMEOUT_MS) { runCatching { searchRepository.related(top, 8) }.getOrNull() }
+                }.orEmpty()
+                val picks = own.take(3).map { FeedItem(it, "Weil du $artist magst") } +
+                    similar.map { FeedItem(it, "Ähnlich wie $artist") }
+                for (item in picks) {
                     if (familiar.size >= familiarTarget) break
-                    familiar += FeedItem(track, "Weil du $artist magst")
-                    seenIds += "${track.source}:${track.sourceId}"
+                    if ("${item.track.source}:${item.track.sourceId}" in seenIds) continue
+                    familiar += item
+                    seenIds += "${item.track.source}:${item.track.sourceId}"
                 }
             }
             for (genre in preferredGenres) {
@@ -181,8 +192,29 @@ class FeedRepository @Inject constructor(
             isTasteBased = familiar.isNotEmpty()
         }
 
-        val novelTarget = limit - familiar.size
-        val novel = if (novelTarget > 0) {
+        // new to the listener but fitting: song radio of what they recently heard out
+        val discovery = mutableListOf<FeedItem>()
+        if (hasHistory) {
+            val now = System.currentTimeMillis()
+            val signals = PlaybackSignals(runCatching { playEventDao.since(now - PlaybackSignals.KEEP_MS) }.getOrDefault(emptyList()), now)
+            val heardOut = signals.recentTracks.filter { it.endReason == EndReason.COMPLETE.name }.map { it.trackId }
+            val seeds = heardOut.mapNotNull { id -> recentlyPlayed.firstOrNull { it.id == id } }.take(DISCOVERY_SEEDS)
+            for (seed in seeds) {
+                val related = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+                    runCatching { searchRepository.related(seed.toTrackResultDto(), 10) }.getOrNull()
+                }.orEmpty()
+                for (track in related) {
+                    if (discovery.size >= limit - familiar.size) break
+                    val id = "${track.source}:${track.sourceId}"
+                    if (id in seenIds || id in signals.skippedTracks || !Recommender.isMusic(track)) continue
+                    discovery += FeedItem(track, "Passt zu ${seed.title}")
+                    seenIds += id
+                }
+            }
+        }
+
+        val novelTarget = limit - familiar.size - discovery.size
+        val novel = discovery + if (novelTarget > 0) {
             // YouTube-Music-only, same reasoning as HomeViewModel's Charts shelf
             // (which shares this exact call) - see loadCharts()'s comment.
             // getTrending already runs filterForDiscovery internally.
