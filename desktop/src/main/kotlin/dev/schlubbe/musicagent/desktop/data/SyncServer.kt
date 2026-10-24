@@ -72,6 +72,8 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
     }
     @Volatile var lastSyncAt: Long? = null
         private set
+    /** Why the start with the app failed (port taken, …), for Settings; null when it did not. */
+    @Volatile var startError: String? = null
     private var boundPort = port
     /** Assistant and tools for the phone; null answers those paths with 404. */
     @Volatile var remote: PhoneRemote? = null

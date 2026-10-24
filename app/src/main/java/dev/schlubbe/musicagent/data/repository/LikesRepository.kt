@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.data.repository
 
+import dev.schlubbe.musicagent.data.backup.SyncTombstone
+import dev.schlubbe.musicagent.data.backup.SyncTombstoneStore
 import dev.schlubbe.musicagent.data.local.dao.LikeDao
 import dev.schlubbe.musicagent.data.local.entity.LikeEntity
 import dev.schlubbe.musicagent.data.local.mapper.nowIso
@@ -19,6 +21,7 @@ import javax.inject.Singleton
  * PlaylistDetailViewModel, HomeViewModel, PlayerViewModel, ...) needs no changes. */
 @Singleton
 class LikesRepository @Inject constructor(
+    private val tombstones: SyncTombstoneStore,
     private val likeDao: LikeDao,
     private val tagRepository: dev.schlubbe.musicagent.data.tags.TagRepository,
 ) {
@@ -44,9 +47,11 @@ class LikesRepository @Inject constructor(
         _likedTrackIds.update { it + trackId }
     }
 
-    suspend fun unlike(track: TrackResultDto) {
+    /** [record]: false for removals that must not reach the PC (a restore, an applied sync). */
+    suspend fun unlike(track: TrackResultDto, record: Boolean = true) {
         val trackId = "${track.source}:${track.sourceId}"
         likeDao.deleteByTrackId(trackId)
+        if (record) tombstones.add(SyncTombstone.LIKE, trackId)
         _likedTrackIds.update { it - trackId }
     }
 

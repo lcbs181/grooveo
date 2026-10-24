@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.data.repository
 
+import dev.schlubbe.musicagent.data.backup.SyncTombstone
+import dev.schlubbe.musicagent.data.backup.SyncTombstoneStore
 import dev.schlubbe.musicagent.data.local.dao.PlaylistDao
 import dev.schlubbe.musicagent.data.local.dao.PlaylistTrackDao
 import dev.schlubbe.musicagent.data.local.entity.PlaylistEntity
@@ -21,6 +23,7 @@ import javax.inject.Singleton
  * needs no changes. */
 @Singleton
 class PlaylistRepository @Inject constructor(
+    private val tombstones: SyncTombstoneStore,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val playlistDao: PlaylistDao,
     private val playlistTrackDao: PlaylistTrackDao,
@@ -103,9 +106,10 @@ class PlaylistRepository @Inject constructor(
             ?: error("playlist not found: $playlistId")
     }
 
-    suspend fun delete(playlistId: String) {
+    suspend fun delete(playlistId: String, record: Boolean = true) {
         playlistDao.getById(playlistId)?.coverPath?.let { java.io.File(it).delete() }
         playlistDao.delete(playlistId)
+        if (record) tombstones.add(SyncTombstone.PLAYLIST, tombstones.playlistKey(playlistId))
     }
 
     suspend fun addTrack(playlistId: String, track: TrackResultDto): PlaylistDetailOutDto {
@@ -123,8 +127,11 @@ class PlaylistRepository @Inject constructor(
         return get(playlistId)
     }
 
-    suspend fun removeTrack(playlistId: String, track: TrackResultDto): PlaylistDetailOutDto {
+    suspend fun removeTrack(playlistId: String, track: TrackResultDto, record: Boolean = true): PlaylistDetailOutDto {
         playlistTrackDao.delete(playlistId, "${track.source}:${track.sourceId}")
+        if (record) {
+            tombstones.add(SyncTombstone.PLAYLIST_TRACK, SyncTombstone.playlistTrack(tombstones.playlistKey(playlistId), track.source, track.sourceId))
+        }
         return get(playlistId)
     }
 

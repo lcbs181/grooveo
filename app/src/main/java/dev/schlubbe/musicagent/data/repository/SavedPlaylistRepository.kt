@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.data.repository
 
+import dev.schlubbe.musicagent.data.backup.SyncTombstone
+import dev.schlubbe.musicagent.data.backup.SyncTombstoneStore
 import dev.schlubbe.musicagent.data.local.dao.SavedPlaylistDao
 import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.local.mapper.nowIso
@@ -15,6 +17,7 @@ import javax.inject.Singleton
  * badge merged into Library's Playlists tab alongside locally-created playlists. */
 @Singleton
 class SavedPlaylistRepository @Inject constructor(
+    private val tombstones: SyncTombstoneStore,
     private val savedPlaylistDao: SavedPlaylistDao,
 ) {
     private val _savedPlaylists = MutableStateFlow<List<SavedPlaylistEntity>>(emptyList())
@@ -45,7 +48,8 @@ class SavedPlaylistRepository @Inject constructor(
         refresh()
     }
 
-    suspend fun unsave(source: String, sourceId: String) {
+    suspend fun unsave(source: String, sourceId: String, record: Boolean = true) {
+        if (record) tombstones.add(SyncTombstone.SAVED, "$source:$sourceId")
         savedPlaylistDao.delete(source, sourceId)
         refresh()
     }

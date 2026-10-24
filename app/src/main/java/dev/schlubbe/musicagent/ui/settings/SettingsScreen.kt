@@ -617,7 +617,7 @@ private fun SyncSheet(uiState: SettingsUiState, onDismiss: () -> Unit, onPair: (
                 )
             } else {
                 Text(
-                    "Mit einem PC gekoppelt. Der PC wird im WLAN automatisch gefunden. Beim Abgleich haben Handy und PC danach dieselben Likes, Playlists und gefolgten Künstler; es wird nichts gelöscht.",
+                    "Mit einem PC gekoppelt. Der PC wird im WLAN automatisch gefunden. Beim Abgleich haben Handy und PC danach dieselben Likes, Playlists und gefolgten Künstler. Was du auf einem Gerät entfernst, verschwindet beim nächsten Abgleich auch auf dem anderen.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Canopy.neutral500,
                 )

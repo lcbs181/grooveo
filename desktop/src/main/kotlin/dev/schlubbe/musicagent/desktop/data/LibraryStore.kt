@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.data
 
+import dev.schlubbe.musicagent.data.backup.SyncMerge
+import dev.schlubbe.musicagent.data.backup.SyncTombstone
 import dev.schlubbe.musicagent.desktop.audio.BeatGrid
 import dev.schlubbe.musicagent.desktop.audio.MusicalKey
 import dev.schlubbe.musicagent.desktop.audio.TrackStructure
@@ -118,6 +120,8 @@ data class LibraryData(
     /** Followed artists' uploads already reported, and the artists already checked once. */
     val seenUploads: List<String> = emptyList(),
     val uploadArtists: List<String> = emptyList(),
+    /** Removals for the phone sync (see SyncMerge), so the phone removes the same items. */
+    val tombstones: List<SyncTombstone> = emptyList(),
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized() = LibraryData(
@@ -134,6 +138,7 @@ data class LibraryData(
         plays = plays ?: emptyList(),
         seenUploads = seenUploads ?: emptyList(),
         uploadArtists = uploadArtists ?: emptyList(),
+        tombstones = tombstones ?: emptyList(),
     )
 }
 
@@ -214,7 +219,7 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao, PlayEventDao 
     // ---------- likes ----------
     fun isLiked(t: TrackResultDto) = current.likes.any { it.track.key == t.key }
     fun toggleLike(t: TrackResultDto) = mutate { d ->
-        if (d.likes.any { it.track.key == t.key }) d.copy(likes = d.likes.filterNot { it.track.key == t.key })
+        if (d.likes.any { it.track.key == t.key }) d.copy(likes = d.likes.filterNot { it.track.key == t.key }).removed(SyncTombstone.LIKE, t.key)
         else d.copy(likes = listOf(LikedTrack(t, System.currentTimeMillis())) + d.likes)
     }
 
@@ -271,13 +276,15 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao, PlayEventDao 
     }
     fun updatePlaylist(id: String, transform: (Playlist) -> Playlist) =
         mutate { d -> d.copy(playlists = d.playlists.map { if (it.id == id) transform(it) else it }) }
-    fun deletePlaylist(id: String) = mutate { d -> d.copy(playlists = d.playlists.filterNot { it.id == id }) }
+    fun deletePlaylist(id: String) = mutate { d -> d.copy(playlists = d.playlists.filterNot { it.id == id }).removed(SyncTombstone.PLAYLIST, id) }
     fun addToPlaylist(id: String, tracks: List<TrackResultDto>) = updatePlaylist(id) { p ->
         val existing = p.tracks.map { it.track.key }.toSet()
         p.copy(tracks = p.tracks + tracks.filter { it.key !in existing }.distinctBy { it.key }.map { PlaylistTrack(it, System.currentTimeMillis()) })
     }
-    fun removeFromPlaylist(id: String, index: Int) = updatePlaylist(id) { p ->
-        p.copy(tracks = p.tracks.filterIndexed { i, _ -> i != index })
+    fun removeFromPlaylist(id: String, index: Int) = mutate { d ->
+        val t = d.playlists.firstOrNull { it.id == id }?.tracks?.getOrNull(index)?.track ?: return@mutate d
+        d.copy(playlists = d.playlists.map { p -> if (p.id == id) p.copy(tracks = p.tracks.filterIndexed { i, _ -> i != index }) else p })
+            .removed(SyncTombstone.PLAYLIST_TRACK, SyncTombstone.playlistTrack(id, t.source, t.sourceId))
     }
     fun movePlaylistTrack(id: String, from: Int, to: Int) = updatePlaylist(id) { p ->
         if (from !in p.tracks.indices || to !in p.tracks.indices) p
@@ -289,14 +296,19 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao, PlayEventDao 
     fun toggleSaved(p: SavedPlaylist) = mutate { d ->
         if (d.savedPlaylists.any { it.source == p.source && it.sourceId == p.sourceId })
             d.copy(savedPlaylists = d.savedPlaylists.filterNot { it.source == p.source && it.sourceId == p.sourceId })
+                .removed(SyncTombstone.SAVED, "${p.source}:${p.sourceId}")
         else d.copy(savedPlaylists = listOf(p) + d.savedPlaylists)
     }
     fun isFollowing(source: String, sourceId: String) = current.followed.any { it.source == source && it.sourceId == sourceId }
     fun toggleFollow(a: FollowedArtist) = mutate { d ->
         if (d.followed.any { it.source == a.source && it.sourceId == a.sourceId })
             d.copy(followed = d.followed.filterNot { it.source == a.source && it.sourceId == a.sourceId })
+                .removed(SyncTombstone.FOLLOW, "${a.source}:${a.sourceId}")
         else d.copy(followed = listOf(a) + d.followed)
     }
+    private fun LibraryData.removed(kind: String, key: String) =
+        copy(tombstones = SyncMerge.mergeTombstones(tombstones + SyncTombstone(kind, key, System.currentTimeMillis())))
+
     fun dislikeArtist(artist: String) = mutate { d -> d.copy(dislikedArtists = (d.dislikedArtists + artist.lowercase()).distinct()) }
 
     // ---------- downloads ----------

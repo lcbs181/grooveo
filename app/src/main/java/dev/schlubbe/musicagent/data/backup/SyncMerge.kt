@@ -1,24 +1,66 @@
 package dev.schlubbe.musicagent.data.backup
 
 /**
- * Merge used by the phone <-> PC sync: a union of both libraries, so syncing never
- * loses anything on either side. Both devices end up with the same result
- * ([merge] of the two payloads). Nothing is ever deleted by a sync: an item removed
- * on one device comes back from the other. Settings stay as they are on [local].
+ * Merge used by the phone <-> PC sync: a union of both libraries, minus what either side
+ * removed ([SyncTombstone]s, which travel along). An item added again after its removal
+ * stays. Both devices end up with the same result ([merge] of the two payloads). Settings
+ * stay as they are on [local].
  *
  * Playlists are matched by their sync id ([syncKey]); tracks are matched by source + sourceId.
  */
 object SyncMerge {
-    fun merge(local: BackupPayload, remote: BackupPayload): BackupPayload = local.copy(
-        likes = unionTracks(local.likes.orEmpty(), remote.likes.orEmpty(), earliestLike = true),
-        playlists = mergePlaylists(local.playlists.orEmpty(), remote.playlists.orEmpty()),
-        followedArtists = (local.followedArtists.orEmpty() + remote.followedArtists.orEmpty())
-            .groupBy { it.source to it.sourceId }
-            .map { (_, v) -> v.minBy { it.followedAt } },
-        savedPlaylists = (local.savedPlaylists.orEmpty() + remote.savedPlaylists.orEmpty())
-            .groupBy { it.source to it.sourceId }
-            .map { (_, v) -> v.minBy { it.savedAt } },
-    )
+    /** Removals older than this are forgotten; a device not synced for so long may bring items back. */
+    const val TOMBSTONE_KEEP_MS = 180L * 24 * 3600_000
+
+    fun merge(local: BackupPayload, remote: BackupPayload, now: Long = System.currentTimeMillis()): BackupPayload {
+        val tombs = mergeTombstones(local.deleted.orEmpty() + remote.deleted.orEmpty(), now)
+        val gone = Tombstones(tombs)
+        // each side's copy is checked on its own: a copy added after the removal survives it
+        fun BackupPayload.kept() = copy(
+            likes = likes.orEmpty().filterNot { gone.removed(SyncTombstone.LIKE, "${it.source}:${it.sourceId}", it.likedAt) },
+            playlists = playlists.orEmpty()
+                .filterNot { gone.removed(SyncTombstone.PLAYLIST, syncKey(it), it.createdAt) }
+                .map { p ->
+                    val key = syncKey(p)
+                    p.copy(tracks = p.tracks.orEmpty().filterNot { t ->
+                        gone.removed(SyncTombstone.PLAYLIST_TRACK, SyncTombstone.playlistTrack(key, t.source, t.sourceId), t.addedAt)
+                    })
+                },
+            followedArtists = followedArtists.orEmpty().filterNot { gone.removed(SyncTombstone.FOLLOW, "${it.source}:${it.sourceId}", it.followedAt) },
+            savedPlaylists = savedPlaylists.orEmpty().filterNot { gone.removed(SyncTombstone.SAVED, "${it.source}:${it.sourceId}", it.savedAt) },
+        )
+        val l = local.kept()
+        val r = remote.kept()
+        return l.copy(
+            likes = unionTracks(l.likes, r.likes, earliestLike = true),
+            playlists = mergePlaylists(l.playlists, r.playlists),
+            followedArtists = (l.followedArtists + r.followedArtists)
+                .groupBy { it.source to it.sourceId }
+                .map { (_, v) -> v.minBy { it.followedAt } },
+            savedPlaylists = (l.savedPlaylists + r.savedPlaylists)
+                .groupBy { it.source to it.sourceId }
+                .map { (_, v) -> v.minBy { it.savedAt } },
+            deleted = tombs,
+        )
+    }
+
+    /** The newest removal per item, without the ones older than [TOMBSTONE_KEEP_MS]. */
+    fun mergeTombstones(all: List<SyncTombstone>, now: Long = System.currentTimeMillis()): List<SyncTombstone> =
+        all.filter { now - it.deletedAt < TOMBSTONE_KEEP_MS }
+            .groupBy { it.kind to it.key }
+            .map { (_, v) -> v.maxBy { it.deletedAt } }
+
+    /** Looks up removals: [removed] is true when an item added at [addedAt] (ISO-8601, or
+     * null when unknown) was removed afterwards. */
+    class Tombstones(list: List<SyncTombstone>) {
+        private val at = list.associate { (it.kind to it.key) to it.deletedAt }
+        fun removed(kind: String, key: String, addedAt: String?): Boolean {
+            val deletedAt = at[kind to key] ?: return false
+            val added = addedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: 0L
+            return deletedAt >= added
+        }
+        fun removed(kind: String, key: String, addedAtMs: Long): Boolean = (at[kind to key] ?: return false) >= addedAtMs
+    }
 
     /** Identity of a playlist across devices: its sync id, or its id in payloads from before sync ids. */
     @Suppress("USELESS_ELVIS")
@@ -53,7 +95,8 @@ object SyncMerge {
     }
 
     private fun unionTracks(a: List<BackupTrackDto>, b: List<BackupTrackDto>, earliestLike: Boolean = false): List<BackupTrackDto> {
-        if (!earliestLike) return (a + b).distinctBy { it.source to it.sourceId }
+        // in a playlist the newest add counts: a track added again after a removal stays
+        if (!earliestLike) return (a + b).groupBy { it.source to it.sourceId }.map { (_, v) -> v.maxBy { it.addedAt.orEmpty() } }
         val dates = (a + b).filter { it.likedAt != null }.groupBy { it.source to it.sourceId }
             .mapValues { (_, v) -> v.minOf { it.likedAt!! } }
         return (a + b).distinctBy { it.source to it.sourceId }.map { t ->

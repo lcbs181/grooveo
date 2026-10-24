@@ -43,6 +43,7 @@ class BackupManager @Inject constructor(
     private val followRepository: FollowRepository,
     private val savedPlaylistRepository: SavedPlaylistRepository,
     private val settingsRepository: SettingsRepository,
+    private val tombstones: SyncTombstoneStore,
     // lazy: only needed after an import, and keeps the graph free of cycles
     private val downloads: dagger.Lazy<DownloadRepository>,
 ) {
@@ -169,13 +170,14 @@ class BackupManager @Inject constructor(
                     description = detail.description,
                     accentColorKey = detail.accentColorKey,
                     moodTags = detail.moodTags,
-                    tracks = detail.tracks.map { it.track.toBackupTrackDto() },
+                    tracks = detail.tracks.map { it.track.toBackupTrackDto().copy(addedAt = it.addedAt) },
                     syncId = syncIdOf(detail.id),
                 )
             }
             return BackupPayload(
                 createdAt = Instant.now().toString(),
                 likes = likesRepository.refresh().map { it.track.toBackupTrackDto().copy(likedAt = it.createdAt) },
+                deleted = tombstones.all(),
                 playlists = playlists,
                 followedArtists = followRepository.refresh().map {
                     BackupFollowedArtistDto(it.source, it.sourceId, it.name, it.thumbnailUrl, it.followedAt)
@@ -210,6 +212,7 @@ class BackupManager @Inject constructor(
      * of what is here): adds what is missing, never clears anything and leaves settings alone.
      */
     suspend fun applySynced(p: BackupPayload) = withContext(Dispatchers.IO) {
+        applyRemovals(p.deleted.orEmpty())
         val follows = followRepository.refresh().map { it.source to it.sourceId }.toSet()
         p.followedArtists.filter { (it.source to it.sourceId) !in follows }
             .forEach { followRepository.follow(it.source, it.sourceId, it.name, it.thumbnailUrl) }
@@ -233,6 +236,29 @@ class BackupManager @Inject constructor(
             pl.tracks.filter { (it.source to it.sourceId) !in have }.forEach { playlistRepository.addTrack(id, it.toTrackResultDto()) }
         }
         rescanDownloads()
+    }
+
+    /** Removes what the other device removed after it was added here, and keeps the removals
+     * so they reach the PC again with the next sync. */
+    private suspend fun applyRemovals(deleted: List<SyncTombstone>) {
+        tombstones.replace(tombstones.all() + deleted)
+        val gone = SyncMerge.Tombstones(tombstones.all())
+        likesRepository.refresh().filter { gone.removed(SyncTombstone.LIKE, it.track.id, it.createdAt) }
+            .forEach { likesRepository.unlike(it.track.toTrackResultDto(), record = false) }
+        followRepository.refresh().filter { gone.removed(SyncTombstone.FOLLOW, "${it.source}:${it.sourceId}", it.followedAt) }
+            .forEach { followRepository.unfollow(it.source, it.sourceId, record = false) }
+        savedPlaylistRepository.refresh().filter { gone.removed(SyncTombstone.SAVED, "${it.source}:${it.sourceId}", it.savedAt) }
+            .forEach { savedPlaylistRepository.unsave(it.source, it.sourceId, record = false) }
+        for (pl in playlistRepository.list()) {
+            val key = syncIdOf(pl.id)
+            if (gone.removed(SyncTombstone.PLAYLIST, key, pl.createdAt)) {
+                playlistRepository.delete(pl.id, record = false)
+                continue
+            }
+            playlistRepository.get(pl.id).tracks
+                .filter { gone.removed(SyncTombstone.PLAYLIST_TRACK, SyncTombstone.playlistTrack(key, it.track.source, it.track.sourceId), it.addedAt) }
+                .forEach { playlistRepository.removeTrack(pl.id, it.track.toTrackResultDto(), record = false) }
+        }
     }
 
     /** Files on the phone that were downloaded for the tracks just imported become theirs again (cover, offline mark). */
@@ -263,10 +289,11 @@ class BackupManager @Inject constructor(
     private suspend fun restorePayload(payload: BackupPayload) {
         // Clear existing local state via the repositories' own delete/unlike/
         // unfollow/unsave methods -- no direct DAO/Room access.
-        playlistRepository.list().forEach { playlistRepository.delete(it.id) }
-        likesRepository.refresh().forEach { likesRepository.unlike(it.track.toTrackResultDto()) }
-        followRepository.refresh().forEach { followRepository.unfollow(it.source, it.sourceId) }
-        savedPlaylistRepository.refresh().forEach { savedPlaylistRepository.unsave(it.source, it.sourceId) }
+        // a restore resets this phone; it is no removal for the PC to copy
+        playlistRepository.list().forEach { playlistRepository.delete(it.id, record = false) }
+        likesRepository.refresh().forEach { likesRepository.unlike(it.track.toTrackResultDto(), record = false) }
+        followRepository.refresh().forEach { followRepository.unfollow(it.source, it.sourceId, record = false) }
+        savedPlaylistRepository.refresh().forEach { savedPlaylistRepository.unsave(it.source, it.sourceId, record = false) }
 
         payload.followedArtists.forEach {
             followRepository.follow(it.source, it.sourceId, it.name, it.thumbnailUrl)

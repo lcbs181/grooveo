@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.data.repository
 
+import dev.schlubbe.musicagent.data.backup.SyncTombstone
+import dev.schlubbe.musicagent.data.backup.SyncTombstoneStore
 import dev.schlubbe.musicagent.data.local.dao.FollowedArtistDao
 import dev.schlubbe.musicagent.data.local.entity.FollowedArtistEntity
 import dev.schlubbe.musicagent.data.local.mapper.nowIso
@@ -15,6 +17,7 @@ import javax.inject.Singleton
  * "Neu von Künstlern" shelf. */
 @Singleton
 class FollowRepository @Inject constructor(
+    private val tombstones: SyncTombstoneStore,
     private val followedArtistDao: FollowedArtistDao,
 ) {
     private val _followedArtists = MutableStateFlow<List<FollowedArtistEntity>>(emptyList())
@@ -35,8 +38,9 @@ class FollowRepository @Inject constructor(
         refresh()
     }
 
-    suspend fun unfollow(source: String, sourceId: String) {
+    suspend fun unfollow(source: String, sourceId: String, record: Boolean = true) {
         followedArtistDao.delete(source, sourceId)
+        if (record) tombstones.add(SyncTombstone.FOLLOW, "$source:$sourceId")
         refresh()
     }
 

@@ -7,6 +7,7 @@ import dev.schlubbe.musicagent.data.backup.BackupSavedPlaylistDto
 import dev.schlubbe.musicagent.data.backup.BackupSettingsDto
 import dev.schlubbe.musicagent.data.backup.BackupTrackDto
 import dev.schlubbe.musicagent.data.backup.SyncMerge
+import dev.schlubbe.musicagent.data.backup.SyncTombstone
 import dev.schlubbe.musicagent.data.backup.legacyPresetName
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
@@ -39,10 +40,14 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
             createdAt = Instant.now().toString(),
             likes = d.likes.map { it.track.toDto().copy(likedAt = Instant.ofEpochMilli(it.createdAt).toString()) },
             playlists = d.playlists.map { p ->
-                BackupPlaylistDto(p.id, p.name, Instant.ofEpochMilli(p.createdAt).toString(), p.description, p.accentColorKey, p.moodTags, p.tracks.map { it.track.toDto() }, syncId = p.id)
+                BackupPlaylistDto(
+                    p.id, p.name, Instant.ofEpochMilli(p.createdAt).toString(), p.description, p.accentColorKey, p.moodTags,
+                    p.tracks.map { it.track.toDto().copy(addedAt = Instant.ofEpochMilli(it.addedAt).toString()) }, syncId = p.id,
+                )
             },
             followedArtists = d.followed.map { BackupFollowedArtistDto(it.source, it.sourceId, it.name, it.thumbnailUrl, Instant.ofEpochMilli(it.followedAt).toString()) },
             savedPlaylists = d.savedPlaylists.map { BackupSavedPlaylistDto(it.source, it.sourceId, it.title, it.thumbnailUrl, it.owner, it.trackCount, it.webpageUrl, Instant.ofEpochMilli(it.savedAt).toString()) },
+            deleted = d.tombstones,
             settings = BackupSettingsDto(
                 hiResAudio = s.hiResAudio, dataSaverMode = s.dataSaverMode, eqPreset = s.eq.legacyPresetName(), eqProfile = s.eq, eqUserPresets = s.eqUserPresets, playerStyle = s.playerStyle,
                 autoplayRadio = s.autoplayRadio, contentSafetyFilter = s.contentSafetyFilter, sound3dPreset = s.sound3dPreset,
@@ -60,8 +65,22 @@ class BackupManager(private val store: LibraryStore, private val settings: Setti
      */
     fun applySynced(p: BackupPayload) {
         fun ts(iso: String?) = runCatching { Instant.parse(iso).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
-        store.mutate { d ->
+        store.mutate { raw ->
             val now = System.currentTimeMillis()
+            // what the phone removed after it was added here goes; the removals stay for the next sync
+            val tombs = SyncMerge.mergeTombstones(raw.tombstones + p.deleted.orEmpty(), now)
+            val gone = SyncMerge.Tombstones(tombs)
+            val d = raw.copy(
+                tombstones = tombs,
+                likes = raw.likes.filterNot { gone.removed(SyncTombstone.LIKE, it.track.key, it.createdAt) },
+                followed = raw.followed.filterNot { gone.removed(SyncTombstone.FOLLOW, "${it.source}:${it.sourceId}", it.followedAt) },
+                savedPlaylists = raw.savedPlaylists.filterNot { gone.removed(SyncTombstone.SAVED, "${it.source}:${it.sourceId}", it.savedAt) },
+                playlists = raw.playlists.filterNot { gone.removed(SyncTombstone.PLAYLIST, it.id, it.createdAt) }.map { pl ->
+                    pl.copy(tracks = pl.tracks.filterNot { t ->
+                        gone.removed(SyncTombstone.PLAYLIST_TRACK, SyncTombstone.playlistTrack(pl.id, t.track.source, t.track.sourceId), t.addedAt)
+                    })
+                },
+            )
             val known = d.likes.map { it.track.source to it.track.sourceId }.toSet()
             val newLikes = p.likes.orEmpty().filter { isKnownSource(it.source) && (it.source to it.sourceId) !in known }
                 .mapIndexed { i, t -> LikedTrack(t.toTrack(), likedAt(t.likedAt) ?: (now - i)) }

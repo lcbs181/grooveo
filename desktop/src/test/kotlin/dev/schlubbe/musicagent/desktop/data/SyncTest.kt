@@ -75,6 +75,36 @@ class SyncTest {
         } finally { server.stop() }
     }
 
+    @Test fun `a removal on one side removes the item on the other, a later add wins`() {
+        val (store, backup, server) = pc()
+        store.toggleLike(track("keep")); store.toggleLike(track("gone"))
+        server.start()
+        try {
+            val keys = SyncProtocol.keys(server.key)
+            // the phone had both, then unliked "gone" after the PC liked it, and "pc-unliked" came back too late
+            val later = System.currentTimeMillis() + 60_000
+            val phone = BackupPayload(
+                createdAt = "2026-10-10T10:00:00Z",
+                likes = listOf(dto(track("keep")), dto(track("phone-relike"), Instant.ofEpochMilli(later + 1).toString())),
+                settings = backup.payload().settings,
+                deleted = listOf(
+                    dev.schlubbe.musicagent.data.backup.SyncTombstone("like", "soundcloud:gone", later),
+                    dev.schlubbe.musicagent.data.backup.SyncTombstone("like", "soundcloud:phone-relike", later),
+                ),
+            )
+            val a = send(server, keys, phone)
+            assertEquals(200, a.status)
+            val merged = gson.fromJson(a.json!!.decodeToString(), BackupPayload::class.java)
+            assertEquals(setOf("keep", "phone-relike"), merged.likes.map { it.sourceId }.toSet())
+            assertEquals(setOf("keep", "phone-relike"), store.current.likes.map { it.track.sourceId }.toSet())
+            // the PC keeps the removals and hands them on
+            assertTrue(merged.deleted.orEmpty().any { it.key == "soundcloud:gone" })
+            // unliking on the PC travels to the phone the other way round
+            store.toggleLike(track("keep"))
+            assertTrue(backup.payload().deleted.orEmpty().any { it.kind == "like" && it.key == "soundcloud:keep" })
+        } finally { server.stop() }
+    }
+
     @Test fun `the key is never sent and a replayed or tampered request is refused`() {
         val (_, backup, server) = pc()
         server.start()

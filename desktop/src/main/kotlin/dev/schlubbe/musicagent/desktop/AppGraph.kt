@@ -61,7 +61,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     val downloads = DownloadManager(store, { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec, preferProgressive = true) }, http, { downloadDir() })
     val backup = BackupManager(store, settings, File(dataDir, "backups"))
     val sync = dev.schlubbe.musicagent.desktop.data.SyncServer(backup, File(dataDir, "sync.json"))
-        .also { if (it.enabled) runCatching { it.start() } }
+        .also { if (it.enabled) runCatching { it.start() }.onFailure { e -> it.startError = e.message ?: e.javaClass.simpleName } }
     val updates = UpdateChecker(http, APP_VERSION, File(dataDir, "updates"))
     private val engine = AudioEngine({ FfmpegDeck(it) }, JavaSoundSink.orSilent()).apply { loudnessCache = LoudnessCache(File(dataDir, "loudness.json")) }
     /** "Auf dem Handy hören": the mix as a live stream over the sync connection. */

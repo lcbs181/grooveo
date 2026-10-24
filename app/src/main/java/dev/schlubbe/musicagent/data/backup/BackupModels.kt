@@ -15,6 +15,8 @@ data class BackupPayload(
     val followedArtists: List<BackupFollowedArtistDto> = emptyList(),
     val savedPlaylists: List<BackupSavedPlaylistDto> = emptyList(),
     val settings: BackupSettingsDto,
+    /** What was removed on a device, so the sync removes it on the other too (null in older payloads). */
+    val deleted: List<SyncTombstone>? = emptyList(),
 ) {
     companion object {
         const val CURRENT_VERSION = 1
@@ -36,7 +38,26 @@ data class BackupTrackDto(
     val webpageUrl: String,
     /** When the track was liked (ISO-8601); only set in the likes list, null in older payloads. */
     val likedAt: String? = null,
+    /** When the track was added to its playlist (ISO-8601); only in playlists, null in older payloads. */
+    val addedAt: String? = null,
 )
+
+/**
+ * A removal for the sync: [kind] is one of [SyncTombstone.LIKE], [FOLLOW], [SAVED], [PLAYLIST],
+ * [PLAYLIST_TRACK]; [key] is "source:sourceId", a playlist's sync key, or both joined by "|" for a
+ * playlist track. An item added after [deletedAt] (epoch ms) wins over the removal.
+ */
+data class SyncTombstone(val kind: String, val key: String, val deletedAt: Long) {
+    companion object {
+        const val LIKE = "like"
+        const val FOLLOW = "follow"
+        const val SAVED = "saved"
+        const val PLAYLIST = "playlist"
+        const val PLAYLIST_TRACK = "playlist_track"
+
+        fun playlistTrack(playlistKey: String, source: String, sourceId: String) = "$playlistKey|$source:$sourceId"
+    }
+}
 
 data class BackupPlaylistDto(
     val id: String,

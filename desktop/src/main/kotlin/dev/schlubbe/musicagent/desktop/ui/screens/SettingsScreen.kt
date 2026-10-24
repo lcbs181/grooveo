@@ -323,30 +323,49 @@ fun SettingsScreen() {
             SettingsSection("Mit Smartphone synchronisieren") {
                 var syncOn by remember { mutableStateOf(g.sync.running) }
                 var pairing by remember { mutableStateOf(g.sync.pairingUri to g.sync.key) }
+                var confirmNewCode by remember { mutableStateOf(false) }
                 SettingsSwitchRow(
                     "Synchronisierung bereitstellen",
-                    "Likes, Playlists und gefolgte Künstler zwischen Handy und PC abgleichen – nur im selben WLAN, startet mit der App",
+                    "Likes, Playlists und gefolgte Künstler abgleichen, außerdem PC-Fernbedienung, KI und PC-Mix auf dem Handy – nur im selben WLAN, startet mit der App",
                     syncOn,
                 ) { v ->
                     runCatching { if (v) g.sync.start() else g.sync.stop() }.onFailure { ui.toast("Sync konnte nicht gestartet werden: ${it.message}") }
                     syncOn = g.sync.running
                     pairing = g.sync.pairingUri to g.sync.key
                 }
+                if (!syncOn) g.sync.startError?.let { err ->
+                    Text("Beim Start nicht verfügbar: $err", color = c.textMuted, style = MaterialTheme.typography.bodySmall)
+                }
                 if (syncOn) {
+                    g.sync.lastSyncAt?.let { at ->
+                        val time = java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
+                        Text(
+                            "Zuletzt synchronisiert: " + time.format(java.time.format.DateTimeFormatter.ofPattern("d.M. HH:mm")),
+                            color = c.textMuted, style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         QrCode(pairing.first, size = 168.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Handy koppeln", color = c.text, fontWeight = FontWeight.SemiBold)
-                            Text("In der Handy-App: Einstellungen → Mit PC synchronisieren → QR-Code scannen. Der Code bleibt gleich, die Kopplung muss nur einmal erfolgen.", color = c.textMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("In der Handy-App: Einstellungen → Mit PC verbinden → QR-Code scannen. Der Code bleibt gleich, die Kopplung muss nur einmal erfolgen.", color = c.textMuted, style = MaterialTheme.typography.bodySmall)
                             Text("Oder Code eintippen: ${pairing.second}", color = c.text, fontWeight = FontWeight.SemiBold)
-                            PrimaryButton("Neuen Code erzeugen", accent = false) {
-                                g.sync.regenerateKey()
-                                pairing = g.sync.pairingUri to g.sync.key
-                                ui.toast("Neuer Code – bereits gekoppelte Handys müssen neu scannen")
-                            }
+                            PrimaryButton("Neuen Code erzeugen", accent = false) { confirmNewCode = true }
                         }
                     }
                 }
+                if (confirmNewCode) ConfirmDialog(
+                    "Neuen Code erzeugen?",
+                    "Gekoppelte Handys können sich danach nicht mehr verbinden, bis sie den neuen Code scannen.",
+                    "Neuen Code erzeugen",
+                    onConfirm = {
+                        confirmNewCode = false
+                        g.sync.regenerateKey()
+                        pairing = g.sync.pairingUri to g.sync.key
+                        ui.toast("Neuer Code – gekoppelte Handys müssen neu scannen")
+                    },
+                    onDismiss = { confirmNewCode = false },
+                )
             }
 
             SettingsSection("KI-Steuerung (MCP)") {

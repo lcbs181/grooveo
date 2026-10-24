@@ -309,7 +309,7 @@ Settings → "Mit Smartphone synchronisieren" starts a small server (TCP 47821, 
 - Phone and PC must speak the same protocol version; otherwise both report
   "bitte beide Apps aktualisieren".
 
-The merge is a union (nothing is deleted). Playlists carry a sync id and are
+The merge is a union minus removals: each side sends tombstones (`deleted`) for unliked tracks, unfollowed artists, removed playlists and playlist tracks, and an item added again after its removal wins. Playlists carry a sync id and are
 matched by it, so two playlists with the same name stay apart; a name alone
 only matches when it is unique on both sides.
 
