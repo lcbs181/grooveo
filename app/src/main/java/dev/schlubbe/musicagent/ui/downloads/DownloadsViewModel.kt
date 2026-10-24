@@ -146,16 +146,26 @@ class DownloadsViewModel @Inject constructor(
     // Mirrors LibraryViewModel.playDownload - kept per-file rather than shared per
     // this codebase's existing convention for small ViewModel-local glue (see the
     // toLiveFlow() note below).
-    fun playDownload(item: DownloadUiItem) {
+    fun playDownload(item: DownloadUiItem, list: List<DownloadUiItem> = listOf(item)) {
         val uri = item.entity.mediaStoreUri ?: return
         viewModelScope.launch {
             val track = item.track?.toTrackResultDto()
-            if (track != null) {
-                playerController.playLocalDownload(track, uri)
-            } else {
-                playerController.playFromUri(uri)
+            val queue = list.mapNotNull { it.track?.toTrackResultDto() }
+            val index = queue.indexOfFirst { it.source == track?.source && it.sourceId == track?.sourceId }
+            when {
+                // the rest of the shown list plays on after it, from the phone's own files
+                track != null && index >= 0 && queue.size > 1 -> playerController.playQueue(queue, index)
+                track != null -> playerController.playLocalDownload(track, uri)
+                else -> playerController.playFromUri(uri)
             }
         }
+    }
+
+    /** "Alle abspielen" / "Zufällig" over the downloads shown. */
+    fun playAll(list: List<DownloadUiItem>, shuffle: Boolean) {
+        val queue = list.mapNotNull { it.track?.toTrackResultDto() }
+        if (queue.isEmpty()) return
+        viewModelScope.launch { playerController.playQueue(if (shuffle) queue.shuffled() else queue, 0) }
     }
 
     fun resume(trackId: String) = downloadRepository.resumeDownload(trackId)

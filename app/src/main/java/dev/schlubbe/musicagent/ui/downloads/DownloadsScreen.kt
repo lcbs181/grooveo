@@ -259,6 +259,22 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
                         item {
                             Text("Keine Treffer", color = Canopy.neutral500, modifier = Modifier.padding(top = 12.dp))
                         }
+                    } else {
+                        item {
+                            Row(modifier = Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                dev.schlubbe.musicagent.ui.components.CanopyButton(
+                                    text = "Alle abspielen",
+                                    onClick = { viewModel.playAll(onDevice, shuffle = false); onDownloadPlayed() },
+                                    leadingIcon = phosphorIcon("play", filled = true),
+                                )
+                                dev.schlubbe.musicagent.ui.components.CanopyButton(
+                                    text = "Zufällig",
+                                    onClick = { viewModel.playAll(onDevice, shuffle = true); onDownloadPlayed() },
+                                    variant = CanopyButtonVariant.Secondary,
+                                    leadingIcon = phosphorIcon("shuffle"),
+                                )
+                            }
+                        }
                     }
                 }
                 if (onDevice.isNotEmpty()) {
@@ -266,7 +282,7 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
                         OnDeviceRow(
                             item = onDevice[index],
                             onClick = {
-                                viewModel.playDownload(onDevice[index])
+                                viewModel.playDownload(onDevice[index], onDevice)
                                 onDownloadPlayed()
                             },
                             onDelete = { viewModel.cancel(onDevice[index].entity.trackId) },

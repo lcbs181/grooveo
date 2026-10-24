@@ -1667,7 +1667,7 @@ class PlayerController @Inject constructor(
 
     private suspend fun resolveAll(tracks: List<TrackResultDto>): List<Pair<TrackResultDto, ResolvedStream>> =
         coroutineScope {
-            tracks.map { track -> async { track to resolveWithRetry(track) } }.awaitAll()
+            tracks.map { track -> async { track to resolvePreferLocal(track) } }.awaitAll()
         }.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
 
     /** Downloaded tracks not in the queue yet, for radio without network. */
