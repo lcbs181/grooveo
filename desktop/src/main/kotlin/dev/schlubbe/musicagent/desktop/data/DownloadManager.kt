@@ -70,14 +70,16 @@ class DownloadManager(
         val job = jobs[key]?.apply { cancel() }
         val record = store.download(key)
         store.removeDownload(key)
-        scope.launch {
-            job?.join() // the job writes no more before its files go
+        fun deleteFiles() {
             record?.filePath?.let { File(it).delete() }
             record?.track?.let { t ->
                 val dir = dirProvider()
                 runCatching { fileBase(t, dir) }.getOrNull()?.let { base -> partFiles(dir, base).forEach(File::delete) }
             }
         }
+        deleteFiles()
+        // a job stuck in a blocking read may still write: clean up again once it has stopped
+        if (job != null && !job.isCompleted) scope.launch { job.join(); deleteFiles() }
     }
 
     /** Unfinished files of a download: the HTTP one and the HLS transcode. */
