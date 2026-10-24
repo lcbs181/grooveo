@@ -557,7 +557,7 @@ class AiAssistant(
         /** A German label for every tool, as the panel shows it. */
         internal val LABELS = mapOf(
             // playback and queue
-            "get_now_playing" to "Wiedergabe gelesen", "play_tracks" to "Wiedergabe gestartet", "playback" to "Wiedergabe", "seek" to "Gespult",
+            "get_now_playing" to "Wiedergabe gelesen", "play_tracks" to "Wiedergabe gestartet", "continue_queue" to "Vom Handy übernommen", "playback" to "Wiedergabe", "seek" to "Gespult",
             "set_volume" to "Lautstärke", "set_shuffle" to "Zufallswiedergabe", "set_repeat" to "Wiederholen", "set_sleep_timer" to "Sleep-Timer",
             "get_queue" to "Warteschlange gelesen", "add_to_queue" to "Zur Warteschlange", "remove_from_queue" to "Aus Warteschlange entfernt",
             "move_in_queue" to "Warteschlange umsortiert", "skip_to" to "Titel gewechselt", "clear_up_next" to "Warteschlange geleert",
