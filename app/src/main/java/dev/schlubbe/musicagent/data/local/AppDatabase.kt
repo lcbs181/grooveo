@@ -26,6 +26,8 @@ import dev.schlubbe.musicagent.data.local.entity.SavedPlaylistEntity
 import dev.schlubbe.musicagent.data.local.entity.SearchHistoryEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackAnalysisEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
+import dev.schlubbe.musicagent.data.local.entity.PlayEventEntity
+import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
 
 @Database(
     entities = [
@@ -39,8 +41,9 @@ import dev.schlubbe.musicagent.data.local.entity.TrackEntity
         SearchHistoryEntity::class,
         TrackAnalysisEntity::class,
         TrackTagsEntity::class,
+        PlayEventEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -55,6 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun trackAnalysisDao(): TrackAnalysisDao
     abstract fun trackTagsDao(): TrackTagsDao
+    abstract fun playEventDao(): PlayEventDao
 }
 
 // Backend-less variant: likes/playlists move from the (removed) server to local
@@ -240,5 +244,16 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
 val MIGRATION_12_13 = object : Migration(12, 13) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS track_tags (trackId TEXT NOT NULL PRIMARY KEY, tags TEXT NOT NULL, fetchedAt INTEGER NOT NULL)")
+    }
+}
+
+// Local listening history with how each play ended, for the recommendations.
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS play_events (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, trackId TEXT NOT NULL, " +
+                "artist TEXT, startedAt INTEGER NOT NULL, listenedMs INTEGER NOT NULL, durationMs INTEGER NOT NULL, endReason TEXT NOT NULL)",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_play_events_startedAt ON play_events (startedAt)")
     }
 }

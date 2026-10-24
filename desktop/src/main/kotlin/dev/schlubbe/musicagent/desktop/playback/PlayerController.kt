@@ -140,10 +140,9 @@ class PlayerController(
             var last = engine.playedFrames
             while (isActive) {
                 delay(15_000)
-                val now = engine.playedFrames
-                val sec = (now - last) / 48_000
+                val sec = (engine.playedFrames - last) / 48_000
                 if (sec > 0) store.addListenSeconds(sec)
-                last = now
+                last += sec * 48_000 // the remainder counts towards the next round
             }
         }
     }
@@ -486,8 +485,19 @@ class PlayerController(
         else -> null
     }
 
+    /** The play under way, for the history: track, start time and [AudioEngine.playedFrames] then. */
+    private var play: Triple<TrackResultDto, Long, Long>? = null
+
+    /** Records how the play under way ended: [natural] when the engine moved on by itself. */
+    private fun endPlay(natural: Boolean) {
+        val (t, startedAt, frames) = play ?: return
+        play = null
+        store.recordPlayEnd(t, startedAt, (engine.playedFrames - frames) * 1000 / 48_000, natural)
+    }
+
     private fun onEngineStarted(source: AudioSource, automatic: Boolean) {
         // a retry's restart is no fresh start: the count only resets for a new track
+        val restart = retrying
         if (retrying) retrying = false else streamRetries = 0
         if (automatic) {
             val s = _state.value
@@ -498,6 +508,10 @@ class PlayerController(
         val t = _state.value.current ?: return
         if (automatic) { recipes.remove(t.key); _planned.value = null; _planNote.value = null }
         store.recordPlay(t)
+        if (!restart || play?.first?.key != t.key) {
+            endPlay(natural = automatic)
+            play = Triple(t, System.currentTimeMillis(), engine.playedFrames)
+        }
         engine.mixOutSec = store.current.analysis[t.key]?.mixOutMs?.div(1000.0)
         // the echo keeps to this track's beat; without a grid, 120 BPM rather than the last track's
         engine.masterFx.trackBeatSec = store.current.analysis[t.key]?.grid?.beatMs?.div(1000) ?: 0.5

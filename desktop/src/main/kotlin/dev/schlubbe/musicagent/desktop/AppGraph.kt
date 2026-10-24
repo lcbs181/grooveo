@@ -56,7 +56,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     private val ytSearch = YouTubeMusicSearchClient()
     val search = SearchRepository(scSearch, ytSearch, settings)
     val resolver = StreamResolverRegistry(SoundCloudStreamResolver(scApi), YouTubeStreamResolver(), YouTubeFallback(ytSearch), store)
-    val feed = FeedRepository(store, LikesRepository(store), search, settings)
+    val feed = FeedRepository(store, store, LikesRepository(store), search, settings)
     val lyrics = LyricsRepository(http)
     val downloads = DownloadManager(store, { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec, preferProgressive = true) }, http, { downloadDir() })
     val backup = BackupManager(store, settings, File(dataDir, "backups"))

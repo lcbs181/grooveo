@@ -241,6 +241,8 @@ class PlayerController @Inject constructor(
     private var currentQueueIndex: Int = -1
     private var currentTrack: TrackResultDto? = null
     private var currentTrackCompleted = false
+    /** Position the player left the outgoing item at, set just before onMediaItemTransition. */
+    private var outgoingPositionMs: Long? = null
 
     // Counts consecutive PlaybackExceptions for the *current* track (reset by
     // resetPlaybackErrorState(), called from every real track-change/manual-pause
@@ -447,6 +449,11 @@ class PlayerController @Inject constructor(
             // setMediaItems() itself causes when playQueue() starts a fresh queue,
             // already accounted for there. A suppressed transition is our own
             // toggleSource() reloading the *same* queue index -- not a real track change.
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                // where the outgoing track was left, for the skip report in onMediaItemTransition
+                if (oldPosition.mediaItemIndex != newPosition.mediaItemIndex) outgoingPositionMs = oldPosition.positionMs
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (suppressNextTransitionEvent) {
                     suppressNextTransitionEvent = false
@@ -479,11 +486,12 @@ class PlayerController @Inject constructor(
                         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                             eventReporter.playComplete(previous, (previous.durationSec ?: 0) * 1000L)
                         } else {
-                            eventReporter.skip(previous)
+                            eventReporter.skip(previous, outgoingPositionMs ?: 0L)
                         }
                     }
                 }
 
+                outgoingPositionMs = null
                 currentTrack = newTrack
                 currentTrackCompleted = false
                 currentQueueIndex = newLogicalIndex
@@ -682,7 +690,7 @@ class PlayerController @Inject constructor(
             return
         }
 
-        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous, currentPositionMs()) }
 
         val queueTracks = playable.map { it.first }
         val mediaItems = playable.map { (track, resolved) -> buildMediaItem(track, resolved) }
@@ -755,7 +763,7 @@ class PlayerController @Inject constructor(
             return
         }
 
-        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous, currentPositionMs()) }
 
         val exoMapping = arrayOfNulls<Int>(tracks.size)
         val mediaItems = mutableListOf<MediaItem>()
@@ -982,7 +990,7 @@ class PlayerController @Inject constructor(
             // call may have already started and should win.
             if (myGeneration != playRequestGeneration) return
             currentTrack?.let { previous ->
-                if (!currentTrackCompleted) eventReporter.skip(previous)
+                if (!currentTrackCompleted) eventReporter.skip(previous, currentPositionMs())
             }
             currentQueue = listOf(track)
             exoIndexForLogical = listOf(0)
@@ -1291,7 +1299,7 @@ class PlayerController @Inject constructor(
             Log.i(TAG, "Cannot play ${track.title}", result.exceptionOrNull())
             return false
         } else if (exoIndex == mediaController.currentMediaItemIndex) {
-            currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+            currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous, currentPositionMs()) }
             currentTrack = track
             currentTrackCompleted = false
             currentQueueIndex = newLogicalIndex
@@ -1413,7 +1421,7 @@ class PlayerController @Inject constructor(
         resetPlaybackErrorState()
         val mediaController = ensureConnected()
         if (myGeneration != playRequestGeneration) return
-        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous) }
+        currentTrack?.let { previous -> if (!currentTrackCompleted) eventReporter.skip(previous, currentPositionMs()) }
         val track = pcLiveTrack(title, artist, artworkUrl)
         pcLiveUri = uri
         currentQueue = listOf(track)

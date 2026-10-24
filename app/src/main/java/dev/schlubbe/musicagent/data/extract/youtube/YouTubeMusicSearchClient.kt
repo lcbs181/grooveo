@@ -126,6 +126,17 @@ class YouTubeMusicSearchClient @Inject constructor() {
             .mapNotNull { it.toTrackResultDto() }
     }
 
+    /** YouTube Music's radio for one song ("RDAMVM" + video id, the mix its "Radio
+     * starten" plays): songs that go with it, from other artists too. The song itself,
+     * which the mix starts with, is left out. */
+    suspend fun getRadio(videoId: String, limit: Int): List<TrackResultDto> = withContext(Dispatchers.IO) {
+        val info = PlaylistInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId&list=RDAMVM$videoId")
+        info.relatedItems.filterIsInstance<StreamInfoItem>()
+            .mapNotNull { it.toTrackResultDto() }
+            .filter { it.sourceId != videoId }
+            .take(limit)
+    }
+
     /** Same fetch as [getPlaylistTracks], but also keeps the playlist's own name/
      * uploader/thumbnail instead of discarding them - backs the playlist browse
      * screen reached from a Search result. */

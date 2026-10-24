@@ -47,6 +47,16 @@ class SoundCloudSearchClient @Inject constructor(
             .mapNotNull { it.asJsonObject.jsonObjectOrNull("track")?.toSoundCloudTrackResultDto() }
     }
 
+    /** SoundCloud's "related tracks" for one track - what its web player queues up
+     * next. api-v2 wants the numeric id, so the permalink is resolved first. */
+    suspend fun getRelated(permalink: String, limit: Int): List<TrackResultDto> {
+        val track = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
+        val id = track.get("id")?.takeIf { !it.isJsonNull }?.asLong ?: return emptyList()
+        val data = api.get("tracks/$id/related", mapOf("limit" to limit.toString()))
+        return (data.jsonArrayOrNull("collection") ?: JsonArray())
+            .mapNotNull { it.asJsonObject.toSoundCloudTrackResultDto() }
+    }
+
     // SoundCloud has one search endpoint for both playlists and albums - an album is
     // just a playlist with is_album=true - so both fetch the same raw result set and
     // split it client-side. Over-fetches (limit*3) since filtering by is_album can

@@ -6,6 +6,9 @@ import dev.schlubbe.musicagent.desktop.audio.TrackStructure
 
 import com.google.gson.reflect.TypeToken
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
+import dev.schlubbe.musicagent.data.local.entity.PlayEventEntity
+import dev.schlubbe.musicagent.data.recommend.PlaybackSignals
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
@@ -110,6 +113,8 @@ data class LibraryData(
     val analysis: Map<String, TrackAnalysis> = emptyMap(),
     val dislikedArtists: List<String> = emptyList(),
     val listenSecondsByDay: Map<String, Long> = emptyMap(),
+    /** Every play with how it ended, for the recommendations (oldest first). */
+    val plays: List<PlayEventEntity> = emptyList(),
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized() = LibraryData(
@@ -123,6 +128,7 @@ data class LibraryData(
         analysis = analysis ?: emptyMap(),
         dislikedArtists = dislikedArtists ?: emptyList(),
         listenSecondsByDay = listenSecondsByDay ?: emptyMap(),
+        plays = plays ?: emptyList(),
     )
 }
 
@@ -133,7 +139,7 @@ data class LibraryData(
  * write and no caller ever waits for the disk. [flush] (and [close]) writes right away.
  * Also serves as the desktop implementation of the DAO interfaces the shared sources expect.
  */
-class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
+class LibraryStore(private val dir: File) : TrackDao, DownloadDao, PlayEventDao {
     private val file = File(dir, "library.json")
     private val _data = MutableStateFlow(load())
     val data: StateFlow<LibraryData> = _data.asStateFlow()
@@ -211,6 +217,19 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
     fun recordPlay(t: TrackResultDto) = mutate { d ->
         d.copy(history = (listOf(HistoryEntry(t, System.currentTimeMillis())) + d.history.filterNot { it.track.key == t.key }).take(HISTORY_MAX))
     }
+
+    /** Records how a play of [t] ended, [listenedMs] after it started at [startedAt]. */
+    fun recordPlayEnd(t: TrackResultDto, startedAt: Long, listenedMs: Long, natural: Boolean) = mutate { d ->
+        val durationMs = (t.durationSec ?: 0) * 1000L
+        val e = PlayEventEntity(
+            trackId = t.key, artist = t.artist, startedAt = startedAt, listenedMs = listenedMs.coerceAtLeast(0),
+            durationMs = durationMs, endReason = PlaybackSignals.classifyEnd(listenedMs, durationMs, natural).name,
+        )
+        val keepFrom = System.currentTimeMillis() - PlaybackSignals.KEEP_MS
+        d.copy(plays = (d.plays.filter { it.startedAt >= keepFrom } + e).takeLast(PLAYS_MAX))
+    }
+
+    override suspend fun since(since: Long): List<PlayEventEntity> = current.plays.filter { it.startedAt >= since }.asReversed()
 
     fun addListenSeconds(seconds: Long, day: String = java.time.LocalDate.now().toString()) = mutate { d ->
         d.copy(listenSecondsByDay = (d.listenSecondsByDay + (day to (d.listenSecondsByDay[day] ?: 0) + seconds)).entries
@@ -305,6 +324,8 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao {
 
     companion object {
         const val HISTORY_MAX = 200
+        /** Plays kept for the recommendations; about half a year of daily listening. */
+        const val PLAYS_MAX = 5_000
         const val SEARCHES_MAX = 20
         const val WRITE_DELAY_MS = 1500L
         private const val RETRY_DELAY_MS = 10_000L

@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.data.local.dao
 
 import dev.schlubbe.musicagent.data.local.entity.DownloadEntity
+import dev.schlubbe.musicagent.data.local.entity.PlayEventEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -8,6 +9,10 @@ import kotlinx.coroutines.flow.Flow
 interface TrackDao {
     suspend fun getById(id: String): TrackEntity?
     fun observeRecentlyPlayed(limit: Int = 50): Flow<List<TrackEntity>>
+}
+
+interface PlayEventDao {
+    suspend fun since(since: Long): List<PlayEventEntity>
 }
 
 interface DownloadDao {

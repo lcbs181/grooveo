@@ -1,11 +1,20 @@
 package dev.schlubbe.musicagent.data.repository
 
+import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
+import dev.schlubbe.musicagent.data.recommend.Candidate
+import dev.schlubbe.musicagent.data.recommend.Origin
+import dev.schlubbe.musicagent.data.recommend.PlaybackSignals
+import dev.schlubbe.musicagent.data.recommend.Recommender
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.remote.dto.toTrackResultDto
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.pow
 import kotlin.random.Random
 import javax.inject.Inject
@@ -62,6 +71,15 @@ private const val CANDIDATE_ARTIST_POOL = 8
  * [FeedRepository.predictNext]'s primary continuation tier. */
 private const val SESSION_TAIL_SIZE = 5
 
+/** How many unskipped recent tracks seed the sources' radio. */
+private const val SEED_COUNT = 2
+
+/** How long [FeedRepository.predictNext] waits for any one source. */
+private const val SOURCE_TIMEOUT_MS = 6_000L
+
+/** A liked track comes back as a radio pick only after this long unheard. */
+private const val LIBRARY_REST_MS = 14L * 24 * 3600_000
+
 /** On-device analogue of the (removed) backend's MAYA feed: no server, no
  * cross-user data, so "familiar" comes from purely local signal (recently played +
  * liked tracks, weighted by recency-decayed (source, artist) frequency - see
@@ -72,6 +90,7 @@ private const val SESSION_TAIL_SIZE = 5
 @Singleton
 class FeedRepository @Inject constructor(
     private val trackDao: TrackDao,
+    private val playEventDao: PlayEventDao,
     private val likesRepository: LikesRepository,
     private val searchRepository: SearchRepository,
     private val settingsRepository: SettingsRepository,
@@ -235,86 +254,77 @@ class FeedRepository @Inject constructor(
         return ranked.take(limit)
     }
 
-    /**
-     * The actual "what plays next" engine: extends a queue that has run out,
-     * instead of letting playback simply stop.
-     *
-     * Scored overwhelmingly by *session* context - [recentQueueTracks], the tracks
-     * that were actually just playing, most recent first - rather than lifetime
-     * affinity. That is the direct fix for "the next songs should be the next
-     * songs after wherever I started": once an explicit queue (a playlist, an
-     * artist's tracks, a search result list) runs out, the natural continuation is
-     * more of *that* - the artists of what was just heard - not a jump back to
-     * generic all-time favourites or unrelated global trending. Long-term affinity
-     * ([buildArtistAffinity]) is only the second tier, for when the session itself
-     * doesn't supply enough artists to fill the request; global trending is the
-     * last resort, so this never simply stops.
-     *
-     * [excludeIds] should cover the whole queue that led here (not just
-     * [recentQueueTracks]) so a long autoplay run doesn't loop the same handful of
-     * tracks. */
+    /** The next tracks after [recentQueueTracks] (what was just playing, most recent
+     * first), for radio once a queue runs out. Candidates come from several sources at
+     * once, each allowed [SOURCE_TIMEOUT_MS]:
+     *  - the sources' own radio for the last tracks that were not skipped (SoundCloud
+     *    related tracks, YouTube Music song radio): songs that fit, by other artists too
+     *  - more by the session's artists, and by artists the listener likes overall
+     *  - the listener's likes not heard for a while
+     *  - charts, only to fill up
+     * [Recommender] then scores them against the local listening history (skips count
+     * against a track and its artist) and spreads artists out. [excludeIds] should cover
+     * the whole queue, so a long radio run does not loop. Empty only when every source
+     * failed, e.g. offline. */
     suspend fun predictNext(
         recentQueueTracks: List<TrackResultDto>,
         excludeIds: Set<String>,
         limit: Int,
-    ): List<TrackResultDto> {
-        val seen = excludeIds.toMutableSet()
-        val result = mutableListOf<TrackResultDto>()
+    ): List<TrackResultDto> = coroutineScope {
+        val now = System.currentTimeMillis()
+        val signals = PlaybackSignals(
+            runCatching { playEventDao.since(now - PlaybackSignals.KEEP_MS) }.getOrDefault(emptyList()),
+            now,
+        )
+        val session = recentQueueTracks.take(SESSION_TAIL_SIZE)
+        // seeds: the latest tracks the listener did not skip
+        val seeds = session.filter { "${it.source}:${it.sourceId}" !in signals.skippedTracks }.take(SEED_COUNT)
+            .ifEmpty { session.take(1) }
+        val safe = settingsRepository.contentSafetyFilterCached
 
-        // Tier 1: the session itself. Weighted so the most recently played tracks'
-        // artists dominate - the tail's first entry counts several times more than
-        // its last - because "next" should feel like a direct continuation of what
-        // was *just* on, not an even blend of the whole queue.
-        val sessionArtists = LinkedHashMap<Pair<String, String>, Double>()
-        recentQueueTracks.take(SESSION_TAIL_SIZE).forEachIndexed { i, track ->
-            val artist = track.artist ?: return@forEachIndexed
-            val key = track.source to artist
-            val recencyBoost = (SESSION_TAIL_SIZE - i).toDouble()
-            sessionArtists[key] = (sessionArtists[key] ?: 0.0) + recencyBoost
+        suspend fun <T> timed(block: suspend () -> List<T>): List<T> =
+            withTimeoutOrNull(SOURCE_TIMEOUT_MS) { runCatching { block() }.getOrNull() }.orEmpty()
+
+        val related = seeds.map { seed ->
+            async { timed { searchRepository.related(seed, 20) }.mapIndexed { i, t -> Candidate(t, i, Origin.RELATED) } }
         }
-        for ((source, artist) in sessionArtists.entries.sortedByDescending { it.value }.map { it.key }) {
-            if (result.size >= limit) break
-            val tracks = runCatching { searchRepository.search(artist, source = source, limit = 10) }
-                .getOrDefault(emptyList())
-                .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
-                .filterNot { "${it.source}:${it.sourceId}" in seen }
-            for (track in tracks) {
-                if (result.size >= limit) break
-                result += track
-                seen += "${track.source}:${track.sourceId}"
+        val sessionArtists = session.mapNotNull { t -> t.artist?.let { t.source to it } }.distinct().take(2)
+        val bySessionArtist = sessionArtists.map { (source, artist) ->
+            async {
+                timed { searchRepository.search(artist, source = source, limit = 10) }
+                    .filterForDiscovery(safe)
+                    .filter { PlaybackSignals.normalizeArtist(it.artist.orEmpty()) == PlaybackSignals.normalizeArtist(artist) }
+                    .mapIndexed { i, t -> Candidate(t, i, Origin.SESSION_ARTIST) }
             }
         }
-
-        // Tier 2: long-term affinity, only to top up what the session couldn't fill.
-        if (result.size < limit) {
-            val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
-            val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
-            val affinity = buildArtistAffinity(recentlyPlayed, likes)
-            val candidateArtists = affinity.entries.sortedByDescending { it.value }.take(CANDIDATE_ARTIST_POOL)
-            for ((source, artist) in weightedSampleArtists(candidateArtists, TOP_ARTIST_COUNT + 1)) {
-                if (result.size >= limit) break
-                val tracks = runCatching { searchRepository.search(artist, source = source, limit = 8) }
-                    .getOrDefault(emptyList())
-                    .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
-                    .filterNot { "${it.source}:${it.sourceId}" in seen }
-                for (track in tracks) {
-                    if (result.size >= limit) break
-                    result += track
-                    seen += "${track.source}:${track.sourceId}"
+        val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
+        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
+        val affinity = buildArtistAffinity(recentlyPlayed, likes)
+            .filterKeys { (_, artist) -> signals.skipRatio(artist) < 0.5 }
+        val byAffinity = weightedSampleArtists(affinity.entries.sortedByDescending { it.value }.take(CANDIDATE_ARTIST_POOL), TOP_ARTIST_COUNT)
+            .map { (source, artist) ->
+                async {
+                    timed { searchRepository.search(artist, source = source, limit = 8) }
+                        .filterForDiscovery(safe)
+                        .mapIndexed { i, t -> Candidate(t, i, Origin.AFFINITY) }
                 }
             }
-        }
+        val heardLately = signals.playedWithin(LIBRARY_REST_MS)
+        val library = likes.map { it.track.toTrackResultDto() }
+            .filter { "${it.source}:${it.sourceId}" !in heardLately }
+            .shuffled().take(10)
+            .mapIndexed { i, t -> Candidate(t, i + 5, Origin.LIBRARY) }
 
-        // Tier 3: never just stop. getTrending already runs filterForDiscovery.
+        val candidates = related.awaitAll().flatten() + bySessionArtist.awaitAll().flatten() + byAffinity.awaitAll().flatten() + library
+        val recommender = Recommender(signals)
+        val sessionNames = session.mapNotNull { it.artist }.toSet()
+        var result = recommender.rank(candidates, sessionNames, excludeIds, session.mapNotNull { it.artist }, limit)
         if (result.size < limit) {
-            val trending = runCatching { searchRepository.getTrending((limit - result.size) * 2, source = "ytmusic") }
-                .getOrDefault(emptyList())
-                .filterNot { "${it.source}:${it.sourceId}" in seen }
-                .take(limit - result.size)
-            result += trending
+            val trending = timed { searchRepository.getTrending(limit * 2, source = "ytmusic") }
+                .mapIndexed { i, t -> Candidate(t, i, Origin.TRENDING) }
+            result = recommender.rank(candidates + trending, sessionNames, excludeIds, session.mapNotNull { it.artist }, limit)
         }
-
-        return diversifyTracks(result)
+        result
     }
 
     /** [getPersonalizedMix]'s no-history fallback: a shuffled pool from onboarding's
@@ -438,24 +448,6 @@ class FeedRepository @Inject constructor(
             if (result[i].track.artist != null && result[i].track.artist == result[i - 1].track.artist) {
                 for (j in i + 1 until result.size) {
                     if (result[j].track.artist != result[i - 1].track.artist) {
-                        val tmp = result[i]
-                        result[i] = result[j]
-                        result[j] = tmp
-                        break
-                    }
-                }
-            }
-        }
-        return result
-    }
-
-    /** Same rule as [diversify], for a plain track list rather than [FeedItem]. */
-    private fun diversifyTracks(items: List<TrackResultDto>): List<TrackResultDto> {
-        val result = items.toMutableList()
-        for (i in 1 until result.size) {
-            if (result[i].artist != null && result[i].artist == result[i - 1].artist) {
-                for (j in i + 1 until result.size) {
-                    if (result[j].artist != result[i - 1].artist) {
                         val tmp = result[i]
                         result[i] = result[j]
                         result[j] = tmp

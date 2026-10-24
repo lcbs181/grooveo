@@ -3,6 +3,7 @@ package dev.schlubbe.musicagent.desktop
 import dev.schlubbe.musicagent.desktop.audio.AudioSource
 import dev.schlubbe.musicagent.desktop.audio.FfmpegDeck
 import dev.schlubbe.musicagent.desktop.audio.TrackAnalyzer
+import dev.schlubbe.musicagent.desktop.data.key
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import kotlin.test.Test
@@ -14,6 +15,22 @@ import kotlin.test.assertTrue
  */
 class NetworkSmokeTest {
     private val enabled = System.getenv("GROOVEO_NETWORK_TESTS") == "1"
+
+    @Test fun `related radio from both sources`() = runBlocking {
+        if (!enabled) return@runBlocking
+        val g = AppGraph(Files.createTempDirectory("grooveo-net").toFile())
+        for (source in listOf("soundcloud", "ytmusic")) {
+            val seed = g.search.search("daft punk around the world", source, 5).first { !it.isDrmProtected }
+            val related = g.search.related(seed, 15)
+            println("$source related to ${seed.title}: ${related.map { "${it.artist} - ${it.title}" }}")
+            assertTrue(related.size >= 5, "$source: only ${related.size} related tracks")
+            assertTrue(related.map { it.artist }.distinct().size >= 3, "$source: related is all one artist")
+            val next = g.feed.predictNext(listOf(seed), setOf(seed.key), 8)
+            println("$source radio after ${seed.title}: ${next.map { "${it.artist} - ${it.title}" }}")
+            assertTrue(next.size >= 6, "$source: radio gave only ${next.size}")
+        }
+        g.close()
+    }
 
     @Test fun `search, resolve and decode from both sources`() = runBlocking {
         if (!enabled) return@runBlocking

@@ -103,6 +103,14 @@ class SearchRepository @Inject constructor(
      * reachable from anything the user typed themselves, only from Home's own
      * charts/feed logic picking content on their behalf, so it is safe (and
      * necessary - see that filter's kdoc) to hold explicit results back here. */
+    /** Tracks that go with [track], from its own source's radio: SoundCloud's related
+     * tracks or YouTube Music's song radio. Empty for other sources. */
+    suspend fun related(track: TrackResultDto, limit: Int = 20): List<TrackResultDto> = when (track.source) {
+        "soundcloud" -> soundCloud.getRelated(track.sourceId, limit)
+        "ytmusic" -> youTube.getRadio(track.sourceId, limit)
+        else -> emptyList()
+    }.filterForDiscovery(settingsRepository.contentSafetyFilterCached)
+
     suspend fun getTrending(limit: Int = 20, source: String = "all"): List<TrackResultDto> = when (source) {
         "soundcloud" -> soundCloud.getTrending(limit)
         "ytmusic" -> youTube.getTrending(limit)
