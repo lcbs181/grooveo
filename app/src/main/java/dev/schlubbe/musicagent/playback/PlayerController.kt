@@ -18,6 +18,7 @@ import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudDrmOnlyException
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.EventReporter
@@ -65,6 +66,10 @@ private const val CONNECT_TIMEOUT_MS = 5_000L
 /** How many predicted tracks [PlayerController.continueWithRadio] tries to resolve
  * and append per pass, once "Autoplay-Radio" continues a queue that has run out. */
 private const val EXTEND_BATCH_SIZE = 8
+/** Radio loads more once fewer than this many tracks are left after the current one. */
+private const val RADIO_AHEAD = 2
+/** Waits before each radio lookup: at once, then backing off over about 20 s. */
+private val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
 
 /** How many of the most recently played tracks count as "the session" handed to
  * [FeedRepository.predictNext] - see that function's own kdoc for why this is
@@ -156,6 +161,7 @@ class PlayerController @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val eventReporter: EventReporter,
     private val downloadDao: DownloadDao,
+    private val trackDao: TrackDao,
     private val streamResolverRegistry: StreamResolverRegistry,
     private val searchRepository: SearchRepository,
     private val feedRepository: FeedRepository,
@@ -284,6 +290,7 @@ class PlayerController @Inject constructor(
 
     // Guards extendQueue() against two passes running at once - see that function.
     private val extendQueueMutex = Mutex()
+    private var radioJob: Job? = null
 
     // Set right before we call replaceMediaItem()+seekTo() on the *current* index (see
     // toggleSource), so the resulting onMediaItemTransition callback is consumed as a
@@ -500,6 +507,10 @@ class PlayerController @Inject constructor(
                     unavailableMessage = null,
                 )
                 refreshDownloadAvailability(newTrack)
+                // load the radio batch while the last tracks still play, not once silence begins
+                if (settingsRepository.autoplayRadioCached && controller?.repeatMode == Player.REPEAT_MODE_OFF &&
+                    currentQueue.size - 1 - newLogicalIndex < RADIO_AHEAD
+                ) continueWithRadio()
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -595,6 +606,7 @@ class PlayerController @Inject constructor(
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
         val myGeneration = ++playRequestGeneration
+        radioJob?.cancel() // a batch for the old queue must not hold up radio for this one
         cancelBackgroundQueueFill()
         // A fresh load replaces the controller's item(s) wholesale, which fires
         // onMediaItemTransition with reason PLAYLIST_CHANGED - explicitly ignored
@@ -944,6 +956,7 @@ class PlayerController @Inject constructor(
         if (pendingTrackKey == requestedKey) return
         pendingTrackKey = requestedKey
         val myGeneration = ++playRequestGeneration
+        radioJob?.cancel() // a batch for the old queue must not hold up radio for this one
         cancelBackgroundQueueFill()
         // A fresh load replaces the controller's item(s) wholesale, which fires
         // onMediaItemTransition with reason PLAYLIST_CHANGED - explicitly ignored
@@ -1396,6 +1409,7 @@ class PlayerController @Inject constructor(
      */
     suspend fun playPcLive(uri: String, title: String?, artist: String?, artworkUrl: String?) {
         val myGeneration = ++playRequestGeneration
+        radioJob?.cancel() // a batch for the old queue must not hold up radio for this one
         resetPlaybackErrorState()
         val mediaController = ensureConnected()
         if (myGeneration != playRequestGeneration) return
@@ -1564,10 +1578,15 @@ class PlayerController @Inject constructor(
      * stops it structurally).
      */
     private fun continueWithRadio() {
-        scope.launch {
+        if (radioJob?.isActive == true) return
+        radioJob = scope.launch {
             extendQueueMutex.withLock {
                 if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock
-
+                // a batch fetched ahead of time is already there: just move on to it
+                if (currentQueue.size - 1 - currentQueueIndex >= RADIO_AHEAD) {
+                    startAppendedIfEnded(currentQueueIndex + 1)
+                    return@withLock
+                }
                 val myGeneration = playRequestGeneration
                 val recentContext = (currentQueueIndex downTo 0).asSequence()
                     .mapNotNull { currentQueue.getOrNull(it) }
@@ -1575,19 +1594,23 @@ class PlayerController @Inject constructor(
                     .toList()
                 val excludeIds = currentQueue.mapTo(mutableSetOf()) { "${it.source}:${it.sourceId}" }
 
-                val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE) }
-                    .getOrDefault(emptyList())
-                if (predicted.isEmpty()) return@withLock
-
-                val resolved = coroutineScope {
-                    predicted.map { track -> async { track to resolveWithRetry(track) } }.awaitAll()
-                }.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
-                if (resolved.isEmpty()) return@withLock
-
-                // The queue this batch was built for may have been replaced by a
-                // fresh playQueue() while resolving was in flight - discard rather
-                // than glue a stale prediction onto an unrelated new session.
+                // A failed lookup (no network, a source hiccup) is retried with backoff; when
+                // everything stays empty, the downloads keep the music going offline.
+                var resolved: List<Pair<TrackResultDto, ResolvedStream>> = emptyList()
+                for (wait in RADIO_RETRY_MS) {
+                    delay(wait)
+                    if (myGeneration != playRequestGeneration) return@withLock
+                    val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE) }
+                        .getOrDefault(emptyList())
+                    resolved = resolveAll(predicted)
+                    if (resolved.isNotEmpty()) break
+                }
+                if (resolved.isEmpty()) resolved = resolveAll(offlinePool(excludeIds))
                 if (myGeneration != playRequestGeneration) return@withLock
+                if (resolved.isEmpty()) {
+                    showToast("Keine weiteren Titel gefunden – bist du offline?")
+                    return@withLock
+                }
 
                 val mediaController = ensureConnectedOrReportError() ?: return@withLock
                 var exoIndex = mediaController.mediaItemCount
@@ -1599,20 +1622,37 @@ class PlayerController @Inject constructor(
                 }
                 val firstAppended = currentQueue.size - resolved.size
                 publishQueue()
-
-                // The player sat at STATE_ENDED with nothing left; now there is.
-                // moveToLogicalIndex handles the DRM-unavailable case itself, so this
-                // is safe even if predictNext's first candidate somehow ended up
-                // DRM-blocked (it shouldn't - predictNext's own search results aren't
-                // annotated that way at this layer - but resolveWithRetry already
-                // dropped anything that failed to resolve above regardless).
-                // With shuffle on, the slot after the current one may be a track the
-                // shuffle already played - start the new batch itself instead.
-                val next = if (controller?.shuffleModeEnabled == true) firstAppended else currentQueueIndex + 1
-                if (next < currentQueue.size) moveToLogicalIndex(next)
+                startAppendedIfEnded(firstAppended)
             }
         }
     }
+
+    /** Fetched ahead, the batch simply plays on; only a player already sitting at
+     * STATE_ENDED needs a nudge. With shuffle on, the slot after the current one may be a
+     * track the shuffle already played, so the new batch starts at [firstAppended]. */
+    private suspend fun startAppendedIfEnded(firstAppended: Int) {
+        if (controller?.playbackState != Player.STATE_ENDED) return
+        val next = if (controller?.shuffleModeEnabled == true) firstAppended else currentQueueIndex + 1
+        if (next < currentQueue.size) moveToLogicalIndex(next)
+    }
+
+    private suspend fun resolveAll(tracks: List<TrackResultDto>): List<Pair<TrackResultDto, ResolvedStream>> =
+        coroutineScope {
+            tracks.map { track -> async { track to resolveWithRetry(track) } }.awaitAll()
+        }.mapNotNull { (track, result) -> result.getOrNull()?.let { track to it } }
+
+    /** Downloaded tracks not in the queue yet, for radio without network. */
+    private suspend fun offlinePool(excludeIds: Set<String>): List<TrackResultDto> =
+        runCatching { trackDao.observeWithDownload().first() }.getOrDefault(emptyList())
+            .filter { it.id !in excludeIds }
+            .shuffled()
+            .take(EXTEND_BATCH_SIZE)
+            .map {
+                TrackResultDto(
+                    source = it.source, sourceId = it.sourceId, title = it.title, artist = it.artist, album = it.album,
+                    durationSec = it.durationSec, thumbnailUrl = it.thumbnailUrl, webpageUrl = it.webpageUrl,
+                )
+            }
 
     // Reactive, not a one-shot check: a track can start streaming, then finish
     // downloading in the background while it's still playing (or already playing
