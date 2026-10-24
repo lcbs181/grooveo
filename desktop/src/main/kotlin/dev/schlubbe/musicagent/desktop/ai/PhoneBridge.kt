@@ -89,8 +89,12 @@ class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssist
         val req = runCatching { Json.parseToJsonElement(json).jsonObject }.getOrNull()
             ?: return rpcError(JsonNull, -32700, "Parse error")
         val id = req["id"] ?: JsonNull
-        if (!enabled) return rpcError(id, -32001, DISABLED)
         val params = req["params"] as? JsonObject
+        // the phone's PC remote (now playing, play/pause/skip) is no AI feature: it works
+        // whenever the phone is paired, with "KI vom Handy" off too
+        val remoteCall = req["method"].let { (it as? JsonPrimitive)?.contentOrNull } == "tools/call" &&
+            (params?.get("name") as? JsonPrimitive)?.contentOrNull in REMOTE_TOOLS
+        if (!enabled && !remoteCall) return rpcError(id, -32001, DISABLED)
         return when ((req["method"] as? JsonPrimitive)?.contentOrNull) {
             "initialize" -> rpcResult(id, buildJsonObject {
                 put("protocolVersion", PROTOCOL_VERSION)
@@ -139,6 +143,8 @@ class PhoneBridge(private val g: AppGraph, private val assistant: () -> AiAssist
     }.toString()
 
     companion object {
+        /** Tools the phone's PC remote uses; allowed without "KI vom Handy". */
+        val REMOTE_TOOLS = setOf("get_now_playing", "playback", "continue_queue")
         const val DISABLED = "Am PC ist „KI vom Handy“ ausgeschaltet (Einstellungen › KI-Assistent)."
         const val PROTOCOL_VERSION = "2025-06-18"
         const val MAX_TEXT = 4000

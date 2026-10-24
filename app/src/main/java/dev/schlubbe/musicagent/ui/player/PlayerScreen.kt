@@ -287,7 +287,13 @@ fun PlayerScreen(
                 )
             }
             // the PC's live mix is no track of its own: like, download, playlist & co. do not apply
-            if (!playbackState.isPcLive) Box {
+            if (playbackState.isPcLive) {
+                CanopyIconButton(
+                    icon = phosphorIcon("x"),
+                    onClick = viewModel::stopListeningToPc,
+                    contentDescription = "Nicht mehr am Handy hören",
+                )
+            } else Box {
                 CanopyIconButton(
                     icon = phosphorIcon("dots-three-vertical"),
                     onClick = { showMoreMenu = true },
@@ -340,6 +346,25 @@ fun PlayerScreen(
                             viewModel.toggleLike()
                         },
                     )
+                    if (viewModel.pcPaired) {
+                        DropdownMenuItem(
+                            text = { Text("Am PC weiterspielen") },
+                            leadingIcon = { Icon(phosphorIcon("desktop-tower"), contentDescription = null, tint = Canopy.accent) },
+                            onClick = {
+                                showMoreMenu = false
+                                viewModel.continueOnPc { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                            },
+                            enabled = playbackState.queue.isNotEmpty(),
+                        )
+                        DropdownMenuItem(
+                            text = { Text("PC-Mix hier hören") },
+                            leadingIcon = { Icon(phosphorIcon("headphones"), contentDescription = null, tint = Canopy.accent) },
+                            onClick = {
+                                showMoreMenu = false
+                                viewModel.listenToPc { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                            },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Künstler seltener empfehlen") },
                         leadingIcon = { Icon(phosphorIcon("thumbs-down"), contentDescription = null, tint = Canopy.accent) },

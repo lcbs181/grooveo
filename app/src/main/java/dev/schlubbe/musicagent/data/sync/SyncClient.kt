@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.data.sync
 
+import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -101,6 +102,33 @@ class SyncClient @Inject constructor(
             val content = result.getAsJsonArray("content")[0].asJsonObject.get("text").asString
             JsonParser.parseString(content).asJsonObject
         }.getOrNull()
+    }
+
+    /**
+     * "Am PC weiterspielen": hands [queue] to the PC, starting at [index] and [positionSec].
+     * The error says why the PC did not take it.
+     */
+    suspend fun continueOnPc(queue: List<TrackResultDto>, index: Int, positionSec: Double): Result<Unit> = runCatching {
+        val tracks = com.google.gson.JsonArray().apply {
+            queue.forEach { t ->
+                add(JsonObject().apply {
+                    addProperty("source", t.source); addProperty("source_id", t.sourceId); addProperty("title", t.title)
+                    addProperty("artist", t.artist); t.durationSec?.let { addProperty("duration_sec", it) }
+                    addProperty("thumbnail_url", t.thumbnailUrl); addProperty("webpage_url", t.webpageUrl)
+                })
+            }
+        }
+        val args = JsonObject().apply { add("tracks", tracks); addProperty("start_index", index); addProperty("position_sec", positionSec) }
+        val req = JsonObject().apply {
+            addProperty("jsonrpc", "2.0")
+            addProperty("id", rpcIds.incrementAndGet())
+            addProperty("method", "tools/call")
+            add("params", JsonObject().apply { addProperty("name", "continue_queue"); add("arguments", args) })
+        }
+        val text = call(SyncProtocol.MCP_PATH, req.toString(), TOOL_TIMEOUT_MS).getOrThrow()
+        val result = JsonParser.parseString(text).asJsonObject
+        result.getAsJsonObject("error")?.let { error("Die PC-App kann das noch nicht – bitte Grooveo am PC aktualisieren.") }
+        if (result.getAsJsonObject("result")?.get("isError")?.asBoolean == true) error("Der PC konnte die Titel nicht übernehmen.")
     }
 
     /** What plays on the PC right now (its `get_now_playing` tool); null when it cannot be reached. */

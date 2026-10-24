@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.desktop.playback
 
 import dev.schlubbe.musicagent.desktop.audio.TransitionStatus
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.drop
 import dev.schlubbe.musicagent.data.extract.ResolvedStream
@@ -277,6 +278,16 @@ class PlayerController(
     }
 
     fun seek(sec: Double) = engine.seek(sec)
+
+    /** Seeks to [sec] once the track [key] has started (a queue handed over from the phone). */
+    fun seekWhenLoaded(key: String, sec: Double) {
+        scope.launch {
+            val ok = withTimeoutOrNull(15_000) {
+                engine.state.first { it.currentId == key && (it.durationSec ?: 0.0) > 0 }
+            }
+            if (ok != null && _state.value.current?.key == key) seek(sec)
+        }
+    }
 
     /**
      * Sets how to mix into the next track ([recipe] null = back to the default) and

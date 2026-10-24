@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.desktop.mcp
 
+import dev.schlubbe.musicagent.desktop.data.BackupManager
+import kotlinx.serialization.json.contentOrNull
 import com.google.gson.JsonParser
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
@@ -128,6 +130,43 @@ class GrooveoTools(
             val tracks = tracks(a.strings("track_ids"))
             ui { g.player.playQueue(tracks, a.int("start_index") ?: PlayerController.ANY_START, a.bool("shuffle") ?: false) }
             "Playing ${tracks.size} tracks"
+        }
+        tool(
+            "continue_queue", "Continue a queue from another device (the phone's \"Am PC weiterspielen\"): plays these full track records from start_index at position_sec.",
+            props = mapOf(
+                "tracks" to buildJsonObject {
+                    put("type", "array")
+                    put("description", "Track records: source, source_id, title, artist, duration_sec, thumbnail_url, webpage_url")
+                    putJsonObject("items") { put("type", "object") }
+                },
+                "start_index" to int("Index of the track to start with"),
+                "position_sec" to num("Where in that track to start"),
+            ),
+            required = listOf("tracks"), mutates = true,
+        ) { a ->
+            val list = (a.raw("tracks") as? JsonArray ?: error("tracks must be a list")).map { el ->
+                val o = el as? JsonObject ?: error("Each track must be an object")
+                fun f(k: String) = (o[k] as? JsonPrimitive)?.contentOrNull
+                TrackResultDto(
+                    source = f("source") ?: error("Track without source"),
+                    sourceId = f("source_id") ?: error("Track without source_id"),
+                    title = f("title") ?: "",
+                    artist = f("artist"),
+                    album = null,
+                    durationSec = f("duration_sec")?.toIntOrNull(),
+                    thumbnailUrl = f("thumbnail_url"),
+                    webpageUrl = f("webpage_url") ?: "",
+                ).also { require(BackupManager.isKnownSource(it.source)) { "Unknown source ${it.source}" } }
+            }
+            require(list.isNotEmpty()) { "No tracks" }
+            list.forEach { known[it.key] = it }
+            val start = (a.int("start_index") ?: 0).coerceIn(0, list.size - 1)
+            val pos = a.double("position_sec") ?: 0.0
+            ui {
+                g.player.playQueue(list, start)
+                if (pos > 1) g.player.seekWhenLoaded(list[start].key, pos)
+            }
+            "Playing ${list.size} tracks from the phone"
         }
         tool(
             "playback", "Play, pause, toggle, stop, next or previous.",

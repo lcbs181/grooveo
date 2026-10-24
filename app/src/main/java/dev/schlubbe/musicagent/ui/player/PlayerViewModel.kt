@@ -1,5 +1,8 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.playback.isPcLive
+import dev.schlubbe.musicagent.playback.PcLivePlayer
+import dev.schlubbe.musicagent.data.sync.SyncClient
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -76,7 +79,40 @@ class PlayerViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val workManager: WorkManager,
     private val lyricsRepository: LyricsRepository,
+    private val syncClient: SyncClient,
+    private val pcLivePlayer: PcLivePlayer,
 ) : ViewModel() {
+
+    /** Whether a PC is paired, for "Am PC weiterspielen" and "PC-Mix hier hören". */
+    val pcPaired: Boolean get() = syncClient.isPaired
+
+    /** "Am PC weiterspielen": the PC takes over the queue where the phone is, the phone pauses.
+     * [onResult] gets the message to show. */
+    fun continueOnPc(onResult: (String) -> Unit) {
+        val state = playbackState.value
+        val queue = state.queue.takeIf { it.isNotEmpty() && !state.isPcLive } ?: return onResult("Nichts zum Übergeben")
+        val index = state.queueIndex.coerceIn(0, queue.size - 1)
+        viewModelScope.launch {
+            syncClient.continueOnPc(queue, index, playerController.currentPositionMs() / 1000.0).fold(
+                onSuccess = {
+                    if (playerController.playbackState.value.isPlaying) playerController.togglePlayPause()
+                    onResult("Läuft jetzt am PC")
+                },
+                onFailure = { onResult(it.message ?: "PC nicht erreichbar") },
+            )
+        }
+    }
+
+    fun stopListeningToPc() {
+        viewModelScope.launch { pcLivePlayer.stop() }
+    }
+
+    /** "PC-Mix hier hören": the PC's live mix on the phone, the PC keeps playing aloud. */
+    fun listenToPc(onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            pcLivePlayer.start(muteDevice = false).onFailure { onResult(it.message ?: "PC nicht erreichbar") }
+        }
+    }
 
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
     val vizVariant: StateFlow<String> = playerController.vizVariant
