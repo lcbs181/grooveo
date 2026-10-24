@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent
 
+import dev.schlubbe.musicagent.follow.NewUploadsWorker
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
@@ -63,6 +64,13 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
         // of monitor contention on a real device); touching it here moves it to IO.
         appScope.launch { runCatching { imageLoader.diskCache?.size } }
         schedulePeriodicUpdateCheck()
+        workManager.enqueueUniquePeriodicWork(
+            NewUploadsWorker.UNIQUE_WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<NewUploadsWorker>(6, TimeUnit.HOURS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build(),
+        )
         workManager.enqueueUniquePeriodicWork(
             BackupWorker.UNIQUE_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,

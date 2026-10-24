@@ -55,6 +55,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val VIZ_VARIANT = stringPreferencesKey("viz_variant")
         val DOWNLOADS_WIFI_ONLY = booleanPreferencesKey("downloads_wifi_only")
         val NOTIFY_NEW_UPLOADS = booleanPreferencesKey("notify_new_uploads")
+        // NewUploadsWorker: uploads already reported, and followed artists checked once.
+        val SEEN_UPLOADS = stringSetPreferencesKey("seen_uploads")
+        val UPLOAD_ARTISTS = stringSetPreferencesKey("upload_artists")
         val AUTO_BACKUP = booleanPreferencesKey("auto_backup")
         val LAST_BACKUP_AT = stringPreferencesKey("last_backup_at")
         // Library landing menu's "Bringe deine Playlists mit" (Spotify import) banner -
@@ -121,6 +124,17 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val vizVariant: Flow<String> = dataStore.data.map { it[Keys.VIZ_VARIANT] ?: "particles" }
     val downloadsWifiOnly: Flow<Boolean> = dataStore.data.map { it[Keys.DOWNLOADS_WIFI_ONLY] ?: false }
     val notifyNewUploads: Flow<Boolean> = dataStore.data.map { it[Keys.NOTIFY_NEW_UPLOADS] ?: false }
+    val seenUploads: Flow<Set<String>> = dataStore.data.map { it[Keys.SEEN_UPLOADS] ?: emptySet() }
+    val uploadArtists: Flow<Set<String>> = dataStore.data.map { it[Keys.UPLOAD_ARTISTS] ?: emptySet() }
+
+    suspend fun markUploadsSeen(tracks: Set<String>, artists: Set<String>) {
+        if (tracks.isEmpty() && artists.isEmpty()) return
+        dataStore.edit {
+            // bounded: the newest few hundred are enough to recognise "latest 3" per artist
+            it[Keys.SEEN_UPLOADS] = ((it[Keys.SEEN_UPLOADS] ?: emptySet()) + tracks).toList().takeLast(1_000).toSet()
+            it[Keys.UPLOAD_ARTISTS] = (it[Keys.UPLOAD_ARTISTS] ?: emptySet()) + artists
+        }
+    }
     val autoBackup: Flow<Boolean> = dataStore.data.map { it[Keys.AUTO_BACKUP] ?: false }
     val lastBackupAt: Flow<String?> = dataStore.data.map { it[Keys.LAST_BACKUP_AT] }
     val dailyPick: Flow<String?> = dataStore.data.map { it[Keys.DAILY_PICK] }
