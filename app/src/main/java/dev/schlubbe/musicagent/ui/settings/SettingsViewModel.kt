@@ -75,6 +75,8 @@ data class SettingsUiState(
     val restoreFile: android.net.Uri? = null,
     // Sync mit PC
     val syncPaired: Boolean = false,
+    /** "Zuletzt synchronisiert …", null before the first sync. */
+    val lastSyncText: String? = null,
     val syncRunning: Boolean = false,
     val syncMessage: String? = null,
     val syncFailed: Boolean = false,
@@ -376,14 +378,30 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(syncRunning = true, syncMessage = null, syncFailed = false)
         viewModelScope.launch {
             syncClient.sync().fold(
-                onSuccess = { _uiState.value = _uiState.value.copy(syncRunning = false, syncMessage = "Synchronisiert – Handy und PC sind jetzt gleich.") },
+                onSuccess = {
+                    _uiState.value = _uiState.value.copy(
+                        syncRunning = false,
+                        syncMessage = "Synchronisiert – Handy und PC sind jetzt gleich.",
+                        lastSyncText = lastSyncText(),
+                    )
+                },
                 onFailure = { _uiState.value = _uiState.value.copy(syncRunning = false, syncFailed = true, syncMessage = it.message ?: "Sync fehlgeschlagen") },
             )
         }
     }
 
     fun clearSyncMessage() {
-        _uiState.value = _uiState.value.copy(syncPaired = syncClient.isPaired, syncMessage = null, syncFailed = false)
+        _uiState.value = _uiState.value.copy(syncPaired = syncClient.isPaired, syncMessage = null, syncFailed = false, lastSyncText = lastSyncText())
+    }
+
+    private fun lastSyncText(): String? = syncClient.lastSyncAt?.let { at ->
+        val time = java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
+        val day = when (time.toLocalDate()) {
+            java.time.LocalDate.now() -> "heute"
+            java.time.LocalDate.now().minusDays(1) -> "gestern"
+            else -> time.format(java.time.format.DateTimeFormatter.ofPattern("d.M."))
+        }
+        "Zuletzt synchronisiert $day, ${time.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))}"
     }
 
     /** The folder the user picked for backups (null = only inside the app). */

@@ -55,7 +55,6 @@ import dev.schlubbe.musicagent.ui.components.CanopyOverlayHost
 import dev.schlubbe.musicagent.ui.components.CanopyOverlayState
 import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
 import dev.schlubbe.musicagent.ui.components.MiniPlayerBar
-import dev.schlubbe.musicagent.ui.connect.ConnectScreen
 import dev.schlubbe.musicagent.ui.downloads.DownloadsScreen
 import dev.schlubbe.musicagent.ui.home.HomeScreen
 import dev.schlubbe.musicagent.ui.library.LibraryScreen
@@ -92,7 +91,6 @@ object Routes {
     const val ACCOUNT = "account"
     const val DOWNLOADS = "downloads"
     const val ASSISTANT = "assistant"
-    const val CONNECT = "connect_pc"
     const val EQUALIZER = "equalizer"
     const val TASTE_PICKER = "taste_picker"
     const val WHATS_NEW = "whats_new"
@@ -130,7 +128,6 @@ private val BOTTOM_BAR_HIDDEN_ROUTES = setOf(
     Routes.ONBOARDING,
     Routes.SETTINGS,
     Routes.EQUALIZER,
-    Routes.CONNECT,
     Routes.TASTE_PICKER,
 )
 
@@ -316,7 +313,6 @@ fun MusicAgentNavGraph(
                     onNavigateBack = { navController.popBackStack() },
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
                     onNavigateToEqualizer = { navController.navigate(Routes.EQUALIZER) },
-                    onConnectPcClick = { navController.navigate(Routes.CONNECT) },
                     onTastePickerClick = { navController.navigate(Routes.TASTE_PICKER) },
                 )
             }
@@ -339,9 +335,6 @@ fun MusicAgentNavGraph(
             }
             composable(Routes.ASSISTANT) {
                 AssistantScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) })
-            }
-            composable(Routes.CONNECT) {
-                ConnectScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(Routes.EQUALIZER) {
                 EqualizerScreen(onNavigateBack = { navController.popBackStack() })

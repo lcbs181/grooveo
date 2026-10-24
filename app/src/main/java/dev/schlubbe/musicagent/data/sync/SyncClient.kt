@@ -180,8 +180,12 @@ class SyncClient @Inject constructor(
             val merged = gson.fromJson(String(answer.json ?: ByteArray(0), Charsets.UTF_8), BackupPayload::class.java)
                 ?: error("Ungültige Antwort vom PC")
             backupManager.applySynced(merged)
+            prefs.edit().putLong(LAST_SYNC, System.currentTimeMillis()).apply()
         }
     }
+
+    /** When the last sync went through (epoch ms), or null. */
+    val lastSyncAt: Long? get() = prefs.getLong(LAST_SYNC, 0L).takeIf { it > 0 }
 
     /** Challenges the PC at the address it had last time; null when there is none. */
     private fun lastPeer(keys: SyncProtocol.Keys): SyncTransport.Discovery? {
@@ -203,6 +207,7 @@ class SyncClient @Inject constructor(
         private const val KEY = "key"
         private const val HOST = "host"
         private const val PORT = "port"
+        private const val LAST_SYNC = "last_sync"
         private const val TOTAL_TIMEOUT_MS = 120_000L
         private const val LIVE_TIMEOUT_MS = 15_000L
         private const val TOOL_TIMEOUT_MS = 20_000L

@@ -95,7 +95,6 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit = {},
     onWhatsNewClick: () -> Unit = {},
     onNavigateToEqualizer: () -> Unit = {},
-    onConnectPcClick: () -> Unit = {},
     onTastePickerClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     updateViewModel: UpdateViewModel = hiltViewModel(),
@@ -104,8 +103,6 @@ fun SettingsScreen(
     val context = LocalContext.current
     var showSound3dSheet by remember { mutableStateOf(false) }
     var showCrossfadeSheet by remember { mutableStateOf(false) }
-    var showBackendUrlDialog by remember { mutableStateOf(false) }
-    var showApiKeyDialog by remember { mutableStateOf(false) }
     var showBackupSheet by remember { mutableStateOf(false) }
     var showSyncSheet by remember { mutableStateOf(false) }
 
@@ -225,14 +222,18 @@ fun SettingsScreen(
                     }
                 }
 
-                // — PC-Backend —
+                // — PC —
                 Column {
-                    CanopySectionHeader(title = "PC-Backend")
+                    CanopySectionHeader(title = "PC")
                     SettingsNavRow(
                         icon = phosphorIcon("desktop-tower"),
-                        title = "Mit PC verbinden",
-                        subtitle = if (uiState.backendBaseUrl.isBlank()) "Kein PC verbunden" else "Konfiguriert: ${uiState.backendBaseUrl}",
-                        onClick = onConnectPcClick,
+                        title = if (uiState.syncPaired) "Mit PC synchronisieren" else "Mit PC verbinden",
+                        subtitle = if (!uiState.syncPaired) {
+                            "QR-Code der PC-App scannen: Likes, Playlists und Künstler abgleichen, PC fernsteuern, PC-Mix aufs Handy"
+                        } else {
+                            uiState.lastSyncText ?: "Gekoppelt – noch nicht synchronisiert"
+                        },
+                        onClick = { viewModel.clearSyncMessage(); showSyncSheet = true },
                     )
                 }
 
@@ -241,28 +242,10 @@ fun SettingsScreen(
                     CanopySectionHeader(title = "Erweitert")
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         SettingsNavRow(
-                            icon = phosphorIcon("globe"),
-                            title = "Backend-URL",
-                            subtitle = uiState.backendBaseUrl.ifBlank { "Nicht gesetzt" },
-                            onClick = { showBackendUrlDialog = true },
-                        )
-                        SettingsNavRow(
-                            icon = phosphorIcon("key"),
-                            title = "API-Key",
-                            subtitle = if (uiState.apiKey.isBlank()) "Nicht gesetzt" else "•••• gesetzt",
-                            onClick = { showApiKeyDialog = true },
-                        )
-                        SettingsNavRow(
                             icon = phosphorIcon("cloud-arrow-up"),
                             title = "Sicherung",
                             subtitle = uiState.lastBackupText ?: "Noch keine Sicherung",
                             onClick = { showBackupSheet = true },
-                        )
-                        SettingsNavRow(
-                            icon = phosphorIcon("arrows-clockwise"),
-                            title = "Mit PC synchronisieren",
-                            subtitle = "Likes, Playlists und Künstler mit der PC-App abgleichen",
-                            onClick = { viewModel.clearSyncMessage(); showSyncSheet = true },
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("squares-four"),
@@ -417,24 +400,6 @@ fun SettingsScreen(
                 viewModel.onCrossfadeSecondsChanged(seconds)
                 showCrossfadeSheet = false
             },
-        )
-    }
-
-    if (showBackendUrlDialog) {
-        BackendUrlDialog(
-            value = uiState.backendBaseUrl,
-            onValueChange = viewModel::onBackendBaseUrlChanged,
-            onDismiss = { showBackendUrlDialog = false },
-        )
-    }
-
-    if (showApiKeyDialog) {
-        ApiKeyDialog(
-            value = uiState.apiKey,
-            onValueChange = viewModel::onApiKeyChanged,
-            connectionTestState = uiState.connectionTestState,
-            onTest = viewModel::testConnection,
-            onDismiss = { showApiKeyDialog = false },
         )
     }
 
@@ -607,60 +572,6 @@ private fun CanopyTextField(value: String, onValueChange: (String) -> Unit, labe
             modifier = Modifier.fillMaxWidth(),
         )
     }
-}
-
-@Composable
-private fun BackendUrlDialog(value: String, onValueChange: (String) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Backend-URL") },
-        text = {
-            Column {
-                Text(
-                    "Optionale Adresse eines eigenen FastAPI-Backends im selben Netz -- für Analytics und Update-Checks.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Canopy.neutral500,
-                )
-                Spacer(modifier = Modifier.padding(top = 10.dp))
-                CanopyTextField(value = value, onValueChange = onValueChange, label = "z. B. http://192.168.1.10:8000")
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fertig") } },
-    )
-}
-
-@Composable
-private fun ApiKeyDialog(
-    value: String,
-    onValueChange: (String) -> Unit,
-    connectionTestState: ConnectionTestState,
-    onTest: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("API-Key") },
-        text = {
-            Column {
-                CanopyTextField(value = value, onValueChange = onValueChange, label = "API-Key")
-                Spacer(modifier = Modifier.padding(top = 12.dp))
-                CanopyButton(
-                    text = "Verbindung testen",
-                    onClick = onTest,
-                    variant = CanopyButtonVariant.Secondary,
-                    enabled = connectionTestState != ConnectionTestState.Testing,
-                )
-                Spacer(modifier = Modifier.padding(top = 8.dp))
-                when (connectionTestState) {
-                    is ConnectionTestState.Idle -> Unit
-                    is ConnectionTestState.Testing -> CircularProgressIndicator(color = Canopy.accent, modifier = Modifier.size(20.dp))
-                    is ConnectionTestState.Success -> Text("Verbindung erfolgreich", color = Canopy.accent)
-                    is ConnectionTestState.Error -> Text("Fehler: ${connectionTestState.message}", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fertig") } },
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
