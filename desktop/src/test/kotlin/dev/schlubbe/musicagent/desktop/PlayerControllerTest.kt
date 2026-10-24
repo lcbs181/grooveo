@@ -47,11 +47,17 @@ class PlayerControllerTest {
                 else -> ResolvedStream("mem://${t.sourceId}", false)
             }
         },
-        recommend = { _, _, _ -> radio },
+        recommend = { recent, _, _ ->
+            radioSeeds += listOf(recent.map { it.sourceId })
+            if (radioFailures > 0) { radioFailures--; error("offline") }
+            radio
+        },
         store = store,
         settings = settings,
         analyze = { analyzeFn(it) },
     ) }
+    private val radioSeeds = java.util.concurrent.CopyOnWriteArrayList<List<String>>()
+    @Volatile private var radioFailures = 0
     private var analyzeFn: suspend (dev.schlubbe.musicagent.data.remote.dto.TrackResultDto) -> TrackAnalysis? = { null }
 
     /** A 120 BPM grid whose last beat is at 50 s, enough to plan a transition. */
@@ -140,6 +146,17 @@ class PlayerControllerTest {
         pc.playQueue(listOf(track("1")))
         waitFor { pc.state.value.queue.size == 3 }
         waitFor { pc.state.value.current?.sourceId == "6" }
+    }
+
+    @Test fun `radio seeds start with the playing track and a failed lookup is retried`() {
+        deckSeconds = 2.5
+        settings.update { it.copy(autoplayRadio = true) }
+        radio = listOf(track("6"))
+        radioFailures = 1
+        pc.playQueue(q.take(3), startIndex = 2)
+        waitFor(8000) { pc.state.value.queue.size == 4 }
+        assertEquals(listOf("3", "2", "1"), radioSeeds.first())
+        assertEquals(2, radioSeeds.size)
     }
 
     @Test fun `sleep timer can be set and cancelled`() {

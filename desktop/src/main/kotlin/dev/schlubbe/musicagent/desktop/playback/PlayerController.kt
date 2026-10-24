@@ -543,10 +543,17 @@ class PlayerController(
         if (!settings.current.autoplayRadio || s.repeat != RepeatMode.OFF || s.index < s.queue.size - 1) return
         if (radioJob?.isActive == true) return
         radioJob = scope.launch {
-            val q = _state.value.queue
-            val more = runCatching { recommend(q.takeLast(5), q.map { it.key }.toSet(), 8) }.getOrDefault(emptyList())
-                .filterNot { t -> t.artist?.lowercase() in store.current.dislikedArtists }
-            if (more.isNotEmpty()) addToQueue(more)
+            val st = _state.value
+            // predictNext weighs its first seed most: the track playing now, then the ones before it
+            val seeds = st.queue.take(st.index + 1).takeLast(5).asReversed()
+            val exclude = st.queue.map { it.key }.toSet()
+            // a failed or empty lookup (network drop, source hiccup) is retried before playback runs dry
+            for (wait in RADIO_RETRY_MS) {
+                delay(wait)
+                val more = runCatching { recommend(seeds, exclude, 8) }.getOrDefault(emptyList())
+                    .filterNot { t -> t.artist?.lowercase() in store.current.dislikedArtists }
+                if (more.isNotEmpty()) { addToQueue(more); return@launch }
+            }
         }
     }
 
@@ -603,6 +610,8 @@ class PlayerController(
     fun close() = engine.close()
 
     private companion object {
+        /** Waits before each radio lookup: at once, then backing off over about 20 s. */
+        val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
         const val MAX_STREAM_RETRIES = 2
         const val DJ_FALLBACK_CROSSFADE_SEC = 6
         const val SLEEP_FADE_MS = 8_000L
