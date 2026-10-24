@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.playback.isPcLive
 import dev.schlubbe.musicagent.playback.hasNext
 import dev.schlubbe.musicagent.playback.hasPrevious
 import dev.schlubbe.musicagent.playback.playBlocked
@@ -285,7 +286,8 @@ fun PlayerScreen(
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
-            Box {
+            // the PC's live mix is no track of its own: like, download, playlist & co. do not apply
+            if (!playbackState.isPcLive) Box {
                 CanopyIconButton(
                     icon = phosphorIcon("dots-three-vertical"),
                     onClick = { showMoreMenu = true },
@@ -337,6 +339,15 @@ fun PlayerScreen(
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                             viewModel.toggleLike()
                         },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Künstler seltener empfehlen") },
+                        leadingIcon = { Icon(phosphorIcon("thumbs-down"), contentDescription = null, tint = Canopy.accent) },
+                        onClick = {
+                            showMoreMenu = false
+                            viewModel.dislikeCurrentArtist()?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                        },
+                        enabled = !playbackState.artist.isNullOrBlank() && !playbackState.isPcLive,
                     )
                     DropdownMenuItem(
                         text = { Text("Teilen") },
@@ -515,7 +526,7 @@ fun PlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .padding(top = 5.dp)
-                            .clickable(enabled = !playbackState.artist.isNullOrBlank() && !playbackState.isLoading) {
+                            .clickable(enabled = !playbackState.artist.isNullOrBlank() && !playbackState.isLoading && !playbackState.isPcLive) {
                                 haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
                                 viewModel.onArtistClicked()
                             },
@@ -538,7 +549,7 @@ fun PlayerScreen(
                 // like control carries its own pop/burst motion (rememberHeartPopScale +
                 // Confetti), which needs a custom Modifier on the inner icon that
                 // CanopyIconButton's fixed icon slot doesn't expose.
-                Box(
+                if (!playbackState.isPcLive) Box(
                     modifier = Modifier
                         .padding(top = 2.dp)
                         .size(44.dp)
@@ -718,7 +729,7 @@ fun PlayerScreen(
             // from "switch source" ([PlayerViewModel.toggleSource], only meaningful once a
             // local copy already exists) - so the trailing control swaps between the two
             // depending on hasLocalDownload, keeping both existing actions reachable.
-            if (playbackState.currentTrackId != null) {
+            if (playbackState.currentTrackId != null && !playbackState.isPcLive) {
                 val downloadState = currentDownload?.state
                 val isDrmBlocked = playbackState.isUnavailable && playbackState.unavailableMessage?.contains("DRM") == true
                 val canStartDownload = !playbackState.hasLocalDownload && !isDrmBlocked &&

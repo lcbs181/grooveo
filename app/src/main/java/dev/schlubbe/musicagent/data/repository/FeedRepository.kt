@@ -22,6 +22,8 @@ import javax.inject.Singleton
 
 data class FeedItem(val track: TrackResultDto, val reason: String)
 
+data class PersonalShelves(val onRepeat: List<TrackResultDto>, val rediscover: List<TrackResultDto>)
+
 /** [isTasteBased] is true only while [FeedRepository.getFeed] had no real play/
  * like history to work from and fell back to onboarding's genre/artist picks
  * instead of local affinity - see that function. Lets HomeViewModel show an
@@ -270,6 +272,7 @@ class FeedRepository @Inject constructor(
         recentQueueTracks: List<TrackResultDto>,
         excludeIds: Set<String>,
         limit: Int,
+        dislikedArtists: Set<String> = emptySet(),
     ): List<TrackResultDto> = coroutineScope {
         val now = System.currentTimeMillis()
         val signals = PlaybackSignals(
@@ -315,16 +318,27 @@ class FeedRepository @Inject constructor(
             .shuffled().take(10)
             .mapIndexed { i, t -> Candidate(t, i + 5, Origin.LIBRARY) }
 
-        val candidates = related.awaitAll().flatten() + bySessionArtist.awaitAll().flatten() + byAffinity.awaitAll().flatten() + library
+        val disliked = dislikedArtists.map(PlaybackSignals::normalizeArtist).toSet()
+        fun List<Candidate>.wanted() = filter { PlaybackSignals.normalizeArtist(it.track.artist.orEmpty()) !in disliked }
+        val candidates = (related.awaitAll().flatten() + bySessionArtist.awaitAll().flatten() + byAffinity.awaitAll().flatten() + library).wanted()
         val recommender = Recommender(signals)
         val sessionNames = session.mapNotNull { it.artist }.toSet()
         var result = recommender.rank(candidates, sessionNames, excludeIds, session.mapNotNull { it.artist }, limit)
         if (result.size < limit) {
             val trending = timed { searchRepository.getTrending(limit * 2, source = "ytmusic") }
-                .mapIndexed { i, t -> Candidate(t, i, Origin.TRENDING) }
+                .mapIndexed { i, t -> Candidate(t, i, Origin.TRENDING) }.wanted()
             result = recommender.rank(candidates + trending, sessionNames, excludeIds, session.mapNotNull { it.artist }, limit)
         }
         result
+    }
+
+    /** "Dauerschleife" (heard out three or more times this month) and "Wiederentdecken"
+     * (heard out often, but not for two months) from the local listening history. */
+    suspend fun personalShelves(limit: Int = 15): PersonalShelves {
+        val now = System.currentTimeMillis()
+        val signals = PlaybackSignals(runCatching { playEventDao.since(now - PlaybackSignals.KEEP_MS) }.getOrDefault(emptyList()), now)
+        suspend fun load(ids: List<String>) = ids.take(limit).mapNotNull { id -> trackDao.getById(id)?.toTrackResultDto() }
+        return PersonalShelves(onRepeat = load(signals.onRepeat), rediscover = load(signals.rediscover))
     }
 
     /** [getPersonalizedMix]'s no-history fallback: a shuffled pool from onboarding's

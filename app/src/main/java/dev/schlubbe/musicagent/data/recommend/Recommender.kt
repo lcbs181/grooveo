@@ -102,6 +102,19 @@ class Recommender(private val signals: PlaybackSignals, private val random: Rand
 
         private val TrackResultDto.id get() = "$source:$sourceId"
 
+        /** [tracks] in order, but no artist twice in a row where another track can go
+         * between - for shuffled mixes, which otherwise clump one uploader together. */
+        fun spreadArtists(tracks: List<TrackResultDto>): List<TrackResultDto> {
+            val pool = tracks.toMutableList()
+            val out = ArrayList<TrackResultDto>(tracks.size)
+            while (pool.isNotEmpty()) {
+                val last = out.lastOrNull()?.artist?.let(PlaybackSignals::normalizeArtist)
+                val i = pool.indexOfFirst { it.artist == null || PlaybackSignals.normalizeArtist(it.artist) != last }.coerceAtLeast(0)
+                out += pool.removeAt(i)
+            }
+            return out
+        }
+
         /** Same song regardless of upload: artist and title without "(Official Video)" and co. */
         fun songKey(t: TrackResultDto): String {
             val artist = PlaybackSignals.normalizeArtist(t.artist.orEmpty())

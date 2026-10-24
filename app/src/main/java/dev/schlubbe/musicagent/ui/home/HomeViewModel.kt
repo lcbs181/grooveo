@@ -2,9 +2,12 @@ package dev.schlubbe.musicagent.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
+import dev.schlubbe.musicagent.data.recommend.Recommender
 import dev.schlubbe.musicagent.data.remote.dto.LikeOutDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistOutDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
@@ -14,13 +17,16 @@ import dev.schlubbe.musicagent.data.repository.EventReporter
 import dev.schlubbe.musicagent.data.repository.FeedItem
 import dev.schlubbe.musicagent.data.repository.FeedRepository
 import dev.schlubbe.musicagent.data.repository.FollowRepository
-import dev.schlubbe.musicagent.data.repository.filterForDiscovery
 import dev.schlubbe.musicagent.data.repository.LikesRepository
 import dev.schlubbe.musicagent.data.repository.PlaylistRepository
 import dev.schlubbe.musicagent.data.repository.SearchRepository
-import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
+import dev.schlubbe.musicagent.data.repository.filterForDiscovery
 import dev.schlubbe.musicagent.playback.PlayerController
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -31,10 +37,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.util.concurrent.TimeUnit
-import javax.inject.Inject
 
 private const val SHELF_LIMIT = 6
 private const val RECENTLY_PLAYED_LIMIT = 10
@@ -44,6 +46,7 @@ private const val MIX_POOL_MINIMUM = 5
 private const val CONTINUE_GRID_LIMIT = 4
 private const val MOOD_MIX_SEARCH_LIMIT = 25
 private const val STATION_POOL_LIMIT = 25
+private const val STATION_RADIO_SIZE = 24
 private const val GENRE_SHELF_LIMIT = 3
 
 /** How many charts tracks are actually shown on Home. */
@@ -311,6 +314,12 @@ data class HomeUiState(
     // playing" indicator on the genre-trends row that happens to match (see
     // GrooveoApp.dc.html's `g.isNow`, the only real call site this badge has).
     val nowPlayingId: String? = null,
+    // "Dauerschleife" / "Wiederentdecken" from the local listening history
+    // (FeedRepository.personalShelves); empty until there is enough of it.
+    val onRepeat: List<TrackResultDto> = emptyList(),
+    val rediscover: List<TrackResultDto> = emptyList(),
+    // A station tile was tapped and its radio is still being put together.
+    val isStationLoading: Boolean = false,
 )
 
 /** Converts a locally-cached [TrackEntity] back into a [TrackResultDto] for playback
@@ -515,6 +524,11 @@ class HomeViewModel @Inject constructor(
             loadLikes(this)
             loadMixCards(this)
             loadGenreTracks(_uiState.value.selectedGenre, this)
+            launch {
+                runCatching { feedRepository.personalShelves() }.onSuccess { shelves ->
+                    _uiState.value = _uiState.value.copy(onRepeat = shelves.onRepeat, rediscover = shelves.rediscover)
+                }
+            }
         }.also { refreshJob = it }
     }
 
@@ -604,9 +618,24 @@ class HomeViewModel @Inject constructor(
      * editorial charts pool before either has loaded. Called after both loadCharts
      * and loadFeed succeed, whichever lands second wins with the richer pool. */
     private fun updateDailyPick() {
-        val pool = _uiState.value.feed.map { it.track }.ifEmpty { _uiState.value.charts }
-        if (pool.isEmpty()) return
-        _uiState.value = _uiState.value.copy(dailyPick = pickForDay(LocalDate.now(), pool))
+        viewModelScope.launch {
+            val today = LocalDate.now().toString()
+            // today's pick, once chosen, is kept: the pools below change with every reload
+            val saved = settingsRepository.dailyPick.first()?.split('\n', limit = 2)
+            if (saved?.size == 2 && saved[0] == today) {
+                runCatching { Gson().fromJson(saved[1], TrackResultDto::class.java) }.getOrNull()?.let {
+                    _uiState.value = _uiState.value.copy(dailyPick = it)
+                    return@launch
+                }
+            }
+            // wait for the personal pool; charts only when "Für dich" has nothing
+            if (_uiState.value.isFeedLoading) return@launch
+            val pool = _uiState.value.feed.map { it.track }.ifEmpty { _uiState.value.charts }
+            if (pool.isEmpty()) return@launch
+            val pick = pickForDay(LocalDate.now(), pool)
+            _uiState.value = _uiState.value.copy(dailyPick = pick)
+            settingsRepository.setDailyPick(today + "\n" + Gson().toJson(pick))
+        }
     }
 
     /** "Deine Mixes": 3 mood-based auto-generated pools.
@@ -732,7 +761,10 @@ class HomeViewModel @Inject constructor(
                     shelf.forEach { eventReporter.feedImpression(it.track) }
                     updateDailyPick()
                 }
-                .onFailure { _uiState.value = _uiState.value.copy(isFeedLoading = false) }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(isFeedLoading = false)
+                    updateDailyPick() // from the charts then
+                }
         }
     }
 
@@ -849,7 +881,7 @@ class HomeViewModel @Inject constructor(
      * the same way other shelves do" contract as every other tap on Home. */
     fun onMixCardClicked(mix: MixCard) {
         viewModelScope.launch {
-            if (mix.pool.isNotEmpty()) playerController.playQueue(mix.pool.shuffled(), 0)
+            if (mix.pool.isNotEmpty()) playerController.playQueue(Recommender.spreadArtists(mix.pool.shuffled()), 0)
         }
     }
 
@@ -872,17 +904,38 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** "Sender entdecken" tile tap: a lightweight artist-seeded "station" - a
-     * fresh, shuffled search for that artist's own tracks (same search call
-     * [FeedRepository.getFeed] already uses for its "familiar" half), not a real
-     * radio/similar-artist algorithm (no such signal exists on-device). */
-    fun onStationClicked(artist: TopArtist) {
+    /** "Sender entdecken" tile tap: the artist's top track, then radio from it
+     * ([FeedRepository.predictNext]: the source's own song radio plus more by the artist,
+     * scored against the listening history). [onStarted] runs once it plays, so the
+     * Player opens on the station rather than on the old track. */
+    fun onStationClicked(artist: TopArtist, onStarted: () -> Unit) {
+        if (_uiState.value.isStationLoading) return
+        _uiState.value = _uiState.value.copy(isStationLoading = true)
         viewModelScope.launch {
-            val tracks = runCatching { searchRepository.search(artist.name, source = artist.source, limit = STATION_POOL_LIMIT) }
+            val own = runCatching { searchRepository.search(artist.name, source = artist.source, limit = STATION_POOL_LIMIT) }
                 .getOrDefault(emptyList())
                 .filterForDiscovery(settingsRepository.contentSafetyFilterCached)
-                .shuffled()
-            if (tracks.isNotEmpty()) playerController.playQueue(tracks, 0)
+            val seed = own.firstOrNull { it.artist.equals(artist.name, ignoreCase = true) } ?: own.firstOrNull()
+            val radio = seed?.let { s ->
+                val disliked = settingsRepository.dislikedArtists.first()
+                runCatching { feedRepository.predictNext(listOf(s), setOf("${s.source}:${s.sourceId}"), STATION_RADIO_SIZE, disliked) }
+                    .getOrDefault(emptyList())
+            }.orEmpty()
+            _uiState.value = _uiState.value.copy(isStationLoading = false)
+            if (seed == null) {
+                _uiState.value = _uiState.value.copy(artistLookupError = "Für ${artist.name} wurde nichts gefunden")
+                return@launch
+            }
+            playerController.playQueue(listOf(seed) + radio, 0)
+            onStarted()
+        }
+    }
+
+    /** A tap in "Dauerschleife" or "Wiederentdecken": plays that shelf from the track. */
+    fun onShelfTrackClicked(shelf: List<TrackResultDto>, track: TrackResultDto) {
+        viewModelScope.launch {
+            val index = shelf.indexOfFirst { it.source == track.source && it.sourceId == track.sourceId }
+            if (index >= 0) playerController.playQueue(shelf, index) else playerController.playTrack(track)
         }
     }
 

@@ -65,6 +65,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // as one hasSeenVersion flag per app version, not two". 0 means "never run",
         // which is what gates the first-run onboarding flow vs. the What's-New banner.
         val LAST_SEEN_VERSION_CODE = intPreferencesKey("last_seen_version_code")
+        // "Empfehlung des Tages": "yyyy-mm-dd" + newline + the track as JSON, so the
+        // pick stays the same all day however often Home reloads its pools.
+        val DAILY_PICK = stringPreferencesKey("daily_pick")
         // Which extraction sources the user opted into on the onboarding screen.
         // Both default to true so an upgrade from a build that predates these
         // keys behaves exactly as before rather than silently losing a source.
@@ -82,6 +85,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // "Musikgeschmack anpassen". Artists are comma-joined, same pattern as
         // CUSTOM_EQ_GAINS, since DataStore has no native string-list type.
         val PREFERRED_GENRES = stringSetPreferencesKey("preferred_genres")
+        // "Künstler seltener empfehlen": lower-cased names radio and stations leave out.
+        val DISLIKED_ARTISTS = stringSetPreferencesKey("disliked_artists")
         val PREFERRED_ARTISTS = stringPreferencesKey("preferred_artists")
         // Overlapping crossfade length in seconds - 0 (default) is off, matching the
         // old plain-gapless behaviour byte-for-byte (see CrossfadeController).
@@ -118,12 +123,28 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val notifyNewUploads: Flow<Boolean> = dataStore.data.map { it[Keys.NOTIFY_NEW_UPLOADS] ?: false }
     val autoBackup: Flow<Boolean> = dataStore.data.map { it[Keys.AUTO_BACKUP] ?: false }
     val lastBackupAt: Flow<String?> = dataStore.data.map { it[Keys.LAST_BACKUP_AT] }
+    val dailyPick: Flow<String?> = dataStore.data.map { it[Keys.DAILY_PICK] }
+
+    suspend fun setDailyPick(value: String) {
+        dataStore.edit { it[Keys.DAILY_PICK] = value }
+    }
+
     val lastSeenVersionCode: Flow<Int> = dataStore.data.map { it[Keys.LAST_SEEN_VERSION_CODE] ?: 0 }
     val libraryImportBannerDismissed: Flow<Boolean> =
         dataStore.data.map { it[Keys.LIBRARY_IMPORT_BANNER_DISMISSED] ?: false }
     val sourceSoundCloudEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_SOUNDCLOUD] ?: true }
     val sourceYtMusicEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SOURCE_YTMUSIC] ?: true }
     val contentSafetyFilter: Flow<Boolean> = dataStore.data.map { it[Keys.CONTENT_SAFETY_FILTER] ?: true }
+    val dislikedArtists: Flow<Set<String>> = dataStore.data.map { it[Keys.DISLIKED_ARTISTS] ?: emptySet() }
+
+    suspend fun dislikeArtist(artist: String) {
+        dataStore.edit { it[Keys.DISLIKED_ARTISTS] = (it[Keys.DISLIKED_ARTISTS] ?: emptySet()) + artist.lowercase().trim() }
+    }
+
+    suspend fun undislikeArtist(artist: String) {
+        dataStore.edit { it[Keys.DISLIKED_ARTISTS] = (it[Keys.DISLIKED_ARTISTS] ?: emptySet()) - artist.lowercase().trim() }
+    }
+
     val preferredGenres: Flow<Set<String>> = dataStore.data.map { it[Keys.PREFERRED_GENRES] ?: emptySet() }
     val preferredArtists: Flow<List<String>> = dataStore.data.map { prefs ->
         prefs[Keys.PREFERRED_ARTISTS]?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()

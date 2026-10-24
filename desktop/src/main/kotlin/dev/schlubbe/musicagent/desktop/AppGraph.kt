@@ -72,7 +72,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     val player = PlayerController(
         engine,
         resolveRemote = { t -> resolver.resolveWithFallback(t.source, t.sourceId, t.title, t.artist, t.durationSec) },
-        recommend = { recent, exclude, limit -> feed.predictNext(recent, exclude, limit) },
+        recommend = { recent, exclude, limit -> feed.predictNext(recent, exclude, limit, store.current.dislikedArtists.toSet()) },
         store = store,
         settings = settings,
         analyze = { t -> analyze(t) },

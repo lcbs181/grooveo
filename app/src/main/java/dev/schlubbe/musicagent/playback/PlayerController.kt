@@ -1608,7 +1608,8 @@ class PlayerController @Inject constructor(
                 for (wait in RADIO_RETRY_MS) {
                     delay(wait)
                     if (myGeneration != playRequestGeneration) return@withLock
-                    val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE) }
+                    val disliked = settingsRepository.dislikedArtists.first()
+                    val predicted = runCatching { feedRepository.predictNext(recentContext, excludeIds, EXTEND_BATCH_SIZE, disliked) }
                         .getOrDefault(emptyList())
                     resolved = resolveAll(predicted)
                     if (resolved.isNotEmpty()) break

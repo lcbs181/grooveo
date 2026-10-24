@@ -1,6 +1,6 @@
 package dev.schlubbe.musicagent.ui.home
 
-import androidx.compose.foundation.layout.WindowInsets
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,11 +47,11 @@ import dev.schlubbe.musicagent.ui.components.CanopyBadge
 import dev.schlubbe.musicagent.ui.components.CanopyBadgeTone
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.CanopyChip
-import dev.schlubbe.musicagent.ui.components.GeneratedArtwork
 import dev.schlubbe.musicagent.ui.components.CanopyIconButton
 import dev.schlubbe.musicagent.ui.components.CanopySectionHeader
 import dev.schlubbe.musicagent.ui.components.EqualizerBadge
 import dev.schlubbe.musicagent.ui.components.EqualizerBadgeVariant
+import dev.schlubbe.musicagent.ui.components.GeneratedArtwork
 import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
@@ -75,9 +77,18 @@ fun HomeScreen(
     // area, which in this app is Library's Künstler section.
     onSeeAllArtistsClick: () -> Unit,
     onArtistClick: (source: String, sourceId: String) -> Unit = { _, _ -> },
+    onWhatsNewClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(uiState.artistLookupError) {
+        uiState.artistLookupError?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            viewModel.onArtistLookupErrorShown()
+        }
+    }
 
     // Reloads on every (re)entry -- including returning from the Player -- so
     // shelves reflect likes/plays/playlist edits made elsewhere.
@@ -98,6 +109,19 @@ fun HomeScreen(
             ) {
                 item { HomeAppBar(uiState, onSettingsClick) }
 
+                if (uiState.showWhatsNewBanner) {
+                    item {
+                        WhatsNewBanner(
+                            version = uiState.latestVersionLabel,
+                            onOpen = {
+                                viewModel.onWhatsNewBannerSeen()
+                                onWhatsNewClick()
+                            },
+                            onDismiss = viewModel::onWhatsNewBannerSeen,
+                        )
+                    }
+                }
+
                 if (uiState.recentlyPlayed.isNotEmpty()) {
                     item {
                         ResumeGrid(
@@ -107,6 +131,15 @@ fun HomeScreen(
                                 onTrackSelected()
                             },
                         )
+                    }
+                }
+
+                if (uiState.onRepeat.isNotEmpty()) {
+                    item {
+                        TrackShelf("Dauerschleife", "Was du gerade immer wieder hörst", uiState.onRepeat) {
+                            viewModel.onShelfTrackClicked(uiState.onRepeat, it)
+                            onTrackSelected()
+                        }
                     }
                 }
 
@@ -125,7 +158,16 @@ fun HomeScreen(
                     }
                 }
 
-                if (uiState.mixCards.isNotEmpty()) {
+                if (uiState.showFeatured && uiState.featuredItems.isNotEmpty()) {
+                    item {
+                        TrackShelf("Im Fokus", "Was gerade wirklich groß ist", uiState.featuredItems) {
+                            viewModel.onChartTrackClicked(it)
+                            onTrackSelected()
+                        }
+                    }
+                }
+
+                if (uiState.showMixControls && uiState.mixCards.isNotEmpty()) {
                     item {
                         MixShelf(
                             mixes = uiState.mixCards,
@@ -164,14 +206,21 @@ fun HomeScreen(
                     }
                 }
 
-                if (uiState.topArtists.isNotEmpty()) {
+                if (uiState.rediscover.isNotEmpty()) {
+                    item {
+                        TrackShelf("Wiederentdecken", "Lange nicht gehört, früher oft", uiState.rediscover) {
+                            viewModel.onShelfTrackClicked(uiState.rediscover, it)
+                            onTrackSelected()
+                        }
+                    }
+                }
+
+                if (uiState.showNewUploads && uiState.topArtists.isNotEmpty()) {
                     item {
                         StationsShelf(
                             artists = uiState.topArtists,
-                            onClick = {
-                                viewModel.onStationClicked(it)
-                                onTrackSelected()
-                            },
+                            loading = uiState.isStationLoading,
+                            onClick = { viewModel.onStationClicked(it, onStarted = onTrackSelected) },
                         )
                     }
                     item {
@@ -582,18 +631,79 @@ private fun DailyPickCard(pick: TrackResultDto, onPlay: () -> Unit) {
     }
 }
 
+/** A titled horizontal row of track cards, as "Mehr für dich" draws them. */
+@Composable
+private fun TrackShelf(title: String, subtitle: String, tracks: List<TrackResultDto>, onClick: (TrackResultDto) -> Unit) {
+    Column(modifier = Modifier.padding(top = SECTION_GAP.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineSmall, color = Canopy.text, modifier = Modifier.padding(horizontal = 16.dp))
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = Canopy.neutral500,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp),
+        )
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(tracks, key = { it.source + it.sourceId }) { track ->
+                Column(modifier = Modifier.width(SHELF_CARD_SIZE.dp).clickable { onClick(track) }) {
+                    TrackThumbnail(url = track.thumbnailUrl, size = SHELF_CARD_SIZE.dp, seed = track.title)
+                    Text(
+                        track.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Canopy.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(
+                        track.artist.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Canopy.neutral400,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Shown once after an update: what the new version brings, one tap away. */
+@Composable
+private fun WhatsNewBanner(version: String, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp)
+            .fillMaxWidth()
+            .clip(CanopyShapes.large)
+            .background(Canopy.surface)
+            .border(1.dp, Canopy.divider, CanopyShapes.large)
+            .clickable(onClick = onOpen)
+            .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Neu in Version $version", style = MaterialTheme.typography.titleSmall, color = Canopy.text)
+            Text("Tippe, um zu sehen, was sich geändert hat", style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500)
+        }
+        CanopyIconButton(icon = phosphorIcon("x"), onClick = onDismiss, size = 40.dp, contentDescription = "Ausblenden")
+    }
+}
+
 /** "Entdecken mit Sendern": a cover with the artist's ringed avatar pinned
  * bottom-left and a SENDER pill top-left. Stations are the artist-seeded pools
  * HomeViewModel.onStationClicked already builds. */
 @Composable
-private fun StationsShelf(artists: List<TopArtist>, onClick: (TopArtist) -> Unit) {
+private fun StationsShelf(artists: List<TopArtist>, loading: Boolean, onClick: (TopArtist) -> Unit) {
     Column(modifier = Modifier.padding(top = SECTION_GAP.dp)) {
-        Text(
-            "Entdecken mit Sendern",
-            style = MaterialTheme.typography.headlineSmall,
-            color = Canopy.text,
-            modifier = Modifier.padding(start = 16.dp, bottom = 12.dp),
-        )
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Entdecken mit Sendern", style = MaterialTheme.typography.headlineSmall, color = Canopy.text)
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Canopy.accent)
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

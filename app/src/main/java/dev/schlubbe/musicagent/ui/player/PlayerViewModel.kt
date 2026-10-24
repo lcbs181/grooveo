@@ -154,6 +154,14 @@ class PlayerViewModel @Inject constructor(
      * same name search [onArtistClicked] uses, since a track only knows the name.
      * Silently no-ops when the name can't be resolved rather than surfacing an
      * error for a secondary control. */
+    /** "Künstler seltener empfehlen": radio and stations leave the artist out from now on.
+     * Returns the confirmation to show. */
+    fun dislikeCurrentArtist(): String? {
+        val artist = playerController.nowPlayingTrack()?.artist?.takeIf { it.isNotBlank() } ?: return null
+        viewModelScope.launch { settingsRepository.dislikeArtist(artist) }
+        return "$artist kommt nicht mehr in Radio und Sendern"
+    }
+
     fun toggleFollowCurrentArtist() {
         val track = playerController.nowPlayingTrack() ?: return
         val name = track.artist
