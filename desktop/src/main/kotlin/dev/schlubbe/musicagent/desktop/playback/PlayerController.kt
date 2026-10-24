@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.desktop.playback
 
 import dev.schlubbe.musicagent.desktop.audio.TransitionStatus
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.drop
 import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudDrmOnlyException
@@ -566,9 +567,26 @@ class PlayerController(
                 delay(wait)
                 val more = runCatching { recommend(seeds, exclude, 8) }.getOrDefault(emptyList())
                     .filterNot { t -> t.artist?.lowercase() in store.current.dislikedArtists }
-                if (more.isNotEmpty()) { addToQueue(more); return@launch }
+                if (more.isNotEmpty()) { addToQueue(djOrder(more)); return@launch }
             }
         }
+    }
+
+    /**
+     * With DJ transitions on, the radio batch is ordered so tempo and key flow from track
+     * to track. The first few are analysed for that while the current track plays;
+     * the rest keep the recommender's order.
+     */
+    private suspend fun djOrder(batch: List<TrackResultDto>): List<TrackResultDto> {
+        if (!settings.current.djTransitions) return batch
+        fun known(t: TrackResultDto) = store.current.analysis[t.key]?.takeIf { it.upToDate }
+        val fresh = HashMap<String, TrackAnalysis>()
+        for (t in batch.take(DJ_ORDER_ANALYSE)) {
+            if (known(t) != null) continue
+            withTimeoutOrNull(DJ_ORDER_TIMEOUT_MS) { runCatching { analyze(t) }.getOrNull() }?.let { fresh[t.key] = it }
+        }
+        val from = _state.value.queue.lastOrNull()?.let(::known)
+        return TransitionScore.order(from, batch) { fresh[it.key] ?: known(it) }
     }
 
     private suspend fun onEngineEnded() {
@@ -626,6 +644,9 @@ class PlayerController(
     private companion object {
         /** Waits before each radio lookup: at once, then backing off over about 20 s. */
         val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
+        /** Radio tracks analysed up front to order the batch for DJ transitions. */
+        const val DJ_ORDER_ANALYSE = 4
+        const val DJ_ORDER_TIMEOUT_MS = 25_000L
         const val MAX_STREAM_RETRIES = 2
         const val DJ_FALLBACK_CROSSFADE_SEC = 6
         const val SLEEP_FADE_MS = 8_000L
