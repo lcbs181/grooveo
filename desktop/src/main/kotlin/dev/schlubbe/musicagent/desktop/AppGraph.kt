@@ -55,6 +55,7 @@ class AppGraph(val dataDir: File = defaultDataDir()) {
     private val scSearch = SoundCloudSearchClient(scApi)
     private val ytSearch = YouTubeMusicSearchClient()
     val search = SearchRepository(scSearch, ytSearch, settings)
+    val links = dev.schlubbe.musicagent.desktop.data.LinkResolver(http, scApi, ytSearch)
     val resolver = StreamResolverRegistry(SoundCloudStreamResolver(scApi), YouTubeStreamResolver(), YouTubeFallback(ytSearch), store)
     val feed = FeedRepository(store, store, LikesRepository(store), search, settings)
     val lyrics = LyricsRepository(http)

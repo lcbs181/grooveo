@@ -16,6 +16,19 @@ import kotlin.test.assertTrue
 class NetworkSmokeTest {
     private val enabled = System.getenv("GROOVEO_NETWORK_TESTS") == "1"
 
+    @Test fun `pasted links open what they point at`() = runBlocking {
+        if (!enabled) return@runBlocking
+        val g = AppGraph(Files.createTempDirectory("grooveo-net").toFile())
+        val yt = g.links.resolve("https://music.youtube.com/watch?v=FGBhQbmPwH8&si=x")
+        println("yt link: $yt")
+        assertTrue(yt is dev.schlubbe.musicagent.desktop.data.LinkTarget.Track)
+        val sc = g.search.search("daft punk", "soundcloud", 1).first()
+        val scLink = g.links.resolve(sc.webpageUrl)
+        println("sc link: $scLink")
+        assertTrue(scLink is dev.schlubbe.musicagent.desktop.data.LinkTarget.Track)
+        g.close()
+    }
+
     @Test fun `related radio from both sources`() = runBlocking {
         if (!enabled) return@runBlocking
         val g = AppGraph(Files.createTempDirectory("grooveo-net").toFile())

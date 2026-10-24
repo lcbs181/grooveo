@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.desktop.ui.screens
 
+import dev.schlubbe.musicagent.desktop.data.LinkTarget
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.background
@@ -94,6 +95,7 @@ import dev.schlubbe.musicagent.desktop.ui.TrackRow
 import dev.schlubbe.musicagent.desktop.ui.formatDuration
 import dev.schlubbe.musicagent.desktop.ui.sourceLabel
 import dev.schlubbe.musicagent.desktop.ui.trackMenuItems
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -179,6 +181,18 @@ fun SearchScreen(initialQuery: String?) {
     fun submit(q: String) {
         val query = q.trim()
         if (query.isEmpty()) return
+        // a pasted SoundCloud/YouTube link opens what it points at
+        if (g.links.isLink(query)) {
+            ui.scope.launch {
+                when (val t = runCatching { g.links.resolve(query) }.getOrNull()) {
+                    is LinkTarget.Track -> g.player.playTrack(t.track)
+                    is LinkTarget.Playlist -> ui.navigate(Route.RemotePlaylist(t.source, t.sourceId, false, t.title, null))
+                    is LinkTarget.Artist -> ui.navigate(Route.Artist(t.source, t.sourceId, t.name))
+                    null -> ui.toast("Link konnte nicht geöffnet werden")
+                }
+            }
+            return
+        }
         field = TextFieldValue(query, TextRange(query.length))
         suggestions = emptyList()
         selected = -1
