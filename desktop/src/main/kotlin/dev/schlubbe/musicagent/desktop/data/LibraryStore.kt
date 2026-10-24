@@ -115,6 +115,9 @@ data class LibraryData(
     val listenSecondsByDay: Map<String, Long> = emptyMap(),
     /** Every play with how it ended, for the recommendations (oldest first). */
     val plays: List<PlayEventEntity> = emptyList(),
+    /** Followed artists' uploads already reported, and the artists already checked once. */
+    val seenUploads: List<String> = emptyList(),
+    val uploadArtists: List<String> = emptyList(),
 ) {
     @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
     fun normalized() = LibraryData(
@@ -129,6 +132,8 @@ data class LibraryData(
         dislikedArtists = dislikedArtists ?: emptyList(),
         listenSecondsByDay = listenSecondsByDay ?: emptyMap(),
         plays = plays ?: emptyList(),
+        seenUploads = seenUploads ?: emptyList(),
+        uploadArtists = uploadArtists ?: emptyList(),
     )
 }
 
@@ -229,6 +234,14 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao, PlayEventDao 
         d.copy(plays = (d.plays.filter { it.startedAt >= keepFrom } + e).takeLast(PLAYS_MAX))
     }
 
+    /** Remembers reported uploads and checked artists (see NewUploadsWatcher), across restarts. */
+    fun markUploadsSeen(trackKeys: Collection<String>, artistKeys: Collection<String>) = mutate { d ->
+        d.copy(
+            seenUploads = (d.seenUploads + trackKeys).distinct().takeLast(SEEN_UPLOADS_MAX),
+            uploadArtists = (d.uploadArtists + artistKeys).distinct(),
+        )
+    }
+
     override suspend fun since(since: Long): List<PlayEventEntity> = current.plays.filter { it.startedAt >= since }.asReversed()
 
     fun addListenSeconds(seconds: Long, day: String = java.time.LocalDate.now().toString()) = mutate { d ->
@@ -326,6 +339,7 @@ class LibraryStore(private val dir: File) : TrackDao, DownloadDao, PlayEventDao 
         const val HISTORY_MAX = 200
         /** Plays kept for the recommendations; about half a year of daily listening. */
         const val PLAYS_MAX = 5_000
+        const val SEEN_UPLOADS_MAX = 2_000
         const val SEARCHES_MAX = 20
         const val WRITE_DELAY_MS = 1500L
         private const val RETRY_DELAY_MS = 10_000L

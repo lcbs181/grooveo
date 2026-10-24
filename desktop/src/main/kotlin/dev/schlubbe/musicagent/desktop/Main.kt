@@ -90,7 +90,8 @@ fun main() {
             },
         )
         Window(
-            onCloseRequest = { if (settings.minimizeToTray && q.current != null && playing) ui.windowVisible = false else quit() },
+            // minimised, the sync server and the phone's KI tab keep running too
+            onCloseRequest = { if (settings.minimizeToTray) ui.windowVisible = false else quit() },
             visible = ui.windowVisible,
             state = windowState,
             title = q.current?.let { "${it.title} · ${it.artist ?: ""} – Grooveo" } ?: "Grooveo",

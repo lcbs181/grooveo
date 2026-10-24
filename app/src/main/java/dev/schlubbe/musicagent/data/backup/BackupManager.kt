@@ -222,9 +222,12 @@ class BackupManager @Inject constructor(
         val matches = SyncMerge.matchPlaylists(mine.map { SyncMerge.Local(syncIdOf(it.id), it.name) }, p.playlists)
         p.playlists.forEachIndexed { i, pl ->
             val key = SyncMerge.syncKey(pl)
-            val id = matches[i]?.let { mine[it].id } ?: playlistRepository.create(pl.name).also {
-                playlistRepository.updateDetails(it.id, pl.name, pl.description, pl.accentColorKey, pl.moodTags)
-            }.id
+            val matched = matches[i]?.let { mine[it] }
+            val id = matched?.id ?: playlistRepository.create(pl.name).id
+            // the merged name and details win, so both devices show the same playlist
+            if (matched == null || matched.name != pl.name || matched.description != pl.description) {
+                playlistRepository.updateDetails(id, pl.name, pl.description, pl.accentColorKey, pl.moodTags)
+            }
             if (syncIdOf(id) != key) syncIds.edit().putString(id, key).apply()
             val have = playlistRepository.get(id).tracks.map { it.track.source to it.track.sourceId }.toSet()
             pl.tracks.filter { (it.source to it.sourceId) !in have }.forEach { playlistRepository.addTrack(id, it.toTrackResultDto()) }

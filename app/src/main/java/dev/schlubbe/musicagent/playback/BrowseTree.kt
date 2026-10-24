@@ -93,6 +93,8 @@ class BrowseTree(
     private val playlistRepository: PlaylistRepository,
     private val searchRepository: SearchRepository,
     private val streamResolverRegistry: StreamResolverRegistry,
+    /** Datensparmodus: in the car, too, only downloaded tracks play. */
+    private val dataSaver: () -> Boolean = { false },
 ) {
     // onSearch populates this, onGetSearchResult paginates out of it - mirrors the
     // subscribe/notify split Media3's own search flow expects (see MediaLibrarySession.Callback's
@@ -219,9 +221,13 @@ class BrowseTree(
         val artist = item.mediaMetadata.artist?.toString()
         val durationSec = item.mediaMetadata.extras?.getInt(EXTRA_DURATION_SEC, 0)?.takeIf { it > 0 }
 
-        val resolved = streamResolverRegistry.resolveWithFallback(source, sourceId, title, artist, durationSec)
+        // a download plays from the phone, as in the app, and is the only choice in data saver mode
+        val local = downloadDao.getByTrackId(item.mediaId)
+            ?.takeIf { it.state == DownloadState.COMPLETED }?.mediaStoreUri
+        if (local == null && dataSaver()) error("Datensparmodus: ${item.mediaId} ist nicht heruntergeladen")
+        val uri = local ?: streamResolverRegistry.resolveWithFallback(source, sourceId, title, artist, durationSec).url
         return item.buildUpon()
-            .setUri(resolved.url)
+            .setUri(uri)
             .setMediaMetadata(
                 item.mediaMetadata.buildUpon()
                     .setIsPlayable(true)

@@ -309,13 +309,24 @@ class SyncServer(private val backup: BackupManager, private val stateFile: File,
             HTTP_TIMEOUTS.forEach { (k, v) -> if (System.getProperty(k) == null) System.setProperty(k, v) }
         }
 
-        /** First private IPv4 address of this machine (the one the phone can reach). */
+        /**
+         * The private IPv4 address the phone can reach: the one the default route leaves
+         * from (a UDP "connect" sends nothing, it only picks the outgoing interface), else
+         * the first site-local address that is not a Docker/VM bridge or VPN tunnel.
+         */
         fun localAddress(): String? = runCatching {
+            java.net.DatagramSocket().use { s ->
+                s.connect(java.net.InetAddress.getByName("192.0.2.1"), 9)
+                (s.localAddress as? Inet4Address)?.takeIf { it.isSiteLocalAddress }?.hostAddress
+            }
+        }.getOrNull() ?: runCatching {
             NetworkInterface.getNetworkInterfaces().asSequence()
-                .filter { it.isUp && !it.isLoopback && !it.isVirtual }
+                .filter { it.isUp && !it.isLoopback && !it.isVirtual && !VIRTUAL_IFACE.containsMatchIn(it.name) }
                 .flatMap { it.inetAddresses.asSequence() }
                 .filterIsInstance<Inet4Address>()
                 .firstOrNull { it.isSiteLocalAddress }?.hostAddress
         }.getOrNull()
+
+        private val VIRTUAL_IFACE = Regex("^(docker|br-|virbr|veth|vmnet|vboxnet|tun|tap|wg|tailscale|zt)")
     }
 }

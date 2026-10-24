@@ -122,7 +122,9 @@ class PlaybackService : MediaLibraryService() {
     // Hilt only populates once this service's onCreate() starts - see BrowseTree's own kdoc for
     // why this is a separate class instead of more methods bolted onto sessionCallback below.
     private val browseTree by lazy {
-        BrowseTree(trackDao, downloadDao, likesRepository, playlistRepository, searchRepository, streamResolverRegistry)
+        BrowseTree(trackDao, downloadDao, likesRepository, playlistRepository, searchRepository, streamResolverRegistry) {
+            settingsRepository.dataSaverModeCached
+        }
     }
 
     /** heart-outline/heart-filled for the "Gefällt mir" notification action -
