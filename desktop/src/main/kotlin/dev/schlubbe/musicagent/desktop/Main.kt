@@ -75,6 +75,22 @@ fun main() {
                 }
             }
         }
+        // the phone app checks for updates by itself; so does the PC, once a day
+        LaunchedEffect(Unit) {
+            var told: String? = null
+            while (true) {
+                kotlinx.coroutines.delay(UPDATE_FIRST_CHECK_MS)
+                val info = runCatching { graph.updates.check() }.getOrNull()
+                if (info != null && info.version != told) {
+                    told = info.version
+                    trayState.sendNotification(
+                        androidx.compose.ui.window.Notification("Grooveo ${info.version} ist da", "Installieren: Einstellungen → Nach Updates suchen"),
+                    )
+                    ui.toast("Update auf Grooveo ${info.version} verfügbar – Einstellungen → Nach Updates suchen")
+                }
+                kotlinx.coroutines.delay(UPDATE_INTERVAL_MS - UPDATE_FIRST_CHECK_MS)
+            }
+        }
         Tray(
             icon = icon,
             state = trayState,
@@ -138,3 +154,6 @@ internal fun handleShortcut(e: KeyEvent, ui: AppUi): Boolean {
         else -> false
     }
 }
+
+private const val UPDATE_FIRST_CHECK_MS = 60_000L
+private const val UPDATE_INTERVAL_MS = 24 * 3600_000L
