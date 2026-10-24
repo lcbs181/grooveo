@@ -101,7 +101,7 @@ fun RemotePlaylistScreen(route: Route.RemotePlaylist) {
             ActionBar {
                 if (playable.isNotEmpty()) {
                     PrimaryButton("Alle abspielen", PhosphorIcons.Fill.Play) { g.player.playQueue(playable, 0) }
-                    PrimaryButton("Zufall", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(playable, 0, shuffle = true) }
+                    PrimaryButton("Zufall", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(playable, shuffle = true) }
                 }
                 PrimaryButton(if (saved) "Gespeichert" else "Speichern", if (saved) PhosphorIcons.Fill.BookmarkSimple else PhosphorIcons.Regular.BookmarkSimple, accent = false) {
                     g.store.toggleSaved(SavedPlaylist(d.source, d.sourceId, d.title, d.thumbnailUrl, d.owner, d.trackCount ?: tracks.size, d.webpageUrl, route.isAlbum))

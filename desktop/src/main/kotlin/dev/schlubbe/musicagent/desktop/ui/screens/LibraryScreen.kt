@@ -148,7 +148,7 @@ private fun LikesTab(data: LibraryData) {
         item {
             Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton("Abspielen", PhosphorIcons.Fill.Play) { if (playable.isNotEmpty()) g.player.playQueue(playable, 0) }
-                PrimaryButton("Zufall", PhosphorIcons.Regular.Shuffle, accent = false) { if (playable.isNotEmpty()) g.player.playQueue(playable, 0, shuffle = true) }
+                PrimaryButton("Zufall", PhosphorIcons.Regular.Shuffle, accent = false) { if (playable.isNotEmpty()) g.player.playQueue(playable, shuffle = true) }
                 IconBtn(PhosphorIcons.Regular.DownloadSimple, "Alle Favoriten herunterladen", tint = c.text) {
                     val missing = data.likes.map { it.track }.filter { it.key !in offlineKeys && !it.isDrmProtected }
                     if (missing.isEmpty()) ui.toast("Alle Favoriten sind bereits offline verfügbar") else ui.download(missing)
@@ -234,7 +234,7 @@ private fun PlaylistsTab(data: LibraryData) {
                 listOf(
                     ContextMenuItem("Öffnen") { ui.navigate(Route.Playlist(p.id)) },
                     ContextMenuItem("Abspielen") { p.tracks.map { it.track }.takeIf { it.isNotEmpty() }?.let { g.player.playQueue(it, 0) } },
-                    ContextMenuItem("Zufällig abspielen") { p.tracks.map { it.track }.takeIf { it.isNotEmpty() }?.let { g.player.playQueue(it, 0, shuffle = true) } },
+                    ContextMenuItem("Zufällig abspielen") { p.tracks.map { it.track }.takeIf { it.isNotEmpty() }?.let { g.player.playQueue(it, shuffle = true) } },
                     ContextMenuItem("Zur Warteschlange hinzufügen") { g.player.addToQueue(p.tracks.map { it.track }); ui.toast("Zur Warteschlange hinzugefügt") },
                     ContextMenuItem("Löschen …") { deleting = p },
                 )

@@ -150,7 +150,8 @@ class PlayerController(
 
     // ---------------- public API ----------------
 
-    fun playQueue(tracks: List<TrackResultDto>, startIndex: Int = 0, shuffle: Boolean = false) {
+    /** Plays [tracks] from [startIndex]; [ANY_START] starts at the top, or anywhere when shuffling. */
+    fun playQueue(tracks: List<TrackResultDto>, startIndex: Int = ANY_START, shuffle: Boolean = false) {
         synchronized(lock) {
             if (tracks.isEmpty()) return
             var list = tracks.distinctBy { it.key }
@@ -158,7 +159,8 @@ class PlayerController(
             unshuffled = null
             if (shuffle) {
                 unshuffled = list
-                val first = if (startIndex in tracks.indices) list[start] else list.random()
+                // a clicked row starts the shuffle; a "Zufällig" button starts anywhere
+                val first = if (startIndex != ANY_START) list[start] else list.random()
                 list = listOf(first) + (list - first).shuffled()
                 start = 0
             }
@@ -641,14 +643,16 @@ class PlayerController(
 
     fun close() = engine.close()
 
-    private companion object {
+    companion object {
+        /** [playQueue] start: the first track, or a random one when shuffling. */
+        const val ANY_START = -1
         /** Waits before each radio lookup: at once, then backing off over about 20 s. */
-        val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
+        private val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
         /** Radio tracks analysed up front to order the batch for DJ transitions. */
-        const val DJ_ORDER_ANALYSE = 4
-        const val DJ_ORDER_TIMEOUT_MS = 25_000L
-        const val MAX_STREAM_RETRIES = 2
-        const val DJ_FALLBACK_CROSSFADE_SEC = 6
-        const val SLEEP_FADE_MS = 8_000L
+        private const val DJ_ORDER_ANALYSE = 4
+        private const val DJ_ORDER_TIMEOUT_MS = 25_000L
+        private const val MAX_STREAM_RETRIES = 2
+        private const val DJ_FALLBACK_CROSSFADE_SEC = 6
+        private const val SLEEP_FADE_MS = 8_000L
     }
 }

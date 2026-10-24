@@ -48,6 +48,7 @@ class PcLivePlayer @Inject constructor(
     /** Stops listening (the PC plays aloud again). */
     suspend fun stop() {
         followJob?.cancel()
+        player.stopPcLive()
         sync.stopLiveStream()
     }
 
@@ -61,8 +62,10 @@ class PcLivePlayer @Inject constructor(
                     if (!live) { last = null; return@collect }
                     val changed = last != null && last != wants
                     last = wants
-                    if (!changed || !muteDevice) return@collect
-                    sync.tool("playback", action(if (wants) "play" else "pause"))
+                    if (!changed) return@collect
+                    // the PC pauses with the phone only when the phone is its only speaker
+                    if (muteDevice) sync.tool("playback", action(if (wants) "play" else "pause"))
+                    // the player kept buffering while paused: reopen to be live again, not behind
                     if (wants) player.restartPcLive()
                 }
             }

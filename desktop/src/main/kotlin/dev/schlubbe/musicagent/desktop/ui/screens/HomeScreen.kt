@@ -144,7 +144,7 @@ fun HomeScreen() {
                     HomeSection("Deine Mixes", model.mixes, model::refresh, subtitle = "Für dich abgemischt", hideWhenEmpty = { it.isEmpty() }) { mixes ->
                         Shelf {
                             items(mixes, key = { it.title }) { m ->
-                                val play = { g.player.playQueue(m.pool, 0, shuffle = true) }
+                                val play = { g.player.playQueue(m.pool, shuffle = true) }
                                 HomeCard(
                                     m.title, m.subtitle, m.thumbnailUrl, badge = m.badge, caption = "${m.pool.size} Titel",
                                     menu = {
@@ -222,7 +222,7 @@ fun HomeScreen() {
                             TrackGrid(if (expanded) charts else charts.take(10), columns = if (wide) 2 else 1, numbered = true, queue = charts)
                             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 PrimaryButton("Alle abspielen", PhosphorIcons.Fill.Play) { g.player.playQueue(charts, 0) }
-                                PrimaryButton("Zufallswiedergabe", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(charts, 0, shuffle = true) }
+                                PrimaryButton("Zufallswiedergabe", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(charts, shuffle = true) }
                             }
                         }
                     }
@@ -556,7 +556,7 @@ private fun LocalPlaylistCard(p: Playlist) {
             buildList {
                 if (tracks.isNotEmpty()) {
                     add(ContextMenuItem("Abspielen") { g.player.playQueue(tracks, 0) })
-                    add(ContextMenuItem("Zufallswiedergabe") { g.player.playQueue(tracks, 0, shuffle = true) })
+                    add(ContextMenuItem("Zufallswiedergabe") { g.player.playQueue(tracks, shuffle = true) })
                     add(ContextMenuItem("Zur Warteschlange hinzufügen") { g.player.addToQueue(tracks); ui.toast("${tracks.size} Titel zur Warteschlange hinzugefügt") })
                     add(ContextMenuItem("Alle herunterladen") { ui.download(tracks) })
                 }

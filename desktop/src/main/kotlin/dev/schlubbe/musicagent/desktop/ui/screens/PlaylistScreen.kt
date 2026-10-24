@@ -120,7 +120,7 @@ fun PlaylistScreen(id: String) {
             ActionBar {
                 if (playable.isNotEmpty()) {
                     PrimaryButton("Abspielen", PhosphorIcons.Fill.Play) { g.player.playQueue(playable, 0) }
-                    PrimaryButton("Zufall", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(playable, 0, shuffle = true) }
+                    PrimaryButton("Zufall", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(playable, shuffle = true) }
                 }
                 PrimaryButton("Bearbeiten", PhosphorIcons.Regular.PencilSimple, accent = false) { editing = true }
                 Spacer(Modifier.weight(1f))

@@ -1480,6 +1480,25 @@ class PlayerController @Inject constructor(
         mediaController.play()
     }
 
+    /** "Nicht mehr auf dem Handy hören": stops the live item here, so the player neither
+     * runs into the revoked stream nor starts radio from it. */
+    fun stopPcLive() {
+        if (currentTrack?.source != PC_LIVE_SOURCE) return
+        ++playRequestGeneration
+        pcLiveUri = null
+        controller?.run { stop(); clearMediaItems() }
+        currentQueue = emptyList()
+        exoIndexForLogical = emptyList()
+        currentQueueIndex = -1
+        currentTrack = null
+        currentTrackCompleted = false
+        _playbackState.value = PlaybackUiState(
+            shuffleEnabled = _playbackState.value.shuffleEnabled,
+            repeatMode = _playbackState.value.repeatMode,
+            playerState = Player.STATE_IDLE,
+        )
+    }
+
     /** Whether the PC's live mix is what plays. */
     val isPlayingPcLive: Boolean get() = currentTrack?.source == PC_LIVE_SOURCE
 
@@ -1586,7 +1605,8 @@ class PlayerController @Inject constructor(
      * stops it structurally).
      */
     private fun continueWithRadio() {
-        if (radioJob?.isActive == true) return
+        // the PC's live mix never ends by itself and is no seed for radio
+        if (radioJob?.isActive == true || isPlayingPcLive) return
         radioJob = scope.launch {
             extendQueueMutex.withLock {
                 if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock

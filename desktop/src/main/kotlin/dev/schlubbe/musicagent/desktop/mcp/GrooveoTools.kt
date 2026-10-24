@@ -6,6 +6,7 @@ import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.data.repository.LyricsUnavailableException
 import dev.schlubbe.musicagent.desktop.AppGraph
+import dev.schlubbe.musicagent.desktop.playback.PlayerController
 import dev.schlubbe.musicagent.desktop.audio.BeatGrid
 import dev.schlubbe.musicagent.desktop.audio.Curve
 import dev.schlubbe.musicagent.desktop.audio.DeckRole
@@ -125,7 +126,7 @@ class GrooveoTools(
             required = listOf("track_ids"), mutates = true,
         ) { a ->
             val tracks = tracks(a.strings("track_ids"))
-            ui { g.player.playQueue(tracks, a.int("start_index") ?: 0, a.bool("shuffle") ?: false) }
+            ui { g.player.playQueue(tracks, a.int("start_index") ?: PlayerController.ANY_START, a.bool("shuffle") ?: false) }
             "Playing ${tracks.size} tracks"
         }
         tool(
@@ -372,7 +373,7 @@ class GrooveoTools(
         tool("play_playlist", "Play a local playlist.", props = mapOf("playlist_id" to str(""), "shuffle" to bool("")), required = listOf("playlist_id"), mutates = true) { a ->
             val p = playlist(a.string("playlist_id")!!)
             require(p.tracks.isNotEmpty()) { "Playlist is empty" }
-            ui { g.player.playQueue(p.tracks.map { it.track }, 0, a.bool("shuffle") ?: false) }
+            ui { g.player.playQueue(p.tracks.map { it.track }, shuffle = a.bool("shuffle") ?: false) }
             "Playing '${p.name}'"
         }
         tool("set_liked", "Like or unlike tracks.", props = mapOf("track_ids" to ids(""), "liked" to bool("")), required = listOf("track_ids", "liked"), mutates = true) { a ->

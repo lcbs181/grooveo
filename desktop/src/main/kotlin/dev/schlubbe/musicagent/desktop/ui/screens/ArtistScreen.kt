@@ -174,7 +174,7 @@ private fun ArtistContent(a: ArtistDetailDto) {
             ActionBar {
                 if (playable.isNotEmpty()) {
                     PrimaryButton("Abspielen", PhosphorIcons.Fill.Play) { g.player.playQueue(playable, 0) }
-                    PrimaryButton("Zufällig abspielen", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(playable, 0, shuffle = true) }
+                    PrimaryButton("Zufällig abspielen", PhosphorIcons.Regular.Shuffle, accent = false) { g.player.playQueue(playable, shuffle = true) }
                 }
                 PrimaryButton(if (following) "Gefolgt" else "Folgen", if (following) PhosphorIcons.Regular.UserCheck else PhosphorIcons.Regular.UserPlus, accent = false) {
                     g.store.toggleFollow(FollowedArtist(a.source, a.sourceId, a.name, a.thumbnailUrl))

@@ -568,10 +568,25 @@ class PlaybackService : MediaLibraryService() {
         override fun seekTo(mediaItemIndex: Int, positionMs: Long) { userMoved(); super.seekTo(mediaItemIndex, positionMs) }
         override fun seekBack() { userMoved(); super.seekBack() }
         override fun seekForward() { userMoved(); super.seekForward() }
-        override fun seekToPreviousMediaItem() { userMoved(); super.seekToPreviousMediaItem() }
-        override fun seekToPrevious() { userMoved(); super.seekToPrevious() }
-        override fun seekToNextMediaItem() { userMoved(); super.seekToNextMediaItem() }
-        override fun seekToNext() { userMoved(); super.seekToNext() }
+        // The PC's live mix is one endless item: Next/Previous from the notification,
+        // headset or Android Auto skip on the PC, as the app's own buttons do.
+        private val skipCommands = intArrayOf(
+            COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+        )
+        private fun pcLive() = playerController.isPlayingPcLive
+        private fun pcSkip(forward: Boolean): Boolean {
+            if (!pcLive()) return false
+            playerController.pcLiveSkip?.invoke(forward)
+            return true
+        }
+        override fun getAvailableCommands(): Player.Commands =
+            if (pcLive()) super.getAvailableCommands().buildUpon().addAll(*skipCommands).build() else super.getAvailableCommands()
+        override fun isCommandAvailable(command: Int): Boolean =
+            (pcLive() && command in skipCommands) || super.isCommandAvailable(command)
+        override fun seekToPreviousMediaItem() { if (pcSkip(false)) return; userMoved(); super.seekToPreviousMediaItem() }
+        override fun seekToPrevious() { if (pcSkip(false)) return; userMoved(); super.seekToPrevious() }
+        override fun seekToNextMediaItem() { if (pcSkip(true)) return; userMoved(); super.seekToNextMediaItem() }
+        override fun seekToNext() { if (pcSkip(true)) return; userMoved(); super.seekToNext() }
         override fun stop() { userMoved(); super.stop() }
     }
 
