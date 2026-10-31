@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.settings
 
+import androidx.compose.ui.res.stringResource
+import dev.schlubbe.musicagent.R
 import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -97,6 +99,7 @@ fun SettingsScreen(
     onAccountClick: () -> Unit = {},
     onNavigateToEqualizer: () -> Unit = {},
     onTastePickerClick: () -> Unit = {},
+    onSpotifyImportClick: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
@@ -162,16 +165,18 @@ fun SettingsScreen(
                         // "spiral" (ph-spiral) has no PhosphorIcon.kt mapping -- see task
                         // report. "circles-three" is used as the closest already-mapped
                         // stand-in rather than silently falling back to WarningCircle.
-                        SettingsToggleCard(
-                            icon = phosphorIcon("circles-three"),
-                            title = "3D-Sound",
-                            subtitle = if (sound3dOn) uiState.sound3dPreset.description else "Räumliche Wiedergabe über Kopfhörer",
-                            checked = sound3dOn,
-                            onCheckedChange = { on ->
-                                if (on) showSound3dSheet = true else viewModel.onSound3dPresetChanged(Sound3dPreset.DISABLED)
-                            },
-                            onClick = { showSound3dSheet = true },
-                        )
+                        if (!BuildConfig.DAWN) {
+                            SettingsToggleCard(
+                                icon = phosphorIcon("circles-three"),
+                                title = "3D-Sound",
+                                subtitle = if (sound3dOn) uiState.sound3dPreset.description else "Räumliche Wiedergabe über Kopfhörer",
+                                checked = sound3dOn,
+                                onCheckedChange = { on ->
+                                    if (on) showSound3dSheet = true else viewModel.onSound3dPresetChanged(Sound3dPreset.DISABLED)
+                                },
+                                onClick = { showSound3dSheet = true },
+                            )
+                        }
                         SettingsNavRow(
                             icon = phosphorIcon("waveform"),
                             title = "Überblendung",
@@ -187,8 +192,8 @@ fun SettingsScreen(
                     }
                 }
 
-                // — Equalizer —
-                Column {
+                // — Equalizer — (a technical setting Dawn Music leaves out)
+                if (!BuildConfig.DAWN) Column {
                     CanopySectionHeader(title = "Equalizer")
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -202,48 +207,52 @@ fun SettingsScreen(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.padding(top = 14.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(CanopyShapes.medium)
-                            .background(Canopy.surface)
-                            .border(1.dp, Canopy.divider, CanopyShapes.medium)
-                            .clickable(onClick = onNavigateToEqualizer)
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        EqCurvePreview(
-                            profile = uiState.eqProfile,
-                            modifier = Modifier.size(width = 44.dp, height = 34.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Parametrischer EQ", style = MaterialTheme.typography.labelLarge)
-                            Text(
-                                if (uiState.eqProfile.enabled) "${uiState.eqProfile.name} · ${uiState.eqProfile.bands.size} Bänder" else "Aus",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Canopy.neutral500,
-                                modifier = Modifier.padding(top = 2.dp),
+                    if (!BuildConfig.DAWN) {
+                        Spacer(modifier = Modifier.padding(top = 14.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(CanopyShapes.medium)
+                                .background(Canopy.surface)
+                                .border(1.dp, Canopy.divider, CanopyShapes.medium)
+                                .clickable(onClick = onNavigateToEqualizer)
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            EqCurvePreview(
+                                profile = uiState.eqProfile,
+                                modifier = Modifier.size(width = 44.dp, height = 34.dp),
                             )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Parametrischer EQ", style = MaterialTheme.typography.labelLarge)
+                                Text(
+                                    if (uiState.eqProfile.enabled) "${uiState.eqProfile.name} · ${uiState.eqProfile.bands.size} Bänder" else "Aus",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Canopy.neutral500,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
+                            Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral400, modifier = Modifier.size(18.dp))
                         }
-                        Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral400, modifier = Modifier.size(18.dp))
                     }
                 }
 
-                // — PC —
-                Column {
-                    CanopySectionHeader(title = "PC")
-                    SettingsNavRow(
-                        icon = phosphorIcon("desktop-tower"),
-                        title = if (uiState.syncPaired) "Mit PC synchronisieren" else "Mit PC verbinden",
-                        subtitle = if (!uiState.syncPaired) {
-                            "QR-Code der PC-App scannen: Likes, Playlists und Künstler abgleichen, PC fernsteuern, PC-Mix aufs Handy"
-                        } else {
-                            uiState.lastSyncText ?: "Gekoppelt – noch nicht synchronisiert"
-                        },
-                        onClick = { viewModel.clearSyncMessage(); showSyncSheet = true },
-                    )
+                if (!BuildConfig.DAWN) {
+                    // — PC —
+                    Column {
+                        CanopySectionHeader(title = "PC")
+                        SettingsNavRow(
+                            icon = phosphorIcon("desktop-tower"),
+                            title = if (uiState.syncPaired) "Mit PC synchronisieren" else "Mit PC verbinden",
+                            subtitle = if (!uiState.syncPaired) {
+                                "QR-Code der PC-App scannen: Likes, Playlists und Künstler abgleichen, PC fernsteuern, PC-Mix aufs Handy"
+                            } else {
+                                uiState.lastSyncText ?: "Gekoppelt – noch nicht synchronisiert"
+                            },
+                            onClick = { viewModel.clearSyncMessage(); showSyncSheet = true },
+                        )
+                    }
                 }
 
                 // — Erweitert —
@@ -255,6 +264,12 @@ fun SettingsScreen(
                             title = "Sicherung",
                             subtitle = uiState.lastBackupText ?: "Noch keine Sicherung",
                             onClick = { showBackupSheet = true },
+                        )
+                        SettingsNavRow(
+                            icon = phosphorIcon("arrow-circle-down"),
+                            title = "Von Spotify importieren",
+                            subtitle = "Likes, Playlists und Künstler übernehmen",
+                            onClick = onSpotifyImportClick,
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("squares-four"),
@@ -269,7 +284,7 @@ fun SettingsScreen(
                 Column {
                     CanopySectionHeader(title = "Weitere Einstellungen")
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Column {
+                        if (!BuildConfig.DAWN) Column {
                             SettingLabel("Wiedergabestil")
                             Spacer(modifier = Modifier.padding(top = 8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -314,12 +329,14 @@ fun SettingsScreen(
                             checked = uiState.notifyNewUploads,
                             onCheckedChange = viewModel::onNotifyNewUploadsChanged,
                         )
-                        ToggleRow(
-                            title = "Mix & Stimmungen",
-                            subtitle = null,
-                            checked = uiState.showMixControls,
-                            onCheckedChange = viewModel::onShowMixControlsChanged,
-                        )
+                        if (!BuildConfig.DAWN) {
+                            ToggleRow(
+                                title = "Mix & Stimmungen",
+                                subtitle = null,
+                                checked = uiState.showMixControls,
+                                onCheckedChange = viewModel::onShowMixControlsChanged,
+                            )
+                        }
                         ToggleRow(
                             title = "Im Fokus",
                             subtitle = null,
@@ -338,12 +355,14 @@ fun SettingsScreen(
                             checked = uiState.contentSafetyFilter,
                             onCheckedChange = viewModel::onContentSafetyFilterChanged,
                         )
-                        ToggleRow(
-                            title = "Hochauflösendes Audio",
-                            subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert. Wirkt nach einem Neustart der App.",
-                            checked = uiState.hiResAudio,
-                            onCheckedChange = viewModel::onHiResAudioChanged,
-                        )
+                        if (!BuildConfig.DAWN) {
+                            ToggleRow(
+                                title = "Hochauflösendes Audio",
+                                subtitle = "Nutzt den bestmöglichen Wiedergabepfad — echtes bit-perfect Audio ist auf normalem Android ohne Root nicht garantiert. Wirkt nach einem Neustart der App.",
+                                checked = uiState.hiResAudio,
+                                onCheckedChange = viewModel::onHiResAudioChanged,
+                            )
+                        }
                     }
                 }
 
@@ -355,7 +374,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column {
-                            Text("Grooveo ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelLarge)
+                            Text("${stringResource(R.string.app_name)} ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelLarge)
                             Text(
                                 "Build ${BuildConfig.VERSION_CODE}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -375,15 +394,17 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(top = 12.dp).clickable(onClick = onWhatsNewClick),
                     )
-                    val testChannel by updateViewModel.testChannel.collectAsState()
-                    Spacer(modifier = Modifier.padding(top = 12.dp))
-                    SettingsToggleCard(
-                        icon = phosphorIcon("flask"),
-                        title = "Testversionen",
-                        subtitle = "Auch Vorabversionen zum Ausprobieren anbieten. Können Fehler haben.",
-                        checked = testChannel,
-                        onCheckedChange = updateViewModel::setTestChannel,
-                    )
+                    if (!BuildConfig.DAWN) {
+                        val testChannel by updateViewModel.testChannel.collectAsState()
+                        Spacer(modifier = Modifier.padding(top = 12.dp))
+                        SettingsToggleCard(
+                            icon = phosphorIcon("flask"),
+                            title = "Testversionen",
+                            subtitle = "Auch Vorabversionen zum Ausprobieren anbieten. Können Fehler haben.",
+                            checked = testChannel,
+                            onCheckedChange = updateViewModel::setTestChannel,
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.padding(bottom = 24.dp))
             }

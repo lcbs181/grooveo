@@ -1,4 +1,8 @@
 package dev.schlubbe.musicagent.ui.library
+import dev.schlubbe.musicagent.ui.components.EmptyState
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.ui.downloads.DownloadsSearchRow
 import dev.schlubbe.musicagent.ui.downloads.DownloadFilter
 import dev.schlubbe.musicagent.ui.components.TagChips
@@ -96,6 +100,7 @@ fun LibraryScreen(
     onSavedPlaylistClick: (source: String, sourceId: String) -> Unit,
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onSpotifyImport: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val downloads by viewModel.downloads.collectAsState()
@@ -141,7 +146,7 @@ fun LibraryScreen(
         viewModel.backToHome()
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
                 when (uiState.selectedTab) {
@@ -153,6 +158,7 @@ fun LibraryScreen(
                         onOpenFollowing = { viewModel.openSection(LibraryTab.FOLLOWING) },
                         downloadedCount = downloads.count { it.entity.state == DownloadState.COMPLETED },
                         onOpenSettings = onOpenSettings,
+                        onSpotifyImport = onSpotifyImport,
                         onOpenLikes = { viewModel.openSection(LibraryTab.LIKES) },
                         onOpenPlaylists = { viewModel.openSection(LibraryTab.PLAYLISTS) },
                         onOpenDownloads = { viewModel.openSection(LibraryTab.DOWNLOADS) },
@@ -240,6 +246,7 @@ private fun LibraryHomeContent(
     onOpenFollowing: () -> Unit,
     downloadedCount: Int,
     onOpenSettings: () -> Unit,
+    onSpotifyImport: () -> Unit,
     onOpenLikes: () -> Unit,
     onOpenPlaylists: () -> Unit,
     onOpenDownloads: () -> Unit,
@@ -252,7 +259,7 @@ private fun LibraryHomeContent(
 
     val playlistCount = uiState.playlists.size + uiState.savedPlaylists.size
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
         item {
             Row(
                 modifier = Modifier
@@ -304,16 +311,22 @@ private fun LibraryHomeContent(
                     subtitle = if (followedCount == 1) "1 Künstler" else "$followedCount Künstler",
                     onClick = onOpenFollowing,
                 )
+                // Dawn Music: the import is easy to find right where the music
+                // ends up (the regular flavor has it in Settings only).
+                if (BuildConfig.DAWN) {
+                    QuickAccessRow(
+                        icon = phosphorIcon("arrow-circle-down"),
+                        label = "Von Spotify importieren",
+                        subtitle = "Likes, Playlists und Künstler mitnehmen",
+                        onClick = onSpotifyImport,
+                    )
+                }
             }
         }
 
         if (recentlyPlayed.isEmpty()) {
             item {
-                Text(
-                    "Noch keine Wiedergabe",
-                    color = Canopy.neutral500,
-                    modifier = Modifier.padding(dimens.horizontalPadding),
-                )
+                EmptyState("Noch keine Wiedergabe", dimens.horizontalPadding)
             }
         } else {
             item {
@@ -375,12 +388,11 @@ private fun LikesTab(
         uiState.isLoadingLikes && uiState.likes.isEmpty() -> Box(modifier = Modifier.padding(dimens.horizontalPadding)) {
             CircularProgressIndicator(color = Canopy.accent)
         }
-        uiState.likes.isEmpty() -> Text(
+        uiState.likes.isEmpty() -> EmptyState(
             "Noch keine Likes – tippe im Player auf das Herz, um Titel hier zu sammeln.",
-            color = Canopy.neutral500,
-            modifier = Modifier.padding(dimens.horizontalPadding),
+            dimens.horizontalPadding,
         )
-        else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+        else -> LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
             item {
                 LikesHeader(
                     trackCount = visibleLikes.size,
@@ -479,13 +491,15 @@ private fun LikesHeader(
                 leadingIcon = phosphorIcon("shuffle"),
             )
             Spacer(modifier = Modifier.weight(1f))
-            CanopyIconButton(
-                icon = phosphorIcon("waveform"),
-                onClick = onAnalyze,
-                shape = CircleShape,
-                variant = CanopyButtonVariant.Secondary,
-                contentDescription = ANALYZE_LABEL,
-            )
+            if (!BuildConfig.DAWN) {
+                CanopyIconButton(
+                    icon = phosphorIcon("waveform"),
+                    onClick = onAnalyze,
+                    shape = CircleShape,
+                    variant = CanopyButtonVariant.Secondary,
+                    contentDescription = ANALYZE_LABEL,
+                )
+            }
             CanopyIconButton(
                 icon = phosphorIcon(if (allOffline) "check-circle" else "download-simple"),
                 onClick = onDownloadAll,
@@ -569,13 +583,13 @@ private fun PlaylistsTab(
         uiState.playlists.map { LibraryPlaylistItem.Local(it) } +
             uiState.savedPlaylists.map { LibraryPlaylistItem.Saved(it) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
         when {
             uiState.isLoadingPlaylists -> item {
                 CircularProgressIndicator(modifier = Modifier.padding(dimens.horizontalPadding), color = Canopy.accent)
             }
             playlistItems.isEmpty() -> item {
-                Text("Noch keine Playlists", color = Canopy.neutral500, modifier = Modifier.padding(dimens.horizontalPadding))
+                EmptyState("Noch keine Playlists", dimens.horizontalPadding)
             }
             else -> items(playlistItems.chunked(2), key = { row -> row.joinToString("|") { it.key } }) { row ->
                 Row(
@@ -626,10 +640,10 @@ private fun FollowingTab(artists: List<FollowedArtistEntity>, onArtistClick: (Fo
         )
         return
     }
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
         items(artists, key = { "${it.source}:${it.sourceId}" }) { artist ->
             ListItem(
-                colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+                colors = ListItemDefaults.colors(containerColor = dawnContainer),
                 leadingContent = {
                     Box(modifier = Modifier.clip(CircleShape)) {
                         TrackThumbnail(artist.thumbnailUrl, size = dimens.listThumbnail, seed = artist.name)
@@ -637,7 +651,7 @@ private fun FollowingTab(artists: List<FollowedArtistEntity>, onArtistClick: (Fo
                 },
                 headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {
-                    Text(if (artist.source == "soundcloud") "SoundCloud" else "YT Music", color = Canopy.neutral500)
+                    Text(if (BuildConfig.DAWN) "Künstler*in" else if (artist.source == "soundcloud") "SoundCloud" else "YT Music", color = Canopy.neutral500)
                 },
                 trailingContent = {
                     Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(16.dp))
@@ -757,7 +771,7 @@ private fun HistoryRow(
     val subtitle = listOfNotNull(track.artist, formatTrackDuration(track.durationSec).takeIf { it.isNotEmpty() })
         .joinToString(" · ")
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+        colors = ListItemDefaults.colors(containerColor = dawnContainer),
         leadingContent = { TrackThumbnail(track.thumbnailUrl, size = dimens.listThumbnail, seed = track.title) },
         headlineContent = { Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = if (subtitle.isBlank()) null else {
@@ -839,7 +853,7 @@ private fun DownloadsTab(
     val tagChips = remember(downloads, tagsByTrack) {
         TrackTags.top(downloads.filter { it.entity.state == DownloadState.COMPLETED }.mapNotNull { tagsByTrack[it.entity.trackId] })
     }
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
         if (total > 0) {
             item {
                 Column(modifier = Modifier.padding(horizontal = dimens.horizontalPadding).padding(top = 4.dp, bottom = 10.dp)) {
@@ -914,7 +928,7 @@ private fun DownloadRow(
     val displayPct = item.livePct ?: entity.progressPct
 
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+        colors = ListItemDefaults.colors(containerColor = dawnContainer),
         leadingContent = { TrackThumbnail(track?.thumbnailUrl, size = dimens.listThumbnail, seed = track?.title ?: entity.trackId) },
         headlineContent = {
             Text(track?.title ?: entity.trackId, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1068,7 +1082,9 @@ private fun LikeRow(
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
         backgroundContent = {
-            Row(
+            // only while swiping: rows are transparent in Dawn Music, so a
+            // permanent backdrop would show through every row
+            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Canopy.accent800)
@@ -1081,7 +1097,7 @@ private fun LikeRow(
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         ListItem(
-            colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+            colors = ListItemDefaults.colors(containerColor = dawnContainer),
             leadingContent = { TrackThumbnail(like.track.thumbnailUrl, size = dimens.listThumbnail, seed = like.track.title) },
             headlineContent = {
                 Text(
@@ -1248,7 +1264,7 @@ private fun PlaylistGridCard(item: LibraryPlaylistItem, onClick: () -> Unit) {
                 // in Room, so they're inherently "saved" - not a fabricated status.
                 is LibraryPlaylistItem.Local -> "${item.playlist.trackCount} Titel · Gespeichert"
                 is LibraryPlaylistItem.Saved -> {
-                    val sourceLabel = if (item.playlist.source == "soundcloud") "SoundCloud" else "YT Music"
+                    val sourceLabel = if (BuildConfig.DAWN) null else if (item.playlist.source == "soundcloud") "SoundCloud" else "YT Music"
                     listOfNotNull(item.playlist.trackCount?.let { "$it Titel" }, sourceLabel).joinToString(" · ")
                 }
             }

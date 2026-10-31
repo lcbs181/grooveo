@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /** Canopy design tokens. Unlike the Nocturne system this replaced, Canopy ships
  * *both* a light and a dark palette, and the accent ramp inverts between them
@@ -112,6 +113,42 @@ val CanopyDark = CanopyColors(
     isDark = true,
 )
 
+/** Dawn Music: "Sonnenaufgang am Meer" - pale sky-blue background, ocean
+ * blue as the main accent, a sunrise pink as the second one, deep navy text.
+ * Light-mode ramp order like [CanopyLight] (accent100 lightest). Tuned for
+ * contrast on the dawn gradient's darkest stop (#B4D6F4): text 11:1, secondary
+ * greys (500+) at least 5.9:1, icon grey (400) 4:1; white on the accent 5.6:1. */
+val OceanDawn = CanopyColors(
+    bg = Color(0xFFE4F0FB),
+    surface = Color(0xFFFFFFFF),
+    text = Color(0xFF0B1A2E),
+    accent = Color(0xFF1665C8),
+    accent2 = Color(0xFFC93A78),
+    divider = Color(0x290B1A2E),
+    neutral100 = Color(0xFFFFFFFF),
+    neutral200 = Color(0xFFD5E5F5),
+    neutral300 = Color(0xFFB9D0E8),
+    neutral400 = Color(0xFF526377),
+    neutral500 = Color(0xFF3B4A5D),
+    neutral600 = Color(0xFF2F3D50),
+    neutral700 = Color(0xFF223042),
+    neutral800 = Color(0xFF263447),
+    neutral900 = Color(0xFF101A28),
+    accent100 = Color(0xFFE3F0FD),
+    accent200 = Color(0xFFC3DEFA),
+    accent300 = Color(0xFF94C4F5),
+    accent400 = Color(0xFF5AA2EC),
+    accent500 = Color(0xFF1665C8),
+    accent600 = Color(0xFF1356AB),
+    accent700 = Color(0xFF10478F),
+    accent800 = Color(0xFF0D3973),
+    accent900 = Color(0xFF06203F),
+    accent2_100 = Color(0xFFFDE6F0),
+    accent2_500 = Color(0xFFC93A78),
+    accent2_800 = Color(0xFF8A1F4D),
+    isDark = false,
+)
+
 val LocalCanopyColors = staticCompositionLocalOf { CanopyDark }
 
 /** Token accessor mirroring `MaterialTheme.colorScheme`'s own shape: call sites
@@ -122,6 +159,12 @@ object Canopy {
     val surface: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.surface
     val text: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.text
     val accent: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.accent
+
+    /** Text/icons on an [accent] fill: the dark palette's light accent takes
+     * accent900, a dark accent (light palettes, Dawn Music) takes white. */
+    val onAccent: Color
+        @Composable @ReadOnlyComposable
+        get() = LocalCanopyColors.current.let { if (it.accent.luminance() < 0.35f) Color.White else it.accent900 }
     val accent2: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.accent2
     val divider: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.divider
     val neutral100: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.neutral100

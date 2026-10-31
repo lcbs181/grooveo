@@ -29,11 +29,13 @@ fun TrackThumbnail(
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
     seed: String? = null,
+    // flush in a tile that already clips its own corners (Dawn's quick access)
+    square: Boolean = false,
 ) {
     Box(
         modifier = modifier
             .size(size)
-            .clip(CanopyShapes.medium)
+            .then(if (square) Modifier else Modifier.clip(CanopyShapes.medium))
             .background(Canopy.neutral200),
         contentAlignment = Alignment.Center,
     ) {

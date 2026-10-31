@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.data.repository
 
+import dev.schlubbe.musicagent.BuildConfig
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -141,7 +142,11 @@ class UpdateRepository @Inject constructor(
     private fun apkAsset(release: JsonObject): JsonObject? =
         release.getAsJsonArray("assets")
             ?.map { it.asJsonObject }
-            ?.firstOrNull { it.get("name").asString.endsWith(".apk") }
+            ?.firstOrNull { asset ->
+                // one release carries both editions' APKs - each app only takes its own
+                val name = asset.get("name").asString
+                name.endsWith(".apk") && name.startsWith(BuildConfig.APK_PREFIX, ignoreCase = true)
+            }
 
     // Tags are expected as "v<versionCode>" (e.g. "v2800"). Falls back to 0 (never
     // looks "newer" than any installed app) if a tag doesn't follow that
@@ -177,7 +182,7 @@ class UpdateRepository @Inject constructor(
         if (downloadState(info) is UpdateDownloadState.Running) return
         apkFile(info).delete()
         val request = DownloadManager.Request(Uri.parse(info.downloadUrl))
-            .setTitle("Grooveo ${info.versionName}")
+            .setTitle("${context.getString(dev.schlubbe.musicagent.R.string.app_name)} ${info.versionName}")
             .setDescription("Update wird heruntergeladen")
             .setMimeType(APK_MIME)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)

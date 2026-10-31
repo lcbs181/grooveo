@@ -1,6 +1,7 @@
 package dev.schlubbe.musicagent.ui.theme
 
 import androidx.compose.material3.MaterialTheme
+import dev.schlubbe.musicagent.BuildConfig
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -56,10 +57,16 @@ private fun lightScheme(c: CanopyColors) = lightColorScheme(
  * the app's default state). */
 @Composable
 fun GrooveoTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
-    val canopy = if (darkTheme) CanopyDark else CanopyLight
-    CompositionLocalProvider(LocalCanopyColors provides canopy) {
+    // Dawn Music: dressed for today's holiday (Halloween, Advent ...), if any
+    val holiday = if (BuildConfig.DAWN) androidx.compose.runtime.remember { holidayFor(HolidayClock.today()) } else null
+    val canopy = when {
+        BuildConfig.DAWN -> OceanDawn.withHoliday(holiday?.look)
+        darkTheme -> CanopyDark
+        else -> CanopyLight
+    }
+    CompositionLocalProvider(LocalCanopyColors provides canopy, LocalHoliday provides holiday) {
         MaterialTheme(
-            colorScheme = if (darkTheme) darkScheme(canopy) else lightScheme(canopy),
+            colorScheme = if (canopy.isDark) darkScheme(canopy) else lightScheme(canopy),
             typography = CanopyTypography,
             shapes = CanopyShapes,
             content = content,

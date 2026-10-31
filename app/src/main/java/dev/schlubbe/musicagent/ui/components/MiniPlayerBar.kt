@@ -51,6 +51,8 @@ import dev.schlubbe.musicagent.ui.util.rememberPremiumHaptics
 @Composable
 fun MiniPlayerBar(
     onClick: () -> Unit,
+    // Dawn Music passes its glass pane here instead of the solid surface
+    surface: @Composable Modifier.() -> Modifier = { clip(CanopyPillShape).background(Canopy.surface).border(1.dp, Canopy.divider, CanopyPillShape) },
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val playbackState by viewModel.playbackState.collectAsState()
@@ -75,9 +77,7 @@ fun MiniPlayerBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
-            .clip(CanopyPillShape)
-            .background(Canopy.surface)
-            .border(1.dp, Canopy.divider, CanopyPillShape)
+            .surface()
             .clickable(onClick = onClick),
     ) {
         WaveSweep(trigger = waveTrigger, shape = CanopyPillShape)

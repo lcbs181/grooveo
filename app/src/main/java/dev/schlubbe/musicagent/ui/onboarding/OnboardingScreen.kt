@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.onboarding
 
+import androidx.compose.ui.res.stringResource
+import dev.schlubbe.musicagent.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -84,7 +86,7 @@ private fun SourceStep(viewModel: OnboardingViewModel, onNext: () -> Unit) {
         ) {
             WaveformLogoBadge(size = 64.dp)
             Text(
-                text = "Grooveo",
+                text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.headlineSmall,
                 color = Canopy.text,
             )
@@ -173,7 +175,7 @@ private fun TasteStep(viewModel: OnboardingViewModel, onFinished: () -> Unit) {
                 modifier = Modifier.widthIn(max = 280.dp),
             )
             Text(
-                text = "Damit Grooveo dir von Anfang an etwas Passendes zeigt, statt anonymer Charts.",
+                text = "Damit ${stringResource(R.string.app_name)} dir von Anfang an etwas Passendes zeigt, statt anonymer Charts.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Canopy.neutral600,
                 modifier = Modifier.widthIn(max = 300.dp),
@@ -258,7 +260,7 @@ fun TastePickerScreen(onNavigateBack: () -> Unit, viewModel: OnboardingViewModel
                 )
             }
             Text(
-                "Genres und Künstler, die Grooveo für Home-Vorschläge nutzt.",
+                "Genres und Künstler, die ${stringResource(R.string.app_name)} für Home-Vorschläge nutzt.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Canopy.neutral500,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),

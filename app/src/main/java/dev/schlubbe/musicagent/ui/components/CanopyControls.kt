@@ -69,7 +69,7 @@ fun CanopyButton(
         CanopyButtonVariant.Ghost -> Color.Transparent
     }
     val contentColor = when (variant) {
-        CanopyButtonVariant.Primary -> Canopy.accent900
+        CanopyButtonVariant.Primary -> Canopy.onAccent
         CanopyButtonVariant.Secondary -> Canopy.text
         CanopyButtonVariant.Ghost -> Canopy.accent
     }

@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
 
 data class SearchUiState(
@@ -94,6 +96,33 @@ class SearchViewModel @Inject constructor(
         }
         viewModelScope.launch { runCatching { likesRepository.refresh() } }
         viewModelScope.launch { runCatching { searchHistoryRepository.refresh() } }
+    }
+
+    private val _browseCovers = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** Cover art for Dawn Music's "Alle durchsuchen" tiles, by tile query:
+     * the first matching playlist's cover (or the first track's). */
+    val browseCovers: StateFlow<Map<String, String>> = _browseCovers.asStateFlow()
+    private var browseCoversJob: Job? = null
+
+    /** Looks up a cover per browse tile, once per screen instance; tiles show
+     * their plain colour until (or if never) a cover arrives. */
+    fun loadBrowseCovers(queries: List<String>) {
+        if (browseCoversJob != null) return
+        val permits = Semaphore(4)
+        browseCoversJob = viewModelScope.launch {
+            queries.forEach { q ->
+                launch {
+                    val url = permits.withPermit {
+                        runCatching {
+                            searchRepository.searchPlaylists(q, source = "ytmusic", limit = 1).firstOrNull()?.thumbnailUrl
+                                ?: searchRepository.search(q, source = "ytmusic", limit = 1).firstOrNull()?.thumbnailUrl
+                        }.getOrNull()
+                    }
+                    if (url != null) _browseCovers.value = _browseCovers.value + (q to url)
+                }
+            }
+        }
     }
 
     private var suggestionJob: Job? = null

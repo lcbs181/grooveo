@@ -56,6 +56,10 @@ class MainActivity : ComponentActivity() {
         // postSplashScreenTheme (Theme.MusicAgent) once dismissed.
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // test hook: `adb shell am start -n ... -e dawn_date 2026-12-24` previews a holiday
+        intent?.getStringExtra("dawn_date")?.let { day ->
+            dev.schlubbe.musicagent.ui.theme.HolidayClock.override = runCatching { java.time.LocalDate.parse(day) }.getOrNull()
+        }
         // Asked when something first plays - that's when the media notification (the
         // reason for the permission) appears - rather than on the first frame, before
         // the user has seen what the app even is. The short delay after isPlaying

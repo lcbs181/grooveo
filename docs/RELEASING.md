@@ -31,7 +31,8 @@ In short:
    `2900`), and the tag is `v<Android versionCode>` (`v2900`): the Android
    updater compares that number. The desktop updater compares the release
    **title**, which must be the `versionName`.
-2. Build the APK locally with `./gradlew :app:assembleRelease`. The `release`
+2. Build the APKs locally with `./gradlew :app:assembleGrooveoRelease` and
+   `./gradlew :app:assembleDawnRelease` (Dawn Music flavor, released as "Dawn Music"). The `release`
    build type is signed with this machine's debug keystore
    (`~/.android/debug.keystore`) so it installs as an in-place update over the
    earlier releases. Build releases on the same machine, or copy that keystore -

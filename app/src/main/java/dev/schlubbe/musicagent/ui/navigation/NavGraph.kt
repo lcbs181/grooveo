@@ -1,4 +1,14 @@
 package dev.schlubbe.musicagent.ui.navigation
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
+import androidx.compose.ui.graphics.Color
+import dev.schlubbe.musicagent.ui.theme.DawnSky
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import dev.schlubbe.musicagent.BuildConfig
+import dev.schlubbe.musicagent.ui.onboarding.DawnOnboardingScreen
+import dev.schlubbe.musicagent.ui.theme.LocalGlassState
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 import dev.schlubbe.musicagent.ui.components.rememberTrackAnalyzer
 
@@ -30,6 +40,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +84,7 @@ import dev.schlubbe.musicagent.ui.onboarding.OnboardingViewModel
 import dev.schlubbe.musicagent.ui.onboarding.TastePickerScreen
 import dev.schlubbe.musicagent.ui.settings.EqualizerScreen
 import dev.schlubbe.musicagent.ui.settings.SettingsScreen
+import dev.schlubbe.musicagent.ui.spotify.SpotifyImportScreen
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.update.UpdateDialog
 import dev.schlubbe.musicagent.ui.util.rememberResponsiveDimens
@@ -94,6 +107,7 @@ object Routes {
     const val EQUALIZER = "equalizer"
     const val TASTE_PICKER = "taste_picker"
     const val WHATS_NEW = "whats_new"
+    const val SPOTIFY_IMPORT = "spotify_import"
     const val PLAYLIST_DETAIL = "playlist/{playlistId}"
     const val ARTIST_DETAIL = "artist/{source}/{sourceId}"
     const val ARTIST_FOLLOWERS = "artist/{source}/{sourceId}/followers"
@@ -110,13 +124,22 @@ private data class BottomNavItem(val route: String, val label: String, val iconN
 // Canopy's TabBar. The redesign drops the Konto tab entirely -- this is a
 // standalone player with no account -- and promotes Downloads to a top-level
 // destination in its place.
-private val BOTTOM_NAV_ITEMS = listOf(
-    BottomNavItem(Routes.HOME, "Start", "house"),
-    BottomNavItem(Routes.SEARCH, "Suche", "magnifying-glass"),
-    BottomNavItem(Routes.LIBRARY, "Bibliothek", "stack"),
-    BottomNavItem(Routes.DOWNLOADS, "Downloads", "download-simple"),
-    BottomNavItem(Routes.ASSISTANT, "KI", "sparkle"),
-)
+// Dawn Music: Spotify's three tabs; downloads live in the Library.
+private val BOTTOM_NAV_ITEMS = if (BuildConfig.DAWN) {
+    listOf(
+        BottomNavItem(Routes.HOME, "Start", "house"),
+        BottomNavItem(Routes.SEARCH, "Suchen", "magnifying-glass"),
+        BottomNavItem(Routes.LIBRARY, "Bibliothek", "stack"),
+    )
+} else {
+    listOf(
+        BottomNavItem(Routes.HOME, "Start", "house"),
+        BottomNavItem(Routes.SEARCH, "Suche", "magnifying-glass"),
+        BottomNavItem(Routes.LIBRARY, "Bibliothek", "stack"),
+        BottomNavItem(Routes.DOWNLOADS, "Downloads", "download-simple"),
+        BottomNavItem(Routes.ASSISTANT, "KI", "sparkle"),
+    )
+}
 
 // The bottom mini-player + nav bar never appears on the full Player screen itself --
 // its own controls already fill the screen, so a duplicate mini-player would be
@@ -129,6 +152,7 @@ private val BOTTOM_BAR_HIDDEN_ROUTES = setOf(
     Routes.SETTINGS,
     Routes.EQUALIZER,
     Routes.TASTE_PICKER,
+    Routes.SPOTIFY_IMPORT,
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -192,11 +216,15 @@ fun MusicAgentNavGraph(
         LocalAudioConfetti provides confettiState,
         LocalTrackAnalyzer provides trackAnalyzer,
     ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    val glassState = rememberHazeState()
+    var dawnChromeHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+    Box(modifier = Modifier.fillMaxSize().then(if (BuildConfig.DAWN) Modifier.background(DawnSky) else Modifier)) {
+    CompositionLocalProvider(LocalChromeInset provides if (BuildConfig.DAWN && showBottomBar) dawnChromeHeight else 0.dp) {
     Scaffold(
-        containerColor = Canopy.bg,
+        containerColor = if (BuildConfig.DAWN) Color.Transparent else Canopy.bg,
         bottomBar = {
-            if (showBottomBar) {
+            if (showBottomBar && !BuildConfig.DAWN) {
                 Column {
                     // The mini player floats *above* the bar as its own pill rather
                     // than sitting flush against it, per the design.
@@ -264,9 +292,39 @@ fun MusicAgentNavGraph(
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
-            modifier = Modifier.padding(scaffoldPadding),
+            modifier = if (BuildConfig.DAWN) {
+                // the dawn background is part of the blurred source, so the glass
+                // tints with it even where a screen shows nothing behind the bars
+                Modifier
+                    .hazeSource(glassState)
+                    .background(DawnSky)
+                    // onboarding draws edge to edge (its photo runs under the status bar)
+                    // and pads itself
+                    .padding(top = if (currentRoute == Routes.ONBOARDING) 0.dp else scaffoldPadding.calculateTopPadding())
+            } else {
+                Modifier.padding(scaffoldPadding)
+            },
         ) {
             composable(Routes.ONBOARDING) {
+                if (BuildConfig.DAWN) {
+                    DawnOnboardingScreen(
+                        onFinished = {
+                            onboardingViewModel.onFinished()
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(Routes.ONBOARDING) { inclusive = true }
+                            }
+                        },
+                        onSpotifyImport = {
+                            onboardingViewModel.onFinished()
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(Routes.ONBOARDING) { inclusive = true }
+                            }
+                            // Home sits below the import, so "back" or "done" lands there
+                            navController.navigate(Routes.SPOTIFY_IMPORT)
+                        },
+                    )
+                    return@composable
+                }
                 OnboardingScreen(
                     viewModel = onboardingViewModel,
                     onFinished = {
@@ -315,7 +373,11 @@ fun MusicAgentNavGraph(
                     onAccountClick = { navController.navigate(Routes.ACCOUNT) },
                     onNavigateToEqualizer = { navController.navigate(Routes.EQUALIZER) },
                     onTastePickerClick = { navController.navigate(Routes.TASTE_PICKER) },
+                    onSpotifyImportClick = { navController.navigate(Routes.SPOTIFY_IMPORT) },
                 )
+            }
+            composable(Routes.SPOTIFY_IMPORT) {
+                SpotifyImportScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(Routes.TASTE_PICKER) {
                 TastePickerScreen(onNavigateBack = { navController.popBackStack() })
@@ -351,6 +413,7 @@ fun MusicAgentNavGraph(
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    onSpotifyImport = { navController.navigate(Routes.SPOTIFY_IMPORT) },
                 )
             }
             composable(
@@ -386,6 +449,9 @@ fun MusicAgentNavGraph(
                         navController.navigate(Routes.remotePlaylistDetail(playlistSource, playlistSourceId))
                     },
                     onNavigateBack = { navController.popBackStack() },
+                    onArtistSelected = { otherSource, otherId ->
+                        navController.navigate(Routes.artistDetail(otherSource, otherId))
+                    },
                 )
             }
             composable(
@@ -419,6 +485,27 @@ fun MusicAgentNavGraph(
             }
         }
     }
+    }
+        if (BuildConfig.DAWN && showBottomBar) {
+            CompositionLocalProvider(LocalGlassState provides glassState) {
+                DawnBottomChrome(
+                    items = BOTTOM_NAV_ITEMS.map { DawnTab(it.route, it.label, it.iconName) },
+                    currentRoute = currentRoute,
+                    onMiniPlayerClick = { navController.navigate(Routes.PLAYER) },
+                    onTabClick = { route ->
+                        if (currentRoute != route) haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        navController.navigate(route) {
+                            launchSingleTop = true
+                            restoreState = true
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .onSizeChanged { dawnChromeHeight = with(density) { it.height.toDp() } },
+                )
+            }
+        }
         // Window-level, above every screen and the bottom bar, so a follow spray
         // covers the whole display rather than being clipped to its button.
         CanopyOverlayHost(overlayState)

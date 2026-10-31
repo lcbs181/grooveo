@@ -1,5 +1,10 @@
 package dev.schlubbe.musicagent.ui.player
 
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import dev.schlubbe.musicagent.ui.components.rememberArtworkColor
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.playback.isPcLive
 import dev.schlubbe.musicagent.playback.hasNext
 import dev.schlubbe.musicagent.playback.hasPrevious
@@ -244,19 +249,27 @@ fun PlayerScreen(
     // the same rule PlayerController.skipToNext/skipToPrevious apply.
     val hasPrevious = playbackState.hasPrevious
     val hasNext = playbackState.hasNext
-    val sourceLabel = when ((playbackState.currentTrackId ?: playbackState.loadingTrackId)?.substringBefore(":")) {
+    val sourceLabel = if (BuildConfig.DAWN) null else when ((playbackState.currentTrackId ?: playbackState.loadingTrackId)?.substringBefore(":")) {
         "soundcloud" -> "SoundCloud"
         "ytmusic" -> "YouTube Music"
         else -> null
     }
 
+    // Dawn Music: the backdrop takes the cover's colour like Spotify's player,
+    // lightened towards white so the dark text on it stays readable.
+    val artworkColor = if (BuildConfig.DAWN) rememberArtworkColor(playbackState.artworkUrl) else null
+    val topTint by animateColorAsState(
+        artworkColor?.let { lerp(it, Color.White, 0.45f) } ?: Canopy.accent200,
+        animationSpec = tween(600),
+        label = "playerTint",
+    )
     Column(
         modifier = Modifier
             .fillMaxSize()
             // GrooveoApp.dc.html line 282: linear-gradient(180deg, accent-200 0%, bg 55%).
             .background(
                 Brush.verticalGradient(
-                    colorStops = arrayOf(0f to Canopy.accent200, 0.55f to Canopy.bg, 1f to Canopy.bg),
+                    colorStops = arrayOf(0f to topTint, 0.6f to Canopy.bg, 1f to Canopy.bg),
                 ),
             ),
     ) {
@@ -483,7 +496,8 @@ fun PlayerScreen(
                     }
                     // Bottom scrim + Visualizer overlay (GrooveoApp.dc.html lines 296-298):
                     // 104/232 of the art's height, rounded only on the bottom corners.
-                    if (vizVariant != "none") Box(
+                    // Dawn Music keeps the cover clean, like Spotify
+                    if (vizVariant != "none" && !BuildConfig.DAWN) Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .size(PlayerArtSize, PlayerArtSize * (104f / 232f))
@@ -509,7 +523,7 @@ fun PlayerScreen(
                 }
             }
 
-            Row(
+            if (!BuildConfig.DAWN) Row(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -709,14 +723,14 @@ fun PlayerScreen(
                         // The design's play/pause circle uses --accent-900 text on the accent
                         // fill (not white, unlike every other "filled" IconButton), for extra
                         // contrast on its own biggest control.
-                        tint = Canopy.accent900.copy(alpha = transportAlpha),
+                        tint = Canopy.onAccent.copy(alpha = transportAlpha),
                         modifier = Modifier.size(30.dp),
                     )
                     // Ring, not a replacement: the control stays recognisable (and
                     // tappable to cancel) while the stream resolves or buffers.
                     if (playbackState.showLoading) {
                         CircularProgressIndicator(
-                            color = Canopy.accent900.copy(alpha = 0.8f),
+                            color = Canopy.onAccent.copy(alpha = 0.8f),
                             strokeWidth = 3.dp,
                             modifier = Modifier.size(64.dp),
                         )
@@ -858,7 +872,8 @@ fun PlayerScreen(
                     active = sleepTimerEndAtMs != null,
                     onClick = { showSleepTimerDialog = true },
                 )
-                Box {
+                // equalizer is a technical setting; Dawn Music leaves it out
+                if (!BuildConfig.DAWN) Box {
                     CanopyChip(
                         label = "Equalizer: ${eqLabel(eqProfile)}",
                         active = true,

@@ -1,4 +1,8 @@
 package dev.schlubbe.musicagent.ui.playlist
+import androidx.compose.foundation.layout.PaddingValues
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
+import dev.schlubbe.musicagent.BuildConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -135,7 +139,7 @@ fun PlaylistDetailScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         when {
             uiState.isLoading -> CircularProgressIndicator(
                 modifier = Modifier.padding(padding).padding(16.dp),
@@ -146,7 +150,7 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.padding(padding).padding(16.dp),
             )
             else -> PullRefresh(onRefresh = viewModel::load, modifier = Modifier.padding(padding).fillMaxSize()) {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
@@ -157,14 +161,16 @@ fun PlaylistDetailScreen(
                                 Box {
                                     CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true })
                                     DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
-                                        DropdownMenuItem(
-                                            text = { Text(ANALYZE_LABEL) },
-                                            leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
-                                            onClick = {
-                                                showTopMenu = false
-                                                analyzer.analyzeIds(playlist.tracks.map { "${it.track.source}:${it.track.sourceId}" })
-                                            },
-                                        )
+                                        if (!BuildConfig.DAWN) {
+                                            DropdownMenuItem(
+                                                text = { Text(ANALYZE_LABEL) },
+                                                leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
+                                                onClick = {
+                                                    showTopMenu = false
+                                                    analyzer.analyzeIds(playlist.tracks.map { "${it.track.source}:${it.track.sourceId}" })
+                                                },
+                                            )
+                                        }
                                         DropdownMenuItem(
                                             text = { Text("Beschreibung & Stimmung") },
                                             leadingIcon = { Icon(phosphorIcon("pencil-simple"), contentDescription = null, tint = Canopy.accent) },
@@ -440,7 +446,9 @@ private fun PlaylistTrackRow(
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
         backgroundContent = {
-            Row(
+            // only while swiping: rows are transparent in Dawn Music, so a
+            // permanent backdrop would show through every row
+            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Canopy.accent800)
@@ -456,7 +464,7 @@ private fun PlaylistTrackRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Canopy.bg)
+                .background(dawnContainer)
                 .clickable(onClick = {
                     sweepTrigger++
                     onClick()
@@ -588,6 +596,7 @@ private fun playlistMetaLine(tracks: List<PlaylistTrackOutDto>): String {
     if (totalSec > 0) parts += "${(totalSec / 60).coerceAtLeast(1)} Min"
     val sources = tracks.map { it.track.source }.distinct()
     when {
+        BuildConfig.DAWN -> Unit
         sources.size > 1 -> parts += "gemischte Quellen"
         sources.size == 1 -> parts += if (sources.first() == "soundcloud") "SoundCloud" else "YT Music"
     }

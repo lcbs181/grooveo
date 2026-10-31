@@ -1,5 +1,13 @@
 package dev.schlubbe.musicagent.ui.home
 
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.CircleShape
+import dev.schlubbe.musicagent.ui.components.skeleton
+import dev.schlubbe.musicagent.BuildConfig
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -101,11 +109,11 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = CONTENT_BOTTOM_PADDING.dp),
+                contentPadding = PaddingValues(bottom = maxOf(CONTENT_BOTTOM_PADDING.dp, LocalChromeInset.current + 16.dp)),
             ) {
                 item { HomeAppBar(uiState, onSettingsClick) }
 
@@ -125,7 +133,7 @@ fun HomeScreen(
                 if (uiState.recentlyPlayed.isNotEmpty()) {
                     item {
                         ResumeGrid(
-                            tracks = uiState.recentlyPlayed.take(RESUME_GRID_COUNT),
+                            tracks = uiState.recentlyPlayed.take(if (BuildConfig.DAWN) 8 else RESUME_GRID_COUNT),
                             onClick = {
                                 viewModel.onRecentlyPlayedClicked(it)
                                 onTrackSelected()
@@ -236,6 +244,44 @@ fun HomeScreen(
     }
 }
 
+/** Dawn Music: Spotify's quick-access tiles under the greeting - cover flush
+ * on the left, bold title, a frosted white tile; no heading, two columns. */
+@Composable
+private fun QuickAccessGrid(tracks: List<TrackEntity>, onClick: (TrackEntity) -> Unit) {
+    Column(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        tracks.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { track ->
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
+                            .clip(CanopyShapes.small)
+                            .background(Color.White.copy(alpha = 0.72f))
+                            .clickable { onClick(track) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TrackThumbnail(url = track.thumbnailUrl, size = 56.dp, seed = track.title, square = true)
+                        Text(
+                            track.title,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Canopy.text,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                        )
+                    }
+                }
+                if (row.size == 1) Box(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
 /** App bar: headline-md title, then search / downloads
  * / settings. The "Offline" badge shows only while data saver is on. */
 @Composable
@@ -250,13 +296,62 @@ private fun HomeAppBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Start", style = MaterialTheme.typography.headlineMedium, color = Canopy.text)
+        if (BuildConfig.DAWN) {
+            // Spotify's header: profile bubble, then the greeting as the title
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(Canopy.accent, Canopy.accent2)))
+                        .clickable(onClick = onSettings),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        uiState.profileName.trim().take(1).uppercase().ifEmpty { "♪" },
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                // greeting, then the name on its own line so neither gets cut off
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        uiState.greetingBase,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Canopy.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (uiState.profileName.isNotBlank()) {
+                        Text(
+                            uiState.profileName.trim(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Canopy.neutral600,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        } else {
+            Text("Start", style = MaterialTheme.typography.headlineMedium, color = Canopy.text)
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (uiState.dataSaverMode) {
                 CanopyBadge("Offline", tone = CanopyBadgeTone.Accent2)
+            }
+            // Dawn Music on a holiday: its watercolour motif next to the greeting
+            dev.schlubbe.musicagent.ui.theme.LocalHoliday.current?.look?.let { look ->
+                androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(look.art),
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                )
             }
             // Suche and Downloads are two taps away in the bottom bar already - the
             // header only carries what isn't reachable there.
@@ -273,6 +368,10 @@ private fun HomeAppBar(
  * nested grid, which can't measure inside a LazyColumn item. */
 @Composable
 private fun ResumeGrid(tracks: List<TrackEntity>, onClick: (TrackEntity) -> Unit) {
+    if (BuildConfig.DAWN) {
+        QuickAccessGrid(tracks, onClick)
+        return
+    }
     Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp)) {
         Text(
             "Weiter hören",
@@ -593,7 +692,7 @@ private fun DailyPickCard(pick: TrackResultDto, onPlay: () -> Unit) {
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        pick.artist ?: sourceLabel(pick.source),
+                        pick.artist ?: sourceLabel(pick.source).orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         color = Canopy.neutral600,
                         maxLines = 1,
@@ -787,6 +886,16 @@ private fun FollowedArtistsRail(
                 ) {
                     CanopyAvatar(initials = artist.name, size = 68.dp, ring = true) {
                         GeneratedArtwork(seed = artist.name, modifier = Modifier.fillMaxSize())
+                        // the real profile photo of a followed artist, over the
+                        // generated art that stays as placeholder and fallback
+                        if (artist.thumbnailUrl != null) {
+                            AsyncImage(
+                                model = artist.thumbnailUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                     Text(
                         artist.name,
@@ -804,15 +913,23 @@ private fun FollowedArtistsRail(
 
 @Composable
 private fun ShelfLoading() {
-    Box(
-        modifier = Modifier.fillMaxWidth().height(72.dp),
-        contentAlignment = Alignment.Center,
+    // three cover-shaped placeholders, the size of a shelf's real tiles
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CircularProgressIndicator(color = Canopy.accent, modifier = Modifier.size(24.dp))
+        repeat(3) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(150.dp).clip(CanopyShapes.medium).skeleton())
+                Box(Modifier.size(width = 110.dp, height = 12.dp).clip(CanopyShapes.small).skeleton())
+                Box(Modifier.size(width = 70.dp, height = 10.dp).clip(CanopyShapes.small).skeleton())
+            }
+        }
     }
 }
 
-private fun sourceLabel(source: String) = if (source == "soundcloud") "SoundCloud" else "YT Music"
+/** Where a result comes from - not shown in Dawn Music, where a song is just a song. */
+private fun sourceLabel(source: String): String? = if (BuildConfig.DAWN) null else if (source == "soundcloud") "SoundCloud" else "YT Music"
 
 /** The "artist · source · length" meta line used on genre rows and the hero
  * card -- only fields the DTO actually carries, so nothing here is invented. */

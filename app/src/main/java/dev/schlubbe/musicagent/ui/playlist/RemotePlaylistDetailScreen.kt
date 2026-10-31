@@ -1,4 +1,8 @@
 package dev.schlubbe.musicagent.ui.playlist
+import androidx.compose.foundation.layout.PaddingValues
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
 import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
@@ -105,7 +109,7 @@ fun RemotePlaylistDetailScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 10.dp),
@@ -116,11 +120,13 @@ fun RemotePlaylistDetailScreen(
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { showTopMenu = true }, iconSize = 20.dp)
                         DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text(ANALYZE_LABEL) },
-                                leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
-                                onClick = { showTopMenu = false; analyzer.analyzeTracks(detail.tracks) },
-                            )
+                            if (!BuildConfig.DAWN) {
+                                DropdownMenuItem(
+                                    text = { Text(ANALYZE_LABEL) },
+                                    leadingIcon = { Icon(phosphorIcon("waveform"), contentDescription = null, tint = Canopy.accent) },
+                                    onClick = { showTopMenu = false; analyzer.analyzeTracks(detail.tracks) },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Herunterladen") },
                                 leadingIcon = { Icon(phosphorIcon("download-simple"), contentDescription = null, tint = Canopy.accent) },
@@ -168,17 +174,17 @@ fun RemotePlaylistDetailScreen(
                 }
                 detail == null -> Text("Playlist nicht gefunden", modifier = Modifier.padding(16.dp))
                 else -> PullRefresh(onRefresh = viewModel::load, modifier = Modifier.fillMaxSize()) {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
                         item {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                TrackThumbnail(detail.thumbnailUrl, size = 80.dp)
+                                TrackThumbnail(detail.thumbnailUrl ?: detail.tracks.firstOrNull()?.thumbnailUrl, size = 80.dp)
                                 Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
                                     Text(detail.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                                        CanopyBadge(if (detail.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
+                                        if (!BuildConfig.DAWN) CanopyBadge(if (detail.source == "soundcloud") "SoundCloud" else "YT Music", tone = CanopyBadgeTone.Neutral)
                                         val subtitle = listOfNotNull(detail.owner?.takeIf { it.isNotBlank() }, detail.trackCount?.let { "$it Titel" })
                                             .joinToString(" · ")
                                         if (subtitle.isNotBlank()) {
@@ -298,7 +304,7 @@ private fun RemotePlaylistTrackRow(
     val haptic = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
     ListItem(
-        colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+        colors = ListItemDefaults.colors(containerColor = dawnContainer),
         leadingContent = { TrackThumbnail(track.thumbnailUrl) },
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {

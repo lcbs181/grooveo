@@ -9,7 +9,8 @@ One release = one GitHub release on `lcbs181/grooveo` with these assets:
 
 | Asset | Built where |
 |---|---|
-| `Grooveo-<version>.apk` (Android, the only `.apk`) | locally, `:app:assembleRelease` |
+| `Grooveo-<version>.apk` (Android, full edition) | locally, `:app:assembleGrooveoRelease` |
+| `DawnMusic-<version>.apk` (Android, Dawn Music, app name "Dawn Music") | locally, `:app:assembleDawnRelease` |
 | `Grooveo-<version>-windows-x64.msi` + `.zip` (portable) | GitHub Actions, `release.yml` (Windows runner) |
 | `Grooveo-<version>-linux-x64.tar.gz` + `.deb` | GitHub Actions, `release.yml` (Ubuntu runner) |
 | `grooveo-<version>-source.tar.gz` | locally, `git archive` |
@@ -50,7 +51,7 @@ The release notes also explain how to build the Linux app from source.
    `grooveo.testBuild=0`. Both apps read them from there.
 2. **Tests**:
    ```
-   ./gradlew :app:testDebugUnitTest :desktop:test
+   ./gradlew :app:testGrooveoDebugUnitTest :app:testDawnDebugUnitTest :desktop:test
    GROOVEO_NETWORK_TESTS=1 ./gradlew :desktop:test --tests '*NetworkSmokeTest*'
    ```
 3. **Notes**: write the What's-New text in German, matching earlier releases
@@ -61,8 +62,16 @@ The release notes also explain how to build the Linux app from source.
    `master`, push both. Releases are cut from `master`.
 5. **Android APK**:
    ```
-   ./gradlew :app:assembleRelease
-   cp app/build/outputs/apk/release/app-release.apk dist/Grooveo-<version>.apk
+   ./gradlew :app:assembleGrooveoRelease
+   ./gradlew :app:assembleDawnRelease
+   cp app/build/outputs/apk/grooveo/release/app-grooveo-release.apk dist/Grooveo-<version>.apk
+   cp app/build/outputs/apk/dawn/release/app-dawn-release.apk dist/DawnMusic-<version>.apk
+   ```
+   Run the two assembles one after the other (both at once ran out of heap).
+   Each app's updater only takes the APK starting with its own name. Updaters up
+   to 0.7.0-test.9 take the *first* `.apk`, so upload `Grooveo-*.apk` before
+   `DawnMusic-*.apk`.
+   ```
    ```
 6. **Source tarball** (tracked files only, no `local.properties`):
    ```

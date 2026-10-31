@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dawn Music splash: the launcher icon's sunrise over the sea, background baked in -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_dawn_background" />
+    <item android:drawable="@drawable/ic_dawn_foreground" />
+</layer-list>

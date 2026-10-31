@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.player
 
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.playback.isPcLive
 import dev.schlubbe.musicagent.playback.PcLivePlayer
 import dev.schlubbe.musicagent.data.sync.SyncClient
@@ -84,7 +85,7 @@ class PlayerViewModel @Inject constructor(
 ) : ViewModel() {
 
     /** Whether a PC is paired, for "Am PC weiterspielen" and "PC-Mix hier hören". */
-    val pcPaired: Boolean get() = syncClient.isPaired
+    val pcPaired: Boolean get() = !BuildConfig.DAWN && syncClient.isPaired
 
     /** "Am PC weiterspielen": the PC takes over the queue where the phone is, the phone pauses.
      * [onResult] gets the message to show. */

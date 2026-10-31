@@ -40,7 +40,9 @@ private const val MAX_PAGES = 4
  * v0.26.5 artifact — see YoutubeSearchQueryHandlerFactory), so this is a fairly
  * close match rather than falling back to generic video search. */
 @Singleton
-class YouTubeMusicSearchClient @Inject constructor() {
+class YouTubeMusicSearchClient @Inject constructor(
+    private val browse: YouTubeMusicBrowseClient,
+) {
 
     suspend fun search(query: String, limit: Int): List<TrackResultDto> = withContext(Dispatchers.IO) {
         val handler = ServiceList.YouTube.searchQHFactory
@@ -199,6 +201,32 @@ class YouTubeMusicSearchClient @Inject constructor() {
      * [ChannelInfo.getInfo] itself succeeds, and song shelves are simply empty if
      * their tab can't be fetched. */
     suspend fun getArtist(channelUrl: String): ArtistDetailDto = withContext(Dispatchers.IO) {
+        fromMusicPage(channelUrl) ?: getArtistFromChannel(channelUrl)
+    }
+
+    /** The artist as YouTube Music's own artist page shows it (see
+     * [YouTubeMusicArtistPage]), with "Top-Titel" filled up from the full top-songs
+     * playlist (the page itself lists five). Null when the channel has no music
+     * page or YouTube Music does not answer - the caller then builds the page from
+     * the plain channel. */
+    private suspend fun fromMusicPage(channelUrl: String): ArtistDetailDto? {
+        val channelId = Regex("UC[\\w-]{22}").find(channelUrl)?.value ?: return null
+        val page = runCatching { browse.artist(channelId, channelUrl) }
+            .onFailure { Log.w(TAG, "YouTube Music artist page failed for $channelId", it) }
+            .getOrNull() ?: return null
+        val detail = page.detail
+        if (detail.topTracks.isEmpty() && detail.albums.isEmpty() && detail.singles.isEmpty()) return null
+        val full = page.topSongsPlaylistId?.let { id ->
+            runCatching { getPlaylistTracks("https://www.youtube.com/playlist?list=$id") }.getOrNull()
+        }.orEmpty()
+        val byId = full.associateBy { it.sourceId }
+        // The page's five carry play counts, the playlist carries durations.
+        val top = detail.topTracks.map { t -> byId[t.sourceId]?.let { t.copy(durationSec = it.durationSec) } ?: t }
+        val rest = full.filter { f -> top.none { it.sourceId == f.sourceId } }
+        return detail.copy(topTracks = (top + rest).take(MAX_ARTIST_TRACKS))
+    }
+
+    private suspend fun getArtistFromChannel(channelUrl: String): ArtistDetailDto = withContext(Dispatchers.IO) {
         val info = ChannelInfo.getInfo(ServiceList.YouTube, channelUrl)
 
         // ChannelTabs.TRACKS is what an official-artist YouTube channel exposes for

@@ -38,3 +38,6 @@ captures/
 # Perf tooling
 tools/perf/.venv/
 tools/perf/traces/
+
+# release assets built locally (see docs/RELEASING.md)
+dist/

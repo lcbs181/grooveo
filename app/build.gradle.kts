@@ -59,6 +59,29 @@ android {
         )
     }
 
+    // Two apps from one source tree: "grooveo" is the full app (PC features, DJ mix,
+    // AI assistant); "dawn" is Dawn Music, for
+    // people without a PC - Spotify-style layout, only the features a casual listener
+    // needs. Code checks BuildConfig.DAWN to switch; both install side by side.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("grooveo") {
+            dimension = "edition"
+            buildConfigField("boolean", "DAWN", "false")
+            // update assets on GitHub releases: Grooveo-<version>.apk
+            buildConfigField("String", "APK_PREFIX", "\"Grooveo\"")
+            resValue("string", "app_name", "Grooveo")
+        }
+        create("dawn") {
+            dimension = "edition"
+            applicationId = "dev.schlubbe.musicagent.dawn"
+            buildConfigField("boolean", "DAWN", "true")
+            // update assets on GitHub releases: DawnMusic-<version>.apk
+            buildConfigField("String", "APK_PREFIX", "\"DawnMusic\"")
+            resValue("string", "app_name", "Dawn Music")
+        }
+    }
+
     buildTypes {
         release {
             // R8 only drops unused library code (see proguard-rules.pro: the app's own
@@ -83,6 +106,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 }
 
@@ -131,6 +155,9 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.kotlinx.coroutines.guava)
     implementation(libs.coil.compose)
+    // backdrop blur for Dawn Music's glass bars
+    implementation(libs.androidx.webkit)
+    implementation(libs.haze)
     // Performance tracing: named Perfetto slices for composables (runtime-tracing)
     // plus our own sections (androidx.tracing). Inert unless a trace is recording -
     // see tools/perf/trace.sh.

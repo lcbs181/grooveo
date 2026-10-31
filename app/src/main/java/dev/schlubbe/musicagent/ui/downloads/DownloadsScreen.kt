@@ -1,4 +1,5 @@
 package dev.schlubbe.musicagent.ui.downloads
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.ui.components.TagChips
 import dev.schlubbe.musicagent.data.tags.TrackTags
 import androidx.compose.foundation.shape.CircleShape
@@ -246,13 +247,15 @@ fun DownloadsScreen(onDownloadPlayed: () -> Unit = {}, viewModel: DownloadsViewM
                                 leadingIcon = phosphorIcon("arrow-clockwise"),
                                 enabled = refreshing == null,
                             )
-                            CanopyIconButton(
-                                icon = phosphorIcon("waveform"),
-                                onClick = analyzer::analyzeAllDownloads,
-                                shape = CircleShape,
-                                variant = CanopyButtonVariant.Secondary,
-                                contentDescription = ANALYZE_LABEL,
-                            )
+                            if (!BuildConfig.DAWN) {
+                                CanopyIconButton(
+                                    icon = phosphorIcon("waveform"),
+                                    onClick = analyzer::analyzeAllDownloads,
+                                    shape = CircleShape,
+                                    variant = CanopyButtonVariant.Secondary,
+                                    contentDescription = ANALYZE_LABEL,
+                                )
+                            }
                         }
                     }
                     if (onDevice.isEmpty()) {

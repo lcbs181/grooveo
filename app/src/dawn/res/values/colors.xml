@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dawn Music: pale sky blue behind the splash and launcher icon -->
+    <color name="launcher_background">#EAF4FD</color>
+</resources>

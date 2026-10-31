@@ -1,5 +1,6 @@
 package dev.schlubbe.musicagent.ui.components
 
+import dev.schlubbe.musicagent.BuildConfig
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +71,7 @@ val LocalTrackAnalyzer = staticCompositionLocalOf<TrackAnalyzer> { error("LocalT
 /** Standard menu entry used by per-track "⋯" menus. */
 @Composable
 fun AnalyzeMenuItem(onClick: () -> Unit) {
+    if (BuildConfig.DAWN) return // no DJ tools in Dawn Music
     androidx.compose.material3.DropdownMenuItem(
         text = { androidx.compose.material3.Text(ANALYZE_LABEL) },
         leadingIcon = {

@@ -23,6 +23,8 @@ import dev.schlubbe.musicagent.data.repository.SearchRepository
 import dev.schlubbe.musicagent.data.repository.SettingsRepository
 import dev.schlubbe.musicagent.data.repository.filterForDiscovery
 import dev.schlubbe.musicagent.playback.PlayerController
+import dev.schlubbe.musicagent.ui.theme.HolidayClock
+import dev.schlubbe.musicagent.ui.theme.holidayFor
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
@@ -170,27 +172,6 @@ private fun seasonFor(month: Int): MeteorologicalSeason = when (month) {
     else -> MeteorologicalSeason.AUTUMN
 }
 
-/** Gregorian Easter Sunday via the Meeus/Jones/Butcher algorithm - the date shifts
- * every year (22 March-25 April), so Karfreitag/Ostern/Ostermontag can't be
- * hardcoded like the fixed-date holidays below. */
-private fun easterSunday(year: Int): LocalDate {
-    val a = year % 19
-    val b = year / 100
-    val c = year % 100
-    val d = b / 4
-    val e = b % 4
-    val f = (b + 8) / 25
-    val g = (b - f + 1) / 3
-    val h = (19 * a + b - d - g + 15) % 30
-    val i = c / 4
-    val k = c % 4
-    val l = (32 + 2 * e + 2 * i - h - k) % 7
-    val m = (a + 11 * h + 22 * l) / 451
-    val month = (h + l - 7 * m + 114) / 31
-    val day = ((h + l - 7 * m + 114) % 31) + 1
-    return LocalDate.of(year, month, day)
-}
-
 /** Deterministic-per-day pick from [pool] (via the date's epoch day), so the
  * greeting varies day to day and across pools without flickering between
  * recompositions of the same day, and without needing a stored random seed. */
@@ -208,26 +189,6 @@ private fun <T> pickForDay(date: LocalDate, pool: List<T>): T {
 private fun <T> rotateForDay(date: LocalDate, pool: List<T>, windowSize: Int): List<T> {
     if (pool.size <= windowSize) return pool
     return pool.shuffled(java.util.Random(date.toEpochDay())).take(windowSize)
-}
-
-/** Exact-date German holidays (Neujahr/Heiligabend/Weihnachten/Silvester) plus the
- * Easter-anchored ones (Karfreitag/Ostern/Ostermontag) - checked before the plain
- * time-of-day/season pool below, since a holiday greeting is more specific and more
- * fun than "Guten Tag" once a year. */
-private fun holidayGreetingFor(date: LocalDate): String? {
-    val year = date.year
-    val easter = easterSunday(year)
-    return when (date) {
-        LocalDate.of(year, 1, 1) -> pickForDay(date, listOf("Frohes neues Jahr!", "Ein gutes neues Jahr!"))
-        LocalDate.of(year, 12, 24) -> pickForDay(date, listOf("Frohe Weihnachten!", "Schönen Heiligabend!"))
-        LocalDate.of(year, 12, 25), LocalDate.of(year, 12, 26) ->
-            pickForDay(date, listOf("Frohe Weihnachten!", "Schöne Feiertage!"))
-        LocalDate.of(year, 12, 31) -> pickForDay(date, listOf("Guten Rutsch!", "Bis nächstes Jahr!"))
-        easter.minusDays(2) -> pickForDay(date, listOf("Schönen Karfreitag"))
-        easter -> pickForDay(date, listOf("Frohe Ostern!", "Schöne Ostertage!"))
-        easter.plusDays(1) -> pickForDay(date, listOf("Schönen Ostermontag!"))
-        else -> null
-    }
 }
 
 private fun greetingPoolFor(part: DayPart, season: MeteorologicalSeason): List<String> = when (part) {
@@ -254,13 +215,18 @@ private fun greetingPoolFor(part: DayPart, season: MeteorologicalSeason): List<S
  * logic inline in the ViewModel. */
 internal fun greetingFor(now: LocalDateTime, profileName: String?): String {
     val date = now.toLocalDate()
-    val base = holidayGreetingFor(date) ?: pickForDay(date, greetingPoolFor(dayPartFor(now.hour), seasonFor(now.monthValue)))
-    return if (!profileName.isNullOrBlank()) "$base, $profileName" else base
+    // German holidays (Halloween, Advent, Ostern ...) beat the time-of-day pool
+    val base = holidayFor(date)?.greeting ?: pickForDay(date, greetingPoolFor(dayPartFor(now.hour), seasonFor(now.monthValue)))
+    if (profileName.isNullOrBlank()) return base
+    // "Frohe Ostern!" + name = "Frohe Ostern, Lea!"
+    return if (base.endsWith("!")) "${base.dropLast(1)}, $profileName!" else "$base, $profileName"
 }
 
 data class HomeUiState(
     val profileName: String = "",
-    val greetingText: String = greetingFor(LocalDateTime.now(), null),
+    val greetingText: String = greetingFor(HolidayClock.now(), null),
+    // the same greeting without the name (Dawn puts the name on its own line)
+    val greetingBase: String = greetingFor(HolidayClock.now(), null),
     val statLine: String = "",
     val charts: List<TrackResultDto> = emptyList(),
     val isChartsLoading: Boolean = false,
@@ -369,13 +335,14 @@ class HomeViewModel @Inject constructor(
             settingsRepository.profileName.collect { name ->
                 _uiState.value = _uiState.value.copy(
                     profileName = name,
-                    greetingText = greetingFor(LocalDateTime.now(), name.ifBlank { null }),
+                    greetingText = greetingFor(HolidayClock.now(), name.ifBlank { null }),
+                    greetingBase = greetingFor(HolidayClock.now(), null),
                 )
             }
         }
         viewModelScope.launch {
             settingsRepository.showMixControls.collect { show ->
-                _uiState.value = _uiState.value.copy(showMixControls = show)
+                _uiState.value = _uiState.value.copy(showMixControls = show && !BuildConfig.DAWN)
             }
         }
         viewModelScope.launch {

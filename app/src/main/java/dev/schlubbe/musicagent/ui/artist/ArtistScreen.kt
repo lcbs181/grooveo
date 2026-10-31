@@ -1,4 +1,6 @@
 package dev.schlubbe.musicagent.ui.artist
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
 import dev.schlubbe.musicagent.ui.components.AnalyzeMenuItem
 import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
@@ -59,6 +61,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.data.remote.dto.ArtistDetailDto
 import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
@@ -90,6 +96,7 @@ private const val SHELF_CARD_SIZE = 140
 // design-fixed sizes, not derived from any data.
 private val BANNER_HEIGHT = 170.dp
 private val HEADER_OVERLAP = 46.dp
+private val HERO_HEIGHT = 300.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,6 +107,7 @@ fun ArtistScreen(
     onFollowersSelected: () -> Unit,
     onPlaylistSelected: (source: String, sourceId: String) -> Unit,
     onNavigateBack: () -> Unit,
+    onArtistSelected: (source: String, sourceId: String) -> Unit = { _, _ -> },
     viewModel: ArtistViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -125,7 +133,7 @@ fun ArtistScreen(
         }
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // The design's back/share/overflow buttons float on the banner itself
             // (see ArtistHeader below) and only exist once the artist has loaded.
@@ -157,7 +165,7 @@ fun ArtistScreen(
                     )
 
                     PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalChromeInset.current)) {
                             item {
                                 ArtistHeader(
                                     artist = artist,
@@ -190,10 +198,6 @@ fun ArtistScreen(
                                     },
                                 )
 
-                                artist.description?.takeIf { it.isNotBlank() }?.let { description ->
-                                    ArtistBio(description)
-                                }
-
                                 if (artist.topTracks.isNotEmpty()) {
                                     CanopySectionHeader(
                                         title = "Top-Titel",
@@ -206,6 +210,7 @@ fun ArtistScreen(
                             items(topPreview, key = { "top:${it.source}:${it.sourceId}" }) { track ->
                                 ArtistTrackRow(
                                     track = track,
+                                    pageArtist = artist.name,
                                     thumbnailSize = 52.dp,
                                     isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
                                     onClick = {
@@ -217,6 +222,16 @@ fun ArtistScreen(
                                     onAddToQueueClick = { viewModel.onAddToQueueClicked(track) },
                                     onDownloadClick = { viewModel.onDownloadClicked(track) },
                                 )
+                            }
+
+                            latestRelease(artist)?.let { release ->
+                                item {
+                                    CanopySectionHeader(
+                                        title = "Neueste Veröffentlichung",
+                                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp).then(rememberFadeUp()),
+                                    )
+                                    LatestReleaseRow(release) { onPlaylistSelected(release.source, release.sourceId) }
+                                }
                             }
 
                             if (artist.latestTracks.isNotEmpty()) {
@@ -232,6 +247,7 @@ fun ArtistScreen(
                             items(latestPreview, key = { "latest:${it.source}:${it.sourceId}" }) { track ->
                                 ArtistTrackRow(
                                     track = track,
+                                    pageArtist = artist.name,
                                     thumbnailSize = 46.dp,
                                     isLiked = "${track.source}:${track.sourceId}" in uiState.likedTrackIds,
                                     onClick = {
@@ -245,23 +261,63 @@ fun ArtistScreen(
                                 )
                             }
 
+                            val openList = { item: ArtistShelfItem -> onPlaylistSelected(item.source, item.sourceId) }
                             if (artist.albums.isNotEmpty()) {
                                 item {
                                     ArtistPlaylistShelf(
-                                        title = "Alben & Singles",
+                                        // Pages without separate singles mix both in one list.
+                                        title = if (artist.singles.isEmpty()) "Alben & Singles" else "Alben",
                                         items = artist.albums.map { it.toShelfItem() },
-                                        onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
+                                        onClick = openList,
                                     )
                                 }
                             }
-
+                            if (artist.singles.isNotEmpty()) {
+                                item { ArtistPlaylistShelf("Singles & EPs", artist.singles.map { it.toShelfItem() }, openList) }
+                            }
+                            if (artist.videos.isNotEmpty()) {
+                                item {
+                                    ArtistPlaylistShelf(
+                                        title = "Musikvideos",
+                                        items = artist.videos.map { it.toShelfItem() },
+                                        onClick = { item ->
+                                            artist.videos.firstOrNull { it.sourceId == item.sourceId }?.let { video ->
+                                                viewModel.onTrackClicked(video, artist.videos)
+                                                onTrackSelected()
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                            if (artist.featuredOn.isNotEmpty()) {
+                                item { ArtistPlaylistShelf("Zu hören in", artist.featuredOn.map { it.toShelfItem() }, openList) }
+                            }
                             if (artist.playlists.isNotEmpty()) {
                                 item {
                                     ArtistPlaylistShelf(
-                                        title = "Playlists",
+                                        title = if (artist.source == "ytmusic") "Playlists von ${artist.name}" else "Playlists",
                                         items = artist.playlists.map { it.toShelfItem() },
-                                        onClick = { item -> onPlaylistSelected(item.source, item.sourceId) },
+                                        onClick = openList,
                                     )
+                                }
+                            }
+                            if (artist.related.isNotEmpty()) {
+                                item {
+                                    ArtistPlaylistShelf(
+                                        title = "Fans mögen auch",
+                                        items = artist.related.map { it.toShelfItem() },
+                                        onClick = { item -> onArtistSelected(item.source, item.sourceId) },
+                                        circle = true,
+                                    )
+                                }
+                            }
+                            artist.description?.takeIf { it.isNotBlank() }?.let { description ->
+                                item {
+                                    CanopySectionHeader(
+                                        title = "Über ${artist.name}",
+                                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp).then(rememberFadeUp()),
+                                    )
+                                    ArtistBio(description)
                                 }
                             }
 
@@ -316,8 +372,45 @@ private data class ArtistShelfItem(
     val thumbnailUrl: String?,
 )
 
-private fun AlbumResultDto.toShelfItem() = ArtistShelfItem(source, sourceId, title, artist, thumbnailUrl)
+private fun AlbumResultDto.toShelfItem() = ArtistShelfItem(
+    source, sourceId, title,
+    listOfNotNull(year, kind).joinToString(" · ").ifEmpty { artist.orEmpty() }.ifEmpty { null },
+    thumbnailUrl,
+)
 private fun PlaylistResultDto.toShelfItem() = ArtistShelfItem(source, sourceId, title, owner, thumbnailUrl)
+private fun TrackResultDto.toShelfItem() = ArtistShelfItem(source, sourceId, title, plays ?: artist, thumbnailUrl)
+private fun ArtistResultDto.toShelfItem() = ArtistShelfItem(source, sourceId, name, null, thumbnailUrl)
+
+/** The newest album or single, like Spotify's "Neueste Veröffentlichung". YouTube
+ * Music lists both newest first, so on a tie in the year the single wins. */
+private fun latestRelease(artist: ArtistDetailDto): AlbumResultDto? =
+    (artist.singles.take(1) + artist.albums.take(1))
+        .filter { it.year != null }
+        .maxByOrNull { it.year!!.toIntOrNull() ?: 0 }
+
+@Composable
+private fun LatestReleaseRow(release: AlbumResultDto, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 4.dp)
+            .then(rememberFadeUp()),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TrackThumbnail(url = release.thumbnailUrl, size = 84.dp, seed = release.title)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(release.title, style = MaterialTheme.typography.titleMedium, color = Canopy.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOfNotNull(release.year, release.kind).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = Canopy.neutral500,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
 
 /** A horizontal cover-card shelf, same layout as Home's shelves (TrackThumbnail +
  * title + subtitle in a fixed-width column) - reused here instead of a vertical list
@@ -327,6 +420,7 @@ private fun ArtistPlaylistShelf(
     title: String,
     items: List<ArtistShelfItem>,
     onClick: (ArtistShelfItem) -> Unit,
+    circle: Boolean = false,
 ) {
     Column(modifier = Modifier.padding(top = 16.dp)) {
         CanopySectionHeader(
@@ -343,14 +437,25 @@ private fun ArtistPlaylistShelf(
                         .width(SHELF_CARD_SIZE.dp)
                         .clickable { onClick(shelfItem) },
                 ) {
-                    TrackThumbnail(url = shelfItem.thumbnailUrl, size = SHELF_CARD_SIZE.dp, seed = shelfItem.title)
+                    if (circle) {
+                        CanopyAvatar(
+                            initials = shelfItem.title,
+                            size = SHELF_CARD_SIZE.dp,
+                            content = shelfItem.thumbnailUrl?.let { url ->
+                                { AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                            },
+                        )
+                    } else {
+                        TrackThumbnail(url = shelfItem.thumbnailUrl, size = SHELF_CARD_SIZE.dp, seed = shelfItem.title)
+                    }
                     Text(
                         shelfItem.title,
                         style = MaterialTheme.typography.labelLarge,
                         color = Canopy.text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 8.dp),
+                        textAlign = if (circle) TextAlign.Center else TextAlign.Start,
+                        modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
                     )
                     shelfItem.subtitle?.let { subtitle ->
                         Text(
@@ -387,9 +492,35 @@ private fun ArtistHeader(
     onPlayFirst: () -> Unit,
 ) {
     val hasTracks = artist.topTracks.isNotEmpty() || artist.latestTracks.isNotEmpty()
+    // YouTube Music's header image is a real artist photo: shown big with the
+    // name on it, like Spotify. Channel banners are decorative strips and keep the
+    // banner + avatar layout.
+    val hero = artist.source == "ytmusic" && artist.monthlyListeners != null && artist.bannerUrl != null
 
     Box(modifier = Modifier.fillMaxWidth().then(rememberFadeUp())) {
-        if (artist.bannerUrl != null) {
+        if (hero) {
+            Box(modifier = Modifier.fillMaxWidth().height(HERO_HEIGHT)) {
+                AsyncImage(
+                    model = artist.bannerUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    modifier = Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.65f)),
+                    ),
+                )
+                Text(
+                    artist.name,
+                    style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+                )
+            }
+        } else if (artist.bannerUrl != null) {
             AsyncImage(
                 model = artist.bannerUrl,
                 contentDescription = null,
@@ -438,8 +569,14 @@ private fun ArtistHeader(
             }
         }
 
-        Column(modifier = Modifier.padding(top = BANNER_HEIGHT - HEADER_OVERLAP, start = 16.dp, end = 16.dp)) {
-            Row(
+        Column(
+            modifier = Modifier.padding(
+                top = if (hero) HERO_HEIGHT + 4.dp else BANNER_HEIGHT - HEADER_OVERLAP,
+                start = 16.dp,
+                end = 16.dp,
+            ),
+        ) {
+            if (!hero) Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
@@ -464,7 +601,8 @@ private fun ArtistHeader(
                         },
                     )
                 }
-                CanopyBadge(
+                // Dawn Music does not talk about sources (see also Search).
+                if (!BuildConfig.DAWN) CanopyBadge(
                     text = if (artist.source == "soundcloud") "SoundCloud" else "YT Music",
                     tone = CanopyBadgeTone.Accent,
                     modifier = Modifier.padding(bottom = 6.dp),
@@ -476,7 +614,7 @@ private fun ArtistHeader(
             // there's no way to tell a verified artist from any other -- showing it
             // unconditionally would be exactly the kind of invented signal the task
             // warns against. Omitted rather than shown for everyone.
-            Text(
+            if (!hero) Text(
                 artist.name,
                 style = MaterialTheme.typography.headlineLarge,
                 color = Canopy.text,
@@ -490,9 +628,9 @@ private fun ArtistHeader(
             // dropped rather than invented -- same precedent as Home's DailyPickCard,
             // which replaced a hardcoded like count with real metadata instead of
             // faking one.
-            artist.subscriberCount?.let { count ->
+            (artist.monthlyListeners?.let { "$it monatliche Hörer*innen" } ?: artist.subscriberCount?.let { "$it Follower" })?.let { line ->
                 Text(
-                    "$count Follower",
+                    line,
                     style = MaterialTheme.typography.bodySmall,
                     color = Canopy.neutral500,
                     modifier = Modifier.padding(top = 8.dp),
@@ -537,7 +675,7 @@ private fun ArtistHeader(
                     Icon(
                         phosphorIcon("play", filled = true),
                         contentDescription = "Abspielen",
-                        tint = Canopy.accent900,
+                        tint = Canopy.onAccent,
                         modifier = Modifier.size(24.dp),
                     )
                 }
@@ -633,6 +771,7 @@ private fun ArtistListRow(label: String, icon: ImageVector, onClick: () -> Unit,
 @Composable
 private fun ArtistTrackRow(
     track: TrackResultDto,
+    pageArtist: String,
     thumbnailSize: Dp,
     isLiked: Boolean,
     onClick: () -> Unit,
@@ -661,7 +800,9 @@ private fun ArtistTrackRow(
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
         backgroundContent = {
-            Row(
+            // only while swiping: rows are transparent in Dawn Music, so a
+            // permanent backdrop would show through every row
+            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Canopy.accent800)
@@ -676,7 +817,7 @@ private fun ArtistTrackRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Canopy.bg)
+                .background(dawnContainer)
                 .clickable {
                     sweepTrigger++
                     onClick()
@@ -706,7 +847,10 @@ private fun ArtistTrackRow(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            track.artist ?: track.source,
+                            // Spotify shows play counts here; otherwise the artist,
+                            // spelled like the page (uploads sometimes say "KRAFTKLUB").
+                            track.plays ?: track.artist?.let { if (it.equals(pageArtist, ignoreCase = true)) pageArtist else it }
+                                ?: pageArtist,
                             style = MaterialTheme.typography.bodySmall,
                             color = Canopy.neutral500,
                             maxLines = 1,
@@ -714,7 +858,7 @@ private fun ArtistTrackRow(
                             modifier = Modifier.weight(1f),
                         )
                         formatTrackDuration(track.durationSec)?.let { duration ->
-                            Text("· $duration", style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
+                            Text(duration, style = MaterialTheme.typography.labelSmall, color = Canopy.neutral500)
                         }
                         // The design's meta line also carries a play count and a
                         // playing/downloaded "state" icon here; TrackResultDto has

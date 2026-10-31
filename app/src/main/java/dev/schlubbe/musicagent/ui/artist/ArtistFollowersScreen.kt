@@ -1,5 +1,8 @@
 package dev.schlubbe.musicagent.ui.artist
 
+import androidx.compose.foundation.layout.PaddingValues
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -63,7 +66,7 @@ fun ArtistFollowersScreen(
         if (shouldLoadMore) viewModel.loadMore()
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 6.dp, top = 10.dp, bottom = 4.dp),
@@ -90,10 +93,11 @@ fun ArtistFollowersScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = LocalChromeInset.current),
                     ) {
                         items(uiState.followers, key = { it.sourceId }) { follower ->
                             ListItem(
-                                colors = ListItemDefaults.colors(containerColor = Canopy.bg),
+                                colors = ListItemDefaults.colors(containerColor = dawnContainer),
                                 leadingContent = { TrackThumbnail(follower.thumbnailUrl) },
                                 headlineContent = { Text(follower.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 supportingContent = follower.subscriberCount?.let { count ->

@@ -1,5 +1,18 @@
 package dev.schlubbe.musicagent.ui.search
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.GridCells
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.components.CanopyButtonVariant
 import dev.schlubbe.musicagent.ui.components.ANALYZE_LABEL
@@ -66,6 +79,10 @@ import dev.schlubbe.musicagent.ui.playlist.AddToPlaylistDialog
 import dev.schlubbe.musicagent.ui.theme.Canopy
 import dev.schlubbe.musicagent.ui.theme.CanopyPillShape
 import dev.schlubbe.musicagent.ui.theme.CanopyShapes
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 
 // Canopy Search, from GrooveoApp.dc.html's `isSearch` block: a pill search
 // field, source chips, underline tabs, then result rows each carrying a state
@@ -129,7 +146,7 @@ fun SearchScreen(
         )
     }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             SearchHeader(
                 query = uiState.query,
@@ -159,6 +176,15 @@ fun SearchScreen(
                             )
                         }
                     }
+                    BuildConfig.DAWN && uiState.query.isBlank() -> BrowseAll(
+                        history = uiState.searchHistory,
+                        covers = viewModel.browseCovers.collectAsState().value,
+                        onShown = { viewModel.loadBrowseCovers(BROWSE_TILES.map { it.query }) },
+                        onSearch = { query ->
+                            focusManager.clearFocus()
+                            viewModel.onHistoryQueryTapped(query)
+                        },
+                    )
                     uiState.suggestions.isNotEmpty() -> SuggestionsList(
                         suggestions = uiState.suggestions,
                         onTap = viewModel::onSuggestionTapped,
@@ -197,6 +223,142 @@ fun SearchScreen(
     }
 }
 
+/** One "Alle durchsuchen" tile: what it says and what it searches for. */
+private data class BrowseTile(val label: String, val query: String, val color: Color)
+
+// dark enough everywhere for bold white labels (>= 3:1)
+private val BROWSE_TILES = listOf(
+    BrowseTile("Charts", "Top Hits 2026", Color(0xFF1665C8)),
+    BrowseTile("Party", "Party Hits", Color(0xFFC93A78)),
+    BrowseTile("Chill", "Chill Vibes", Color(0xFF2F7F73)),
+    BrowseTile("Workout", "Workout Musik", Color(0xFFB83A3A)),
+    BrowseTile("Fokus", "Focus Music", Color(0xFF3A5FCD)),
+    BrowseTile("Sommer", "Sommerhits", Color(0xFFB5651D)),
+    BrowseTile("Deutschrap", "Deutschrap", Color(0xFF7B4AA8)),
+    BrowseTile("Pop", "Pop Hits", Color(0xFF8E3B6E)),
+    BrowseTile("Hip-Hop", "Hip-Hop", Color(0xFF1F7A8C)),
+    BrowseTile("House", "House Music", Color(0xFFA0522D)),
+    BrowseTile("Techno", "Techno", Color(0xFF263447)),
+    BrowseTile("R&B", "R&B", Color(0xFF9C2F5A)),
+    BrowseTile("Rock", "Rock Classics", Color(0xFF5A4FB0)),
+    BrowseTile("Indie", "Indie", Color(0xFF2E6E4E)),
+    BrowseTile("Lo-Fi", "Lofi Hip Hop", Color(0xFF6B5B95)),
+    BrowseTile("Latin", "Reggaeton", Color(0xFFC2401F)),
+    BrowseTile("K-Pop", "K-Pop", Color(0xFFB0306A)),
+    BrowseTile("Schlager", "Schlager", Color(0xFF8A5A00)),
+)
+
+/** Dawn Music's empty search: recent searches as chips, then Spotify's
+ * "Alle durchsuchen" grid of colour tiles that each start a search. */
+@Composable
+private fun BrowseAll(
+    history: List<String>,
+    covers: Map<String, String>,
+    onShown: () -> Unit,
+    onSearch: (String) -> Unit,
+) {
+    LaunchedEffect(Unit) { onShown() }
+    val holiday = dev.schlubbe.musicagent.ui.theme.LocalHoliday.current
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = LocalChromeInset.current + 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        if (history.isNotEmpty()) {
+            item(span = { GridItemSpan(2) }) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Zuletzt gesucht", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Canopy.text)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        history.take(8).forEach { q -> CanopyChip(label = q, active = false, onClick = { onSearch(q) }) }
+                    }
+                }
+            }
+        }
+        // on a holiday: a banner for its music (Halloween party, Weihnachtslieder ...)
+        holiday?.let { h ->
+            val look = h.look
+            if (look != null && h.searchLabel != null && h.searchQuery != null) {
+                item(span = { GridItemSpan(2) }) {
+                    Row(
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .fillMaxWidth()
+                            .height(104.dp)
+                            .clip(CanopyShapes.medium)
+                            .background(Canopy.accent)
+                            .clickable { onSearch(h.searchQuery) }
+                            .padding(start = 18.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(h.searchLabel, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Passende Musik für heute", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        androidx.compose.foundation.Image(
+                            androidx.compose.ui.res.painterResource(look.art),
+                            contentDescription = null,
+                            modifier = Modifier.size(92.dp),
+                        )
+                    }
+                }
+            }
+        }
+        item(span = { GridItemSpan(2) }) {
+            Text(
+                "Alle durchsuchen",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Canopy.text,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        items(BROWSE_TILES, key = { it.label }) { tile ->
+            Box(
+                modifier = Modifier
+                    .height(96.dp)
+                    .clip(CanopyShapes.small)
+                    .background(tile.color)
+                    .clickable { onSearch(tile.query) }
+                    .padding(12.dp),
+            ) {
+                Text(
+                    tile.label,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.TopStart).zIndex(1f),
+                )
+                // Spotify's tilted cover in the corner: a playlist cover for the
+                // tile's search, a translucent card until it has loaded
+                val cover = covers[tile.query]
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(64.dp)
+                        .graphicsLayer { rotationZ = 22f; translationX = 20.dp.toPx(); translationY = 12.dp.toPx() }
+                        .shadow(8.dp, CanopyShapes.small)
+                        .clip(CanopyShapes.small)
+                        .background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.1f)))),
+                ) {
+                    if (cover != null) {
+                        AsyncImage(
+                            model = cover,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SearchHeader(
     query: String,
@@ -207,7 +369,16 @@ private fun SearchHeader(
     onSourceChanged: (String) -> Unit,
     onResultTypeChanged: (String) -> Unit,
 ) {
-    Column(modifier = Modifier.background(Canopy.bg).padding(top = 14.dp)) {
+    Column(modifier = Modifier.background(dawnContainer).padding(top = 14.dp)) {
+        if (BuildConfig.DAWN) {
+            Text(
+                "Suchen",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Canopy.text,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 14.dp),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -260,19 +431,26 @@ private fun SearchHeader(
             }
         }
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(vertical = 12.dp),
-        ) {
-            items(SOURCES, key = { it.first }) { (key, label) ->
-                CanopyChip(
-                    label = label,
-                    active = source == key,
-                    onClick = { onSourceChanged(key) },
-                )
+        // Dawn Music: always both sources, no technical choice up front
+        if (BuildConfig.DAWN) {
+            Spacer(modifier = Modifier.height(12.dp))
+        } else {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 12.dp),
+            ) {
+                items(SOURCES, key = { it.first }) { (key, label) ->
+                    CanopyChip(
+                        label = label,
+                        active = source == key,
+                        onClick = { onSourceChanged(key) },
+                    )
+                }
             }
         }
+        // ...and the result tabs only once there is something to sort
+        if (BuildConfig.DAWN && query.isBlank()) return@Column
 
         // Underline tabs: active gets full-strength text plus a 2dp accent rule,
         // inactive is neutral-500 with no rule.
@@ -311,7 +489,7 @@ private fun SearchHeader(
 private fun SuggestionsList(suggestions: List<String>, onTap: (String) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = CONTENT_BOTTOM_PADDING.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = maxOf(CONTENT_BOTTOM_PADDING.dp, LocalChromeInset.current + 16.dp)),
     ) {
         items(suggestions, key = { it }) { suggestion ->
             Row(
@@ -347,7 +525,7 @@ private fun ResultsList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = CONTENT_BOTTOM_PADDING.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = maxOf(CONTENT_BOTTOM_PADDING.dp, LocalChromeInset.current + 16.dp)),
     ) {
         when (uiState.resultType) {
             "artists" -> items(uiState.artistResults, key = { it.source + it.sourceId }) { artist ->
@@ -367,7 +545,7 @@ private fun ResultsList(
             "playlists" -> items(uiState.playlistResults, key = { it.source + it.sourceId }) { playlist ->
                 ResultRow(
                     title = playlist.title,
-                    subtitle = "Playlist · ${sourceLabel(playlist.source)}",
+                    subtitle = listOfNotNull("Playlist", sourceLabel(playlist.source)).joinToString(" · "),
                     thumbnailUrl = playlist.thumbnailUrl,
                     seed = playlist.title,
                     onClick = { onPlaylistClick(playlist.source, playlist.sourceId) },
@@ -523,7 +701,7 @@ private fun TrackActionsMenu(
         when {
             download == DownloadState.COMPLETED -> {
                 item("Offline verfügbar", "check-circle", enabled = false) {}
-                item(ANALYZE_LABEL, "waveform") { actions.onAnalyze(track) }
+                if (!BuildConfig.DAWN) item(ANALYZE_LABEL, "waveform") { actions.onAnalyze(track) }
             }
             download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
                 item("Wird heruntergeladen …", "download-simple", enabled = false) {}
@@ -595,7 +773,7 @@ private data class ResultState(val label: String, val iconName: String, val aler
 private fun stateFor(track: TrackResultDto, download: DownloadState?): ResultState? = when {
     // Not fully playable from SoundCloud (DRM or 30s preview) - playback and
     // downloads use the matching YouTube Music recording instead.
-    track.isDrmProtected && download == null -> ResultState("via YouTube", "youtube-logo", alert = false)
+    track.isDrmProtected && download == null && !BuildConfig.DAWN -> ResultState("via YouTube", "youtube-logo", alert = false)
     download == DownloadState.DOWNLOADING || download == DownloadState.QUEUED ->
         ResultState("Lädt", "download-simple", alert = true)
     download == DownloadState.FAILED -> ResultState("Fehler", "warning-circle", alert = true)
@@ -639,4 +817,5 @@ private fun CenteredMessage(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-private fun sourceLabel(source: String) = if (source == "soundcloud") "SoundCloud" else "YT Music"
+/** Where a result comes from - not shown in Dawn Music, where a song is just a song. */
+private fun sourceLabel(source: String): String? = if (BuildConfig.DAWN) null else if (source == "soundcloud") "SoundCloud" else "YT Music"

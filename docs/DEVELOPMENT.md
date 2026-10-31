@@ -24,7 +24,7 @@
    ```
    ./gradlew :app:assembleDebug
    ```
-   The APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
+   The APKs land at `app/build/outputs/apk/grooveo/debug/` (full app) and `app/build/outputs/apk/dawn/debug/` (Dawn Music).
 
 That's it for the standalone experience (search, streaming, downloads,
 likes, playlists, widget) — no backend, no account, no extra config.

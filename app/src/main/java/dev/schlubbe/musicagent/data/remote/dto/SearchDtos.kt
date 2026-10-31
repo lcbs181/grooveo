@@ -23,6 +23,9 @@ data class TrackResultDto(
     // SoundCloud only: genre plus the uploader's tag_list (TrackTags.parse); null when the
     // source sent none, so "no tags" and "not known" stay apart (see TagRepository).
     @SerializedName("tags") val tags: List<String>? = null,
+    // ytmusic artist pages only: YouTube Music's own play count text for a top
+    // song (e.g. "32 Mio. Wiedergaben"), shown like Spotify's play counts.
+    @SerializedName("plays") val plays: String? = null,
 )
 
 data class ArtistResultDto(
@@ -50,6 +53,15 @@ data class ArtistDetailDto(
     val albums: List<AlbumResultDto> = emptyList(),
     val playlists: List<PlaylistResultDto> = emptyList(),
     @SerializedName("webpage_url") val webpageUrl: String,
+    // The rest comes from YouTube Music's artist page (ytmusic only, empty/null
+    // elsewhere): "436.000" monthly audience, singles & EPs apart from albums,
+    // music videos, playlists the artist is featured in ("Zu hören in") and the
+    // "Fans also like" artists.
+    @SerializedName("monthly_listeners") val monthlyListeners: String? = null,
+    val singles: List<AlbumResultDto> = emptyList(),
+    val videos: List<TrackResultDto> = emptyList(),
+    @SerializedName("featured_on") val featuredOn: List<PlaylistResultDto> = emptyList(),
+    val related: List<ArtistResultDto> = emptyList(),
 )
 
 data class PlaylistResultDto(
@@ -99,4 +111,6 @@ data class AlbumResultDto(
     @SerializedName("thumbnail_url") val thumbnailUrl: String?,
     val year: String?,
     @SerializedName("webpage_url") val webpageUrl: String,
+    // "Album", "Single" or "EP" when the source says (YouTube Music artist pages).
+    val kind: String? = null,
 )

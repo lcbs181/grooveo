@@ -112,7 +112,7 @@ Requires JDK 17 and the Android SDK (`compileSdk`/`targetSdk` 37, `minSdk` 30).
 ./gradlew :app:assembleDebug
 ```
 
-The APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
+The APKs land at `app/build/outputs/apk/grooveo/debug/` (full app) and `app/build/outputs/apk/dawn/debug/` (Dawn Music).
 
 `local.properties` needs the usual `sdk.dir`; everything else has a working default (see [Optional backend link](#optional-backend-link) for the one optional section).
 

@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent.ui.account
 
+import dev.schlubbe.musicagent.ui.theme.dawnContainer
+import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,9 +80,9 @@ fun AccountScreen(
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(containerColor = dawnContainer, contentWindowInsets = WindowInsets(0)) { padding ->
         PullRefresh(onRefresh = viewModel::refresh, modifier = Modifier.padding(padding).fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = LocalChromeInset.current)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
