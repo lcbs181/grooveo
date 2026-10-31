@@ -7,7 +7,9 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import coil.ImageLoader
@@ -26,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.schabi.newpipe.extractor.NewPipe
 import java.util.concurrent.TimeUnit
+import dev.schlubbe.musicagent.download.CmafRepairWorker
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -77,6 +80,11 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
             BackupWorker.UNIQUE_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<BackupWorker>(24, TimeUnit.HOURS).build(),
+        )
+        workManager.enqueueUniqueWork(
+            CmafRepairWorker.UNIQUE_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<CmafRepairWorker>().build(),
         )
 
         // No login screen in this backend-less variant, but analytics events

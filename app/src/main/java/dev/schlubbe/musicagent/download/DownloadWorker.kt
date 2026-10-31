@@ -442,6 +442,8 @@ class DownloadWorker @AssistedInject constructor(
             }
 
             if (initSegmentUrl != null) {
+                // one sidx per segment otherwise: wrong duration, no seeking (CmafRemux)
+                CmafRemux.rewriteInPlace(tempFile)
                 TransferOutcome.Completed(mimeType = "audio/mp4", totalBytes = tempFile.length())
             } else {
                 TransferOutcome.Completed(mimeType = "video/mp2t", totalBytes = tempFile.length(), useDownloadsCollection = true)
