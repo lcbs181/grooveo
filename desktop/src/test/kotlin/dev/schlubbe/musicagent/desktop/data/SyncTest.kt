@@ -211,6 +211,8 @@ class SyncTest {
     }
 
     @Test fun `the pairing key file is readable by its owner only`() {
+        // POSIX permissions only; Windows (NTFS) has no such view
+        if ("posix" !in java.nio.file.FileSystems.getDefault().supportedFileAttributeViews()) return
         val dir = Files.createTempDirectory("grooveo-sync").toFile()
         val f = java.io.File(dir, "sync.json")
         f.writeText("""{"key":"","enabled":false}""")
