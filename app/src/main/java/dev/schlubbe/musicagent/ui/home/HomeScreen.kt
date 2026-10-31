@@ -90,9 +90,9 @@ fun HomeScreen(
         }
     }
 
-    // Reloads on every (re)entry -- including returning from the Player -- so
-    // shelves reflect likes/plays/playlist edits made elsewhere.
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    // First entry loads everything; later ones only the local shelves (see
+    // HomeViewModel.onScreenEntered), so the feed stays put until the next app start.
+    LaunchedEffect(Unit) { viewModel.onScreenEntered() }
 
     LaunchedEffect(uiState.artistNavTarget) {
         uiState.artistNavTarget?.let { (source, sourceId) ->

@@ -506,9 +506,28 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    /** Reloads every shelf backed by a suspend call. Called from the screen on first
-     * composition and every time it's revisited (e.g. after coming back from the
-     * Player), so it reflects likes/playlist edits made elsewhere.
+    /** Screen (re)entry. The online shelves (Charts, Für dich, Mixes, Trends) load
+     * once per app start, so coming back from the Player no longer reshuffles them;
+     * pull-to-refresh ([refresh]) still reloads everything. Likes, playlists and the
+     * personal shelves are local and cheap, so they follow edits made elsewhere. */
+    fun onScreenEntered() {
+        if (!loadedOnce) {
+            refresh()
+            return
+        }
+        loadPlaylists()
+        loadLikes()
+        viewModelScope.launch {
+            runCatching { feedRepository.personalShelves() }.onSuccess { shelves ->
+                _uiState.value = _uiState.value.copy(onRepeat = shelves.onRepeat, rediscover = shelves.rediscover)
+            }
+        }
+    }
+
+    private var loadedOnce = false
+
+    /** Reloads every shelf backed by a suspend call: the first entry of the screen
+     * and pull-to-refresh.
      *
      * Every loader runs as a child of one [refreshJob] that the next refresh() cancels
      * first. Revisiting Home several times while a slow network was still answering
@@ -516,6 +535,7 @@ class HomeViewModel @Inject constructor(
      * all still running, and whichever answered last won each shelf. The returned job
      * ends when every loader has (pull-to-refresh waits for it). */
     fun refresh(): Job {
+        loadedOnce = true
         refreshJob?.cancel()
         return viewModelScope.launch {
             loadCharts(this)

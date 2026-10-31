@@ -25,8 +25,9 @@ val <T> HomeLoad<T>.valueOrNull: T? get() = (this as? HomeLoad.Ready<T>)?.value
 
 /**
  * Network-backed Home state. Lives as long as the app (kept per [AppUi]) so
- * returning to Home shows the last result instantly instead of re-fetching;
- * stale data (> [STALE_MS]) is refreshed in the background on re-entry.
+ * returning to Home shows the last result instantly instead of re-fetching.
+ * The online shelves load once per app start (or on "Aktualisieren"); re-entry
+ * only updates the local personal shelves.
  * Each shelf loads in its own coroutine — one failing shelf never breaks the page.
  */
 class HomeModel(private val ui: AppUi) {
@@ -68,7 +69,11 @@ class HomeModel(private val ui: AppUi) {
     }
 
     fun onEnter() {
-        if (lastLoad == 0L || System.currentTimeMillis() - lastLoad > STALE_MS) refresh()
+        if (lastLoad == 0L) {
+            refresh()
+            return
+        }
+        ui.scope.launch { shelves = withContext(Dispatchers.IO) { runCatching { g.feed.personalShelves() }.getOrDefault(shelves) } }
     }
 
     fun refresh() {
@@ -126,7 +131,6 @@ class HomeModel(private val ui: AppUi) {
     }
 
     companion object {
-        const val STALE_MS = 10 * 60_000L
         private val models = java.util.WeakHashMap<AppUi, HomeModel>()
         fun of(ui: AppUi): HomeModel = synchronized(models) { models.getOrPut(ui) { HomeModel(ui) } }
     }
