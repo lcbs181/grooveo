@@ -8,6 +8,9 @@ import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
  * YouTube Music does not have. The full app keeps both sources side by side. */
 object MergedResults {
 
+    /** Set at start-up by the Dawn Music app (shared code has no BuildConfig). */
+    @Volatile var enabled: Boolean = false
+
     /** Uploader decorations that do not make a different recording. "(Live)" or
      * "(Remix)" do, so only these are ignored when comparing titles. */
     private val NOISE = Regex(

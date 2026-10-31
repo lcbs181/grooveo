@@ -61,6 +61,7 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
 
     override fun onCreate() {
         super.onCreate()
+        dev.schlubbe.musicagent.data.repository.MergedResults.enabled = BuildConfig.DAWN
 
         NewPipe.init(newPipeDownloader)
         // Coil's disk cache reads its whole journal on first use under a lock. Left

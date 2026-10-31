@@ -1,6 +1,5 @@
 package dev.schlubbe.musicagent.data.repository
 
-import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudFollowersPage
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudSearchClient
 import dev.schlubbe.musicagent.data.extract.youtube.YouTubeMusicSearchClient
@@ -41,7 +40,7 @@ class SearchRepository @Inject constructor(
             else -> coroutineScope {
                 val sc = async { runCatching { soundCloud.search(query, limit) }.getOrDefault(emptyList()) }
                 val yt = async { runCatching { youTube.search(query, limit) }.getOrDefault(emptyList()) }
-                if (BuildConfig.DAWN) MergedResults.tracks(sc.await(), yt.await()) else interleave(sc.await(), yt.await())
+                if (MergedResults.enabled) MergedResults.tracks(sc.await(), yt.await()) else interleave(sc.await(), yt.await())
             }
         }
 
@@ -52,7 +51,7 @@ class SearchRepository @Inject constructor(
             else -> coroutineScope {
                 val sc = async { runCatching { soundCloud.searchArtists(query, limit) }.getOrDefault(emptyList()) }
                 val yt = async { runCatching { youTube.searchArtists(query, limit) }.getOrDefault(emptyList()) }
-                if (BuildConfig.DAWN) MergedResults.artists(query, sc.await(), yt.await()) else interleave(sc.await(), yt.await())
+                if (MergedResults.enabled) MergedResults.artists(query, sc.await(), yt.await()) else interleave(sc.await(), yt.await())
             }
         }
 

@@ -182,6 +182,8 @@ val sharedFiles = listOf(
     "data/extract/soundcloud/SoundCloudStreamResolver.kt",
     "data/extract/youtube/NewPipeDownloader.kt",
     "data/extract/youtube/YouTubeMusicSearchClient.kt",
+    "data/extract/youtube/YouTubeMusicArtistPage.kt",
+    "data/repository/MergedResults.kt",
     "data/extract/youtube/YouTubeStreamResolver.kt",
     "data/remote/dto/SearchDtos.kt",
     "data/remote/dto/LibraryDtos.kt",
