@@ -21,137 +21,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.schlubbe.musicagent.BuildConfig
+import dev.schlubbe.musicagent.R
 import dev.schlubbe.musicagent.ui.components.CanopyButton
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
 import dev.schlubbe.musicagent.ui.theme.Canopy
 
 private data class WhatsNewItem(val iconName: String, val title: String, val description: String)
 
-private val ITEMS = listOf(
-    WhatsNewItem(
-        "pulse",
-        "Neuer Mix: Gym Hardstyle🔱",
-        "\"Für dich abgemischt\" hat jetzt einen vierten Mix ganz vorne: Hardstyle für dein Training, zusammengestellt aus echten SoundCloud-Uploads mit dem Hardstyle-Tag.",
-    ),
-    WhatsNewItem(
-        "download-simple",
-        "Heruntergeladene Titel spielen jetzt offline",
-        "Ein Titel aus der Suche oder der Bibliothek antippen, spielte bisher immer den Stream - selbst wenn er längst heruntergeladen war. Jetzt wird automatisch die heruntergeladene Version verwendet, wenn eine vorhanden ist, und nur sonst gestreamt.",
-    ),
-    WhatsNewItem(
-        "stack",
-        "Bibliothek neu gegliedert",
-        "Favoriten, Playlists und Downloads sind jetzt eigene Unterseiten mit Live-Anzahl statt Kacheln zum Umschalten - übersichtlicher, näher am gewohnten SoundCloud-Aufbau. \"Kürzlich abgespielt\" und der Wiedergabeverlauf stehen direkt auf der Startseite der Bibliothek.",
-    ),
-    WhatsNewItem(
-        "download-simple",
-        "Downloads repariert - auch von großen Labels",
-        "SoundCloud-Downloads schlugen bisher fast immer fehl, vor allem bei Major-Label-Titeln ohne direkten Stream. Die Downloads laufen jetzt über den richtigen Weg und werden korrekt zusammengesetzt. Außerdem: Titel im Downloads-Tab (untere Leiste) lassen sich jetzt antippen und spielen ab - ging vorher gar nicht - und der \"Offline verfügbar\"-Hinweis im Player aktualisiert sich jetzt sofort, sobald ein Download fertig ist, statt erst nach erneutem Öffnen.",
-    ),
-    WhatsNewItem(
-        "sparkle",
-        "Bessere Vorschläge, und ein Filter dafür in den Einstellungen",
-        "\"Automatische Weiterempfehlung\" (Wiedergabe-Einstellungen) schlägt jetzt passende nächste Titel vor, wenn eine Warteschlange endet - basierend auf dem, was du gerade gehört hast, nicht auf einer zufälligen Liste. Die \"Für dich\"-Vorschläge sollten insgesamt treffsicherer sein. Neu unter \"Startseite personalisieren\": ein Schalter, der versucht, anstößige Titelbilder aus Charts und Mixes herauszuhalten - standardmäßig an, abschaltbar falls er mal einen falschen Titel erwischt.",
-    ),
-    WhatsNewItem(
-        "queue",
-        "\"Zur Warteschlange hinzufügen\" spielt jetzt wirklich als nächstes",
-        "Hinzugefügte Titel landeten bisher am Ende der Warteschlange statt direkt danach dran zu sein. Jetzt spielt ein hinzugefügter Song wirklich als nächstes, wie der Name es verspricht.",
-    ),
-    WhatsNewItem(
-        "circles-three",
-        "Visualizer: spürbar schneller und treffen jetzt den Beat",
-        "Die Visualizer liefen bisher mit gut 8 statt 60 Bildern pro Sekunde und reagierten kaum auf einzelne Kicks - das ist behoben. Alle fünf Visualizer laufen jetzt flüssig, die Partikel-Kugel hat viele mehr, kleinere Punkte mit je eigener Frequenz, und der Wellen-Visualizer ist einem kreisförmigen Spektrum gewichen. Bei Pulse spritzt das Konfetti jetzt spürbar auf den Beat statt gleichmäßig zu sprühen.",
-    ),
-    WhatsNewItem(
-        "cloud",
-        "Weniger Aussetzer beim Streamen",
-        "Der Wiedergabe-Puffer war zu knapp bemessen und riss bei kurzen Netzaussetzern ab. Jetzt wird mehr im Voraus geladen, und bei einem Abbruch versucht die App es automatisch erneut.",
-    ),
-    WhatsNewItem(
-        "waveform",
-        "Neuer Player",
-        "Der Player ist komplett neu: großes Cover, das im Takt atmet, fünf umschaltbare Visualizer, eine Wellenform zum Spulen und ein eigener Bereich für Offline-Wiedergabe.",
-    ),
-    WhatsNewItem(
-        "sliders-horizontal",
-        "Equalizer als eigener Bildschirm",
-        "Fünf Bänder, Vorverstärker und eine live gezeichnete Frequenzkurve. Die Voreinstellungen wirken sofort; die einzelnen Schieber sind noch Vorschau und werden nicht gespeichert.",
-    ),
-    WhatsNewItem(
-        "download-simple",
-        "Downloads als eigener Tab",
-        "Downloads sind aus der Bibliothek heraus in die untere Leiste gewandert - mit Warteschlange, Fortschritt pro Titel und Speicheranzeige. Der Konto-Tab ist dafür entfallen.",
-    ),
-    WhatsNewItem(
-        "desktop",
-        "Mit PC verbinden",
-        "Neuer Bildschirm, um Grooveo auf eine Adresse im eigenen Netz zu zeigen. Die Verbindung wird wirklich geprüft - Bibliothek und Streaming vom PC folgen später.",
-    ),
-    WhatsNewItem(
-        "cloud",
-        "Quellen selbst wählen",
-        "Der neue Startbildschirm fragt beim ersten Öffnen, ob du SoundCloud, YouTube Music oder beides nutzen willst - und die Suche hält sich daran. Jederzeit änderbar.",
-    ),
-    WhatsNewItem(
-        "sparkle",
-        "Neuer Look",
-        "Grooveo bekommt ein völlig neues Aussehen: Waldgrün statt Violett, neue Schrift, und erstmals auch ein helles Design. Die Umstellung läuft Bildschirm für Bildschirm.",
-    ),
-    WhatsNewItem(
-        "sparkle",
-        "Neuer Name: Grooveo",
-        "Music Agent heißt jetzt Grooveo - gleiche App, gleiche Bibliothek, nur ein Name, der sich bei Google nicht mehr mit tausend anderen Ergebnissen teilt.",
-    ),
-    WhatsNewItem(
-        "waveform",
-        "Player-Fehler behoben",
-        "Der Visualizer stand auf dem Kopf, SoundCloud-Titel brachen vorzeitig ab, und DRM-geschützte Titel wurden stumm übersprungen - alles behoben. DRM-Titel zeigen jetzt \"Song nicht verfügbar\" direkt im Player.",
-    ),
-    WhatsNewItem(
-        "clock-counter-clockwise",
-        "Suchverlauf",
-        "Die Suche merkt sich zuletzt gesuchte Begriffe und zeigt sie beim Öffnen an - lange gedrückt halten zeigt ein Löschen-Menü.",
-    ),
-    WhatsNewItem(
-        "house",
-        "Startseite überarbeitet",
-        "Neue Grußformel je Tageszeit und Jahreszeit, personalisierte Mixes unter \"Im Fokus\", und \"Neu von Künstlern\" funktioniert jetzt inklusive Vorschaubildern.",
-    ),
-    WhatsNewItem(
-        "stack",
-        "Bibliothek neu gestaltet",
-        "Komplett neue Übersicht mit Downloads, Likes und Playlists als eigene Unterseiten - näher am SoundCloud-Vorbild.",
-    ),
-    WhatsNewItem(
-        "cloud-arrow-up",
-        "Eigene Sicherung",
-        "Unter Einstellungen lässt sich der eigene Bestand jetzt als Datei sichern und teilen oder wiederherstellen.",
-    ),
-    WhatsNewItem(
-        "list-plus",
-        "Fremde Playlists & Alben",
-        "Gespeicherte Playlists und Alben von SoundCloud und YT Music zeigen jetzt Beschreibung und Tags und bekommen dieselben Aktionen wie eigene Playlists.",
-    ),
-    WhatsNewItem(
-        "download-simple",
-        "Downloadgröße sichtbar",
-        "Beim Herunterladen wird jetzt die Dateigröße jedes Titels angezeigt.",
-    ),
-    WhatsNewItem(
-        "arrow-clockwise",
-        "Update-Check im Hintergrund",
-        "Music Agent prüft jetzt automatisch auf neue Versionen und meldet sich per Benachrichtigung - dazu eine überarbeitete Wiedergabe-Benachrichtigung mit mehr Reglern.",
-    ),
-    WhatsNewItem(
-        "sparkle",
-        "Neues Logo & Feinschliff",
-        "Abgerundetes Logo, funktionierende Homescreen-Widgets, eine sanftere Navigationsleiste und ein Layout, das sich an die Größe deines Handys anpasst.",
-    ),
-)
+// Only what is new in the current release - cleared on every version bump instead of
+// growing into a changelog (the full history lives in the GitHub release notes).
+private val ITEMS = emptyList<WhatsNewItem>()
+
+/** False while [ITEMS] is empty: the Home banner then has nothing to point at. */
+val hasWhatsNewItems: Boolean get() = ITEMS.isNotEmpty()
 
 /** Shown after installing an update, or reachable any time via Einstellungen >
  * Updates & Sicherungen > "Was ist neu". Bottom nav is hidden by the caller
@@ -186,13 +72,22 @@ fun WhatsNewScreen(onDone: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Text(
-                "Music Agent wurde aktualisiert",
+                "${stringResource(R.string.app_name)} wurde aktualisiert",
                 style = MaterialTheme.typography.labelMedium,
                 color = Canopy.neutral500,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
 
+        if (ITEMS.isEmpty()) {
+            Text(
+                "Diese Version bringt vor allem Fehlerbehebungen und Feinschliff.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Canopy.neutral500,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             ITEMS.forEach { item ->
                 Row(verticalAlignment = Alignment.Top) {

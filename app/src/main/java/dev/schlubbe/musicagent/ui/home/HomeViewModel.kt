@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.schlubbe.musicagent.BuildConfig
+import dev.schlubbe.musicagent.ui.whatsnew.hasWhatsNewItems
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.recommend.Recommender
@@ -357,7 +358,7 @@ class HomeViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepository.lastSeenVersionCode.collect { seen ->
-                _uiState.value = _uiState.value.copy(showWhatsNewBanner = seen in 1 until BuildConfig.VERSION_CODE)
+                _uiState.value = _uiState.value.copy(showWhatsNewBanner = hasWhatsNewItems && seen in 1 until BuildConfig.VERSION_CODE)
             }
         }
         viewModelScope.launch {
