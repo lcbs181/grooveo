@@ -80,17 +80,34 @@ class SoundCloudSearchClient @Inject constructor(
             .take(limit)
 
     /** [permalink] is a playlist/album's permalink path (e.g. "someuser/some-playlist"),
-     * same as [getArtist]'s user permalink convention. SoundCloud only embeds full
-     * track objects inline for small playlists/albums - larger ones return {id}-only
-     * stubs that would need a further batch endpoint call (a different response shape
-     * - a bare JSON array - than every other call in this class expects), so those are
-     * skipped rather than special-cased; a very large playlist will only play its
-     * initially-embedded tracks. */
+     * same as [getArtist]'s user permalink convention. */
     suspend fun getPlaylistTracks(permalink: String): List<TrackResultDto> {
         val playlist = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
-        val trackRefs = playlist.jsonArrayOrNull("tracks") ?: return emptyList()
-        return trackRefs.mapNotNull { ref ->
-            ref.asJsonObject.takeIf { it.has("title") }?.toSoundCloudTrackResultDto()
+        return playlistTracks(playlist)
+    }
+
+    /** SoundCloud only embeds full track objects for the first few entries of a
+     * playlist; the rest come as {id}-only stubs. Those are fetched through
+     * "tracks?ids=" in batches of [TRACK_BATCH] (a few batches at once) and put back
+     * in playlist order. Tracks SoundCloud no longer returns (deleted, blocked in
+     * this region) are dropped; a failed batch drops only its own tracks. */
+    private suspend fun playlistTracks(playlist: JsonObject): List<TrackResultDto> = coroutineScope {
+        val refs = playlist.jsonArrayOrNull("tracks")?.map { it.asJsonObject } ?: return@coroutineScope emptyList()
+        val missingIds = refs.filter { !it.has("title") }.mapNotNull { it.longOrNull("id") }.distinct()
+        val fetched = HashMap<Long, JsonObject>()
+        missingIds.chunked(TRACK_BATCH).chunked(PARALLEL_BATCHES).forEach { wave ->
+            wave.map { ids ->
+                async {
+                    runCatching { api.getArray("tracks", mapOf("ids" to ids.joinToString(","))) }
+                        .getOrNull()
+                        ?.mapNotNull { it.takeIf { e -> e.isJsonObject }?.asJsonObject }
+                        .orEmpty()
+                }
+            }.forEach { batch -> batch.await().forEach { t -> t.longOrNull("id")?.let { fetched[it] = t } } }
+        }
+        refs.mapNotNull { ref ->
+            val full = if (ref.has("title")) ref else ref.longOrNull("id")?.let(fetched::get)
+            full?.toSoundCloudTrackResultDto()
         }
     }
 
@@ -102,10 +119,7 @@ class SoundCloudSearchClient @Inject constructor(
         val playlist = api.get("resolve", mapOf("url" to "https://soundcloud.com/$permalink"))
         val meta = playlist.toSoundCloudPlaylistResultDto()
             ?: error("SoundCloud playlist resolve returned an unexpected shape for $permalink")
-        val trackRefs = playlist.jsonArrayOrNull("tracks") ?: JsonArray()
-        val tracks = trackRefs.mapNotNull { ref ->
-            ref.asJsonObject.takeIf { it.has("title") }?.toSoundCloudTrackResultDto()
-        }
+        val tracks = playlistTracks(playlist)
         return RemotePlaylistDetailDto(
             source = meta.source,
             sourceId = meta.sourceId,
@@ -200,6 +214,12 @@ class SoundCloudSearchClient @Inject constructor(
         val items = (data.jsonArrayOrNull("collection") ?: JsonArray())
             .mapNotNull { it.asJsonObject.toSoundCloudArtistResultDto() }
         return SoundCloudFollowersPage(items = items, nextCursorUrl = data.stringOrNull("next_href"))
+    }
+
+    private companion object {
+        /** Ids per "tracks?ids=" request - the web player uses 50 as well. */
+        const val TRACK_BATCH = 50
+        const val PARALLEL_BATCHES = 4
     }
 }
 

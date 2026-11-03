@@ -2,6 +2,8 @@ package dev.schlubbe.musicagent.data.extract.soundcloud
 
 import android.util.Log
 import com.google.gson.JsonObject
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import dev.schlubbe.musicagent.data.extract.di.ExtractionHttpClient
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +30,13 @@ class SoundCloudApi @Inject constructor(
      * an absolute URL (used for a track's own transcoding metadata URL, which
      * SoundCloud already returns as a full api-v2 URL). */
     suspend fun get(pathOrUrl: String, query: Map<String, String> = emptyMap()): JsonObject =
-        call(pathOrUrl, query, retrying = false)
+        call(pathOrUrl, query, retrying = false).asJsonObject
 
-    private suspend fun call(pathOrUrl: String, query: Map<String, String>, retrying: Boolean): JsonObject =
+    /** For the few endpoints that answer with a bare JSON array (e.g. "tracks?ids=..."). */
+    suspend fun getArray(pathOrUrl: String, query: Map<String, String> = emptyMap()): JsonArray =
+        call(pathOrUrl, query, retrying = false).asJsonArray
+
+    private suspend fun call(pathOrUrl: String, query: Map<String, String>, retrying: Boolean): JsonElement =
         withContext(Dispatchers.IO) {
             val base = if (pathOrUrl.startsWith("http")) pathOrUrl else "$API_BASE$pathOrUrl"
             val clientId = clientIdProvider.getClientId(forceRefresh = retrying)
@@ -49,7 +55,7 @@ class SoundCloudApi @Inject constructor(
                 Log.w(TAG, "SoundCloud API error $code for $pathOrUrl, body: ${body.take(300)}")
             }
             check(code in 200..299) { "SoundCloud API error $code for $pathOrUrl" }
-            JsonParser.parseString(body).asJsonObject
+            JsonParser.parseString(body)
         }
 
     companion object {
