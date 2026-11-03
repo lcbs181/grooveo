@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Cover stand-in for the picker preview: the same accent gradient as the live
+     widget's cover placeholder (widget_cover_gradient). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/widget_thumb" />
-    <corners android:radius="8dp" />
+    <gradient
+        android:angle="315"
+        android:startColor="@color/widget_accent"
+        android:endColor="@color/widget_accent2"
+        android:type="linear" />
+    <corners android:radius="18dp" />
 </shape>

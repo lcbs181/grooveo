@@ -1,101 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Static mockup shown in the system's "Add widget" picker (referenced via
-     android:previewLayout in playback_widget_info.xml, API 31+) - plain Android
-     views, not Glance/Compose, since the picker renders this without ever
-     running the app's own code. Placeholder title/artist match the design
-     handoff's own example content (Music Agent Widget.dc.html) so the picker
-     preview actually looks like the real widget instead of the generic
-     app-icon placeholder Android falls back to when no preview is declared
-     at all - which is what shipped, unnoticed, every release until now. -->
+<!-- Static mockup for the system's "Add widget" picker (android:previewLayout in
+     playback_widget_info.xml, API 31+). Plain RemoteViews-safe views only
+     (LinearLayout/FrameLayout/TextView/ImageView - a bare <View> makes the picker
+     show "Can't load widget"). Mirrors the 2-row phone layout in PlaybackWidget.kt:
+     cover over the full height on the left, title, progress and big controls on the
+     right. Colours come from values/widget_colors.xml (Dawn Music overrides them). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:background="@drawable/bg_widget_preview_card"
-    android:padding="10dp">
+    android:padding="12dp">
+
+    <FrameLayout
+        android:layout_width="120dp"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_widget_preview_thumb" />
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_marginStart="14dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Night Drive"
+            android:textColor="@color/widget_text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Wren &amp; Fable"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
 
         <FrameLayout
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="@drawable/bg_widget_preview_thumb" />
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:layout_marginEnd="6dp"
-            android:orientation="vertical">
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:orientation="horizontal"
+            android:background="@drawable/bg_widget_preview_track_bg">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Night Drive"
-                android:textColor="@color/widget_text_primary"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="end" />
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="38"
+                android:background="@drawable/bg_widget_preview_track_fill" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Wren &amp; Fable"
-                android:textColor="@color/widget_text_secondary"
-                android:textSize="11sp"
-                android:singleLine="true"
-                android:ellipsize="end" />
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="62" />
         </LinearLayout>
 
-        <ImageView
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="7dp"
-            android:src="@drawable/ic_widget_skip_previous" />
-
-        <FrameLayout
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
-            android:background="@drawable/bg_widget_preview_play_circle">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal"
+            android:gravity="center">
 
             <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_widget_play" />
-        </FrameLayout>
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:src="@drawable/ic_widget_skip_previous" />
 
-        <ImageView
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:padding="7dp"
-            android:src="@drawable/ic_widget_skip_next" />
-    </LinearLayout>
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_widget_preview_play_circle">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal"
-        android:background="@drawable/bg_widget_preview_track_bg">
+                <ImageView
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_widget_play_glyph" />
+            </FrameLayout>
 
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="38"
-            android:background="@drawable/bg_widget_preview_track_fill" />
-
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="62" />
+            <ImageView
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:src="@drawable/ic_widget_skip_next" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
