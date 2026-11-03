@@ -53,9 +53,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import androidx.glance.appwidget.updateAll
+import dev.schlubbe.musicagent.widget.PlaybackWidget
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -513,6 +516,20 @@ class PlaybackService : MediaLibraryService() {
                 val preset = runCatching { Sound3dPreset.valueOf(presetName) }.getOrDefault(Sound3dPreset.DISABLED)
                 sound3dController.applyPreset(preset)
             }
+        }
+        // Glance closes an idle widget session after ~45 s, and a closed session no
+        // longer recomposes from playbackState - the widget froze on whatever it showed
+        // last until someone tapped it. Poke it on every track/play/like change instead
+        // (updateAll restarts the session when it is gone, and is cheap when it isn't).
+        serviceScope.launch {
+            playerController.playbackState
+                .map { Triple(it.currentTrackId, it.isPlaying, it.artworkUrl) }
+                .distinctUntilChanged()
+                .collect { runCatching { PlaybackWidget().updateAll(this@PlaybackService) } }
+        }
+        serviceScope.launch {
+            likesRepository.likedTrackIds
+                .collect { runCatching { PlaybackWidget().updateAll(this@PlaybackService) } }
         }
         serviceScope.launch {
             settingsRepository.volumeBoostDb.collect { db ->
