@@ -20,7 +20,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <View
+        <FrameLayout
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:background="@drawable/bg_widget_preview_thumb" />
@@ -37,7 +37,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Night Drive"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/widget_text_primary"
                 android:textSize="13sp"
                 android:textStyle="bold"
                 android:singleLine="true"
@@ -47,7 +47,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Wren &amp; Fable"
-                android:textColor="#AAAAAA"
+                android:textColor="@color/widget_text_secondary"
                 android:textSize="11sp"
                 android:singleLine="true"
                 android:ellipsize="end" />
@@ -87,13 +87,13 @@
         android:orientation="horizontal"
         android:background="@drawable/bg_widget_preview_track_bg">
 
-        <View
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="38"
             android:background="@drawable/bg_widget_preview_track_fill" />
 
-        <View
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="62" />

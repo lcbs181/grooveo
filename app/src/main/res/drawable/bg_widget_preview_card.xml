@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Picker preview card: the same gradient as the live widget (widget_card_gradient). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#161826" />
-    <corners android:radius="16dp" />
+    <gradient
+        android:angle="315"
+        android:startColor="@color/widget_card_start"
+        android:endColor="@color/widget_card_end"
+        android:type="linear" />
+    <corners android:radius="24dp" />
 </shape>

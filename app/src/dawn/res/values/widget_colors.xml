@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dawn Music widget: "Sonnenaufgang am Meer" glass card (sunrise pink fading into
+     pale sky blue), navy text, ocean-blue accent. Same names as main/res/values. -->
+<resources>
+    <color name="widget_card_start">#FAD4E1</color>
+    <color name="widget_card_center">#D6E7F9</color>
+    <color name="widget_card_end">#EAF3FC</color>
+    <color name="widget_text_primary">#0B1A2E</color>
+    <color name="widget_text_secondary">#3B4A5D</color>
+    <color name="widget_accent">#1665C8</color>
+    <color name="widget_accent2">#C93A78</color>
+    <color name="widget_on_accent">#FFFFFF</color>
+    <color name="widget_icon">#0B1A2E</color>
+    <color name="widget_icon_muted">#526377</color>
+    <color name="widget_heart_outline">#526377</color>
+    <color name="widget_track_bg">#4D0B1A2E</color>
+    <color name="widget_thumb">#B9D0E8</color>
+</resources>

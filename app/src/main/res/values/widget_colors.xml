@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget palette (Canopy dark), used by the widget drawables and the
+     picker preview. dawn/res/values/widget_colors.xml overrides it for Dawn Music;
+     PlaybackWidget.kt mirrors the same values in code (Glance draws them itself). -->
+<resources>
+    <color name="widget_card_start">#1F3A30</color>
+    <color name="widget_card_center">#152821</color>
+    <color name="widget_card_end">#0C1712</color>
+    <color name="widget_text_primary">#FFFFFF</color>
+    <color name="widget_text_secondary">#AAAAAA</color>
+    <color name="widget_accent">#4A8F76</color>
+    <color name="widget_accent2">#FF7A5C</color>
+    <color name="widget_on_accent">#0D1F1A</color>
+    <color name="widget_icon">#FFFFFF</color>
+    <color name="widget_icon_muted">#AAAAAA</color>
+    <color name="widget_heart_outline">#93A89C</color>
+    <color name="widget_track_bg">#33FFFFFF</color>
+    <color name="widget_thumb">#1B2E26</color>
+</resources>

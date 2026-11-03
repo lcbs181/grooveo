@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dawn Music widget card: sunrise pink at the top fading through sky blue into
+     the pale morning sea, like the app's own glass bars (ui/theme/Glass.kt). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="@color/widget_card_start"
+        android:centerColor="@color/widget_card_center"
+        android:endColor="@color/widget_card_end"
+        android:type="linear" />
+</shape>

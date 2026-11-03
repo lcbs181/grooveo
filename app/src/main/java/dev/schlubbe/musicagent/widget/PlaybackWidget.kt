@@ -52,6 +52,7 @@ import androidx.glance.unit.ColorProvider
 import coil.imageLoader
 import coil.request.ImageRequest
 import dev.schlubbe.musicagent.MainActivity
+import dev.schlubbe.musicagent.BuildConfig
 import dev.schlubbe.musicagent.R
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.playback.PlaybackUiState
@@ -63,22 +64,31 @@ import kotlinx.coroutines.withContext
 // duplicated here as plain constants. Pinned to the *dark* palette on purpose:
 // a widget sits on the user's wallpaper, not on an app surface, so it doesn't
 // follow the in-app light/dark choice.
-private val WIDGET_ACCENT = Color(0xFF4A8F76)
-private val WIDGET_ACCENT2 = Color(0xFFFF7A5C)
-private val WIDGET_BACKGROUND = Color(0xFF10201A)
-private val WIDGET_SURFACE = Color(0xFF1B2E26)
-private val WIDGET_TEXT_PRIMARY = Color.White
-private val WIDGET_TEXT_SECONDARY = Color(0xFFAAAAAA)
-private val WIDGET_TEXT_TERTIARY = Color(0xFF96A89D) // Canopy neutral500, dark theme
-private val WIDGET_DIVIDER = Color(0x33FFFFFF)
-private val WIDGET_QUEUE_ROW_BG = Color(0x14FFFFFF)
+//
+// Dawn Music swaps in its "Sonnenaufgang am Meer" glass look: a light sunrise card
+// (dawn/res/drawable/widget_card_gradient.xml) with navy text and the ocean-blue
+// accent. The XML side of both palettes lives in res/values/widget_colors.xml.
+private val DAWN = BuildConfig.DAWN
+private val WIDGET_ACCENT = if (DAWN) Color(0xFF1665C8) else Color(0xFF4A8F76)
+private val WIDGET_ACCENT2 = if (DAWN) Color(0xFFC93A78) else Color(0xFFFF7A5C)
+private val WIDGET_BACKGROUND = if (DAWN) Color(0xFFE4F0FB) else Color(0xFF10201A)
+private val WIDGET_SURFACE = if (DAWN) Color(0x660B1A2E) else Color(0xFF1B2E26)
+private val WIDGET_TEXT_PRIMARY = if (DAWN) Color(0xFF0B1A2E) else Color.White
+private val WIDGET_TEXT_SECONDARY = if (DAWN) Color(0xFF3B4A5D) else Color(0xFFAAAAAA)
+private val WIDGET_TEXT_TERTIARY = if (DAWN) Color(0xFF526377) else Color(0xFF96A89D) // Canopy neutral500, dark theme
+// Dawn: a bright glass rim instead of a dark hairline
+private val WIDGET_DIVIDER = if (DAWN) Color(0xB3FFFFFF) else Color(0x33FFFFFF)
+private val WIDGET_QUEUE_ROW_BG = if (DAWN) Color(0x66FFFFFF) else Color(0x14FFFFFF)
+private val WIDGET_APP_NAME = if (DAWN) "Dawn Music" else "Grooveo"
+private val WIDGET_COVER_LETTER = if (DAWN) "D" else "G"
+private val WIDGET_COVER_LETTER_COLOR = if (DAWN) Color.White else Color(0xFF0D1F1A)
 
 // Opaque, matching "Grooveo Widgets.dc.html"'s own var(--color-surface) card
 // exactly. An earlier version of this file made the card translucent, but the
 // design's radial-gradient backdrop is the mockup's own stand-in for a phone
 // wallpaper *behind* the widget, not part of the card - the card itself has no
 // transparency in the spec.
-private val WIDGET_CARD_BG = Color(0xFF1B2E26)
+private val WIDGET_CARD_BG = if (DAWN) Color(0x99FFFFFF) else Color(0xFF1B2E26)
 
 // Every one of the design's 5 tiers states the same `border-radius:24px` on its
 // outer card. This file previously used 14dp (Canopy's --radius-md token for
@@ -171,6 +181,8 @@ class PlaybackWidget : GlanceAppWidget() {
     }
 }
 
+private const val WIDGET_ARTWORK_PX = 320
+
 private suspend fun loadArtwork(context: Context, url: String): Bitmap? = withContext(Dispatchers.IO) {
     runCatching {
         val request = ImageRequest.Builder(context)
@@ -179,6 +191,12 @@ private suspend fun loadArtwork(context: Context, url: String): Bitmap? = withCo
             // bitmap (Coil/Android's default for decoded images) can't be shared
             // with the widget host process this way.
             .allowHardware(false)
+            // SizeMode.Responsive sends one layout per size tier, each carrying its own
+            // copy of the cover - at full size (YouTube covers decode to ~960px, 3.6 MB)
+            // the six copies broke the host's RemoteViews bitmap budget (~15 MB on a
+            // 1080p screen) and the widget showed "Can't show content". The largest tier
+            // draws the cover at ~120dp, so 320px is still sharp.
+            .size(WIDGET_ARTWORK_PX)
             .build()
         (context.imageLoader.execute(request).drawable as? BitmapDrawable)?.bitmap
     }.getOrNull()
@@ -261,7 +279,7 @@ private fun MiniWidgetContent(state: PlaybackUiState, artwork: Bitmap?) {
                     style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 )
                 Text(
-                    text = state.artist ?: "Grooveo",
+                    text = state.artist ?: WIDGET_APP_NAME,
                     maxLines = 1,
                     style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
                 )
@@ -348,7 +366,7 @@ private fun MediumWidgetContent(
                     style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
                 )
                 Text(
-                    text = state.artist ?: "Grooveo",
+                    text = state.artist ?: WIDGET_APP_NAME,
                     maxLines = 1,
                     style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
                 )
@@ -410,7 +428,7 @@ private fun LargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progres
                         style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
                     )
                     Text(
-                        text = state.artist ?: "Grooveo",
+                        text = state.artist ?: WIDGET_APP_NAME,
                         maxLines = 1,
                         style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
                     )
@@ -476,7 +494,7 @@ private fun XLargeWidgetContent(state: PlaybackUiState, artwork: Bitmap?, progre
                             style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 15.sp, fontWeight = FontWeight.Medium),
                         )
                         Text(
-                            text = state.artist ?: "Grooveo",
+                            text = state.artist ?: WIDGET_APP_NAME,
                             maxLines = 1,
                             style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 12.sp),
                         )
@@ -671,7 +689,7 @@ private fun sourceLabel(source: String?, offline: Boolean = false): String = whe
     offline -> "Offline"
     source == "soundcloud" -> "SoundCloud"
     source == "ytmusic" -> "YouTube Music"
-    else -> "Grooveo"
+    else -> WIDGET_APP_NAME
 }
 
 private fun mmss(totalSeconds: Int): String {
@@ -751,9 +769,9 @@ private fun CoverPlaceholder(size: Dp) {
             contentScale = ContentScale.Crop,
         )
         Text(
-            "G",
+            WIDGET_COVER_LETTER,
             style = TextStyle(
-                color = ColorProvider(Color(0xFF0D1F1A)),
+                color = ColorProvider(WIDGET_COVER_LETTER_COLOR),
                 fontSize = (size.value * 0.34f).sp,
                 fontWeight = FontWeight.Bold,
             ),
