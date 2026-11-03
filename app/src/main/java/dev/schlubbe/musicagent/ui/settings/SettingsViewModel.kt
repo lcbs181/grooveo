@@ -54,6 +54,8 @@ data class SettingsUiState(
     val crossfadeSeconds: Int = 0,
     // 3D-Sound
     val sound3dPreset: Sound3dPreset = Sound3dPreset.DISABLED,
+    val sound3dWetPercent: Int = 100,
+    val volumeBoostDb: Int = 0,
     // Downloads
     val dataSaverMode: Boolean = false,
     val downloadsWifiOnly: Boolean = false,
@@ -155,6 +157,16 @@ class SettingsViewModel @Inject constructor(
             settingsRepository.sound3dPreset.collect { name ->
                 val preset = runCatching { Sound3dPreset.valueOf(name) }.getOrDefault(Sound3dPreset.DISABLED)
                 _uiState.value = _uiState.value.copy(sound3dPreset = preset)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.volumeBoostDb.collect { db ->
+                _uiState.value = _uiState.value.copy(volumeBoostDb = db)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.sound3dWetPercent.collect { percent ->
+                _uiState.value = _uiState.value.copy(sound3dWetPercent = percent)
             }
         }
         viewModelScope.launch {
@@ -262,6 +274,16 @@ class SettingsViewModel @Inject constructor(
     fun onCrossfadeSecondsChanged(seconds: Int) {
         _uiState.value = _uiState.value.copy(crossfadeSeconds = seconds)
         viewModelScope.launch { settingsRepository.setCrossfadeSeconds(seconds) }
+    }
+
+    fun onVolumeBoostChanged(db: Int) {
+        _uiState.value = _uiState.value.copy(volumeBoostDb = db)
+        viewModelScope.launch { settingsRepository.setVolumeBoostDb(db) }
+    }
+
+    fun onSound3dWetChanged(percent: Int) {
+        _uiState.value = _uiState.value.copy(sound3dWetPercent = percent)
+        viewModelScope.launch { settingsRepository.setSound3dWetPercent(percent) }
     }
 
     fun onSound3dPresetChanged(preset: Sound3dPreset) {

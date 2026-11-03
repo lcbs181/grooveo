@@ -44,6 +44,13 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
 
     fun setVolume(v: Float) { volume = v }
 
+    /** "Lautstärke-Boost" in dB (0..[MAX_BOOST_DB]), on top of the EQ preamp and independent of
+     * the EQ switch. Only applied while the limiter is on - it is what keeps the boost from clipping. */
+    @Volatile var boostDb = 0.0
+        set(value) { field = value.coerceIn(0.0, MAX_BOOST_DB) }
+
+    private val boosting: Boolean get() = boostDb > 0.0 && limiterEnabled
+
     /** Takes over what the dynamic bands learned from [old] (a seek starts a fresh chain, not a fresh ear). */
     fun adoptDynamics(old: EqProcessor) {
         if (old.fs != fs) return
@@ -80,7 +87,8 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
             dynBass.amount = if (profile.enabled) profile.dynamicBass else 0.0
             tameHarsh.amount = if (profile.enabled) profile.tameHarsh else 0.0
         }
-        val targetPre = if (profile.enabled) 10.0.pow(profile.preampDb / 20) else 1.0
+        val boost = if (boosting) 10.0.pow(boostDb / 20) else 1.0
+        val targetPre = boost * if (profile.enabled) 10.0.pow(profile.preampDb / 20) else 1.0
         val old = fadingOut
         for (i in 0 until frames) {
             val t = (i + 1).toDouble() / frames
@@ -106,10 +114,12 @@ class EqProcessor(private val fs: Double = DEFAULT_SAMPLE_RATE) {
         fadingOut = null
         // in the path while it may be needed (EQ on, or normalisation that can boost): its 5 ms
         // look-ahead must not come and go with every track's gain (a jump in time is a click)
-        if (profile.limiter && (profile.enabled || normalizing)) limiter.process(buf, frames) else limiter.reset()
+        if (profile.limiter && (profile.enabled || normalizing || boosting)) limiter.process(buf, frames) else limiter.reset()
     }
 
     companion object {
+        const val MAX_BOOST_DB = 12.0
+
         /**
          * Equal-loudness compensation (simplified ISO 226): at -30 dB listening level
          * the ear needs roughly +10 dB at 100 Hz and +3.5 dB at 10 kHz to keep the

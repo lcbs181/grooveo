@@ -195,6 +195,8 @@ class BackupManager @Inject constructor(
                     autoplayRadio = settingsRepository.autoplayRadio.first(),
                     contentSafetyFilter = settingsRepository.contentSafetyFilter.first(),
                     sound3dPreset = settingsRepository.sound3dPreset.first(),
+                    sound3dWetPercent = settingsRepository.sound3dWetPercent.first(),
+                    volumeBoostDb = settingsRepository.volumeBoostDb.first(),
                     downloadsWifiOnly = settingsRepository.downloadsWifiOnly.first(),
                     notifyNewUploads = settingsRepository.notifyNewUploads.first(),
                     showMixControls = settingsRepository.showMixControls.first(),
@@ -324,6 +326,8 @@ class BackupManager @Inject constructor(
         settingsRepository.setAutoplayRadio(s.autoplayRadio)
         settingsRepository.setContentSafetyFilter(s.contentSafetyFilter)
         (s.sound3dPreset as String?)?.let { settingsRepository.setSound3dPreset(it) }
+        s.sound3dWetPercent?.let { settingsRepository.setSound3dWetPercent(it) }
+        s.volumeBoostDb?.let { settingsRepository.setVolumeBoostDb(it) }
         settingsRepository.setDownloadsWifiOnly(s.downloadsWifiOnly)
         settingsRepository.setNotifyNewUploads(s.notifyNewUploads)
         settingsRepository.setShowMixControls(s.showMixControls)

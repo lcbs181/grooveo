@@ -27,6 +27,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
     @Volatile private var volume = 1f
     private var eq: EqProcessor? = null
     @Volatile private var normalize = false
+    @Volatile private var boostDb = 0.0
     @Volatile private var track: Pair<String, Double?>? = null
     // kept across flushes (seeks) of the same sample rate, so a seek neither
     // restarts the measurement nor jumps the gain
@@ -44,6 +45,12 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
     fun setVolume(v: Float) {
         volume = v
         eq?.setVolume(v)
+    }
+
+    /** "Lautstärke-Boost" in dB, see [EqProcessor.boostDb]. */
+    fun setBoost(db: Double) {
+        boostDb = db
+        eq?.boostDb = db
     }
 
     /** Turns loudness normalisation on or off (glides, no jump). */
@@ -81,6 +88,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         eq = EqProcessor(rate.toDouble()).also {
             it.setProfile(profile)
             it.setVolume(volume)
+            it.boostDb = boostDb
             // dynamic bass and de-esser keep their level across a seek instead of creeping back
             old?.let(it::adoptDynamics)
         }
@@ -126,7 +134,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         p.process(work, frames)
         // samples the EQ or the normaliser changed get TPDF dither on the way back to 16 bit;
         // untouched ones stay bit-exact
-        val dither = !float && (profile.enabled || (normalizer?.currentGainDb ?: 0.0) != 0.0)
+        val dither = !float && (profile.enabled || boostDb > 0.0 || (normalizer?.currentGainDb ?: 0.0) != 0.0)
         val out = replaceOutputBuffer(frames * channels * sampleBytes).order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until frames) {
             for (ch in 0 until channels) {

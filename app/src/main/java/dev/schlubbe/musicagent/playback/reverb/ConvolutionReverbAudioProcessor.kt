@@ -53,6 +53,13 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
     @Volatile private var currentPreset: Sound3dPreset = Sound3dPreset.DISABLED
     @Volatile private var sampleRate: Int = 0
 
+    /** "Hall-Anteil" slider: scales the preset's own wet level (1 = preset default). The
+     * dry level stays put, so above 1 the mix gets louder - [limiter] keeps it from clipping. */
+    @Volatile var wetScale: Float = 1f
+        set(value) { field = value.coerceIn(0f, MAX_WET_SCALE) }
+
+    private val limiter = PeakLimiter()
+
     // Per-channel FIFO of samples queued but not yet enough for a whole
     // PartitionedConvolver.process() block - ExoPlayer hands this arbitrarily-sized
     // buffers, never conveniently aligned to blockSize.
@@ -96,6 +103,7 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
             enginesByPreset.clear()
             sampleRate = inputAudioFormat.sampleRate
         }
+        limiter.configure(sampleRate)
         pendingCount = 0
         return inputAudioFormat
     }
@@ -144,13 +152,17 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
             if (engine != null) {
                 engine.left.process(dryBlockLeft, wetBlockLeft)
                 engine.right.process(dryBlockRight, wetBlockRight)
+                val wet = engine.wetMix * wetScale
+                for (i in 0 until blockSize) {
+                    dryBlockLeft[i] = dryBlockLeft[i] * engine.dryMix + wetBlockLeft[i] * wet
+                    dryBlockRight[i] = dryBlockRight[i] * engine.dryMix + wetBlockRight[i] * wet
+                }
+                limiter.process(dryBlockLeft, dryBlockRight, blockSize)
             }
             for (i in 0 until blockSize) {
                 val frameBase = (offset + i) * BYTES_PER_FRAME
-                val l = if (engine != null) softClip(dryBlockLeft[i] * engine.dryMix + wetBlockLeft[i] * engine.wetMix) else dryBlockLeft[i]
-                val r = if (engine != null) softClip(dryBlockRight[i] * engine.dryMix + wetBlockRight[i] * engine.wetMix) else dryBlockRight[i]
-                outputBuffer.putShort(frameBase, (l * 32767f).toInt().toShort())
-                outputBuffer.putShort(frameBase + 2, (r * 32767f).toInt().toShort())
+                outputBuffer.putShort(frameBase, (softClip(dryBlockLeft[i]) * 32767f).toInt().toShort())
+                outputBuffer.putShort(frameBase + 2, (softClip(dryBlockRight[i]) * 32767f).toInt().toShort())
             }
             offset += blockSize
         }
@@ -172,8 +184,14 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
      * preset was switched off, so nothing is dropped at the switch. */
     private fun passThrough(inputBuffer: ByteBuffer) {
         val inBytes = inputBuffer.remaining()
-        val out = replaceOutputBuffer(pendingCount * BYTES_PER_FRAME + inBytes)
+        // The limiter's look-ahead still holds the last few ms from before the switch.
+        val (tailLeft, tailRight) = if (limiter.holdsAudio) limiter.drain() else EMPTY_TAIL
+        val out = replaceOutputBuffer((tailLeft.size + pendingCount) * BYTES_PER_FRAME + inBytes)
         out.order(ByteOrder.LITTLE_ENDIAN)
+        for (i in tailLeft.indices) {
+            out.putShort((softClip(tailLeft[i]) * 32767f).toInt().toShort())
+            out.putShort((softClip(tailRight[i]) * 32767f).toInt().toShort())
+        }
         for (i in 0 until pendingCount) {
             out.putShort((pendingLeft[i] * 32767f).toInt().toShort())
             out.putShort((pendingRight[i] * 32767f).toInt().toShort())
@@ -188,11 +206,13 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
         // but the engine (and its FFT'd impulse response) is expensive to rebuild -
         // only its history is cleared, not the cached engines themselves.
         enginesByPreset.values.forEach { it.left.reset(); it.right.reset() }
+        limiter.reset()
         pendingCount = 0
     }
 
     override fun onReset() {
         enginesByPreset.clear()
+        limiter.reset()
         pendingCount = 0
         sampleRate = 0
     }
@@ -237,5 +257,7 @@ class ConvolutionReverbAudioProcessor(private val context: Context) : BaseAudioP
 
     companion object {
         private const val BYTES_PER_FRAME = 4 // 2 channels * 16-bit
+        const val MAX_WET_SCALE = 2f
+        private val EMPTY_TAIL = FloatArray(0) to FloatArray(0)
     }
 }

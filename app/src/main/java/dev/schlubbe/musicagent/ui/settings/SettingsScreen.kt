@@ -33,6 +33,8 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -176,12 +178,23 @@ fun SettingsScreen(
                                 },
                                 onClick = { showSound3dSheet = true },
                             )
+                            if (sound3dOn) {
+                                Sound3dWetCard(
+                                    percent = uiState.sound3dWetPercent,
+                                    onChange = viewModel::onSound3dWetChanged,
+                                )
+                            }
                         }
                         SettingsNavRow(
                             icon = phosphorIcon("waveform"),
                             title = "Überblendung",
                             subtitle = crossfadeSubtitle(uiState.crossfadeSeconds),
                             onClick = { showCrossfadeSheet = true },
+                        )
+                        VolumeBoostCard(
+                            db = uiState.volumeBoostDb,
+                            limiterOn = uiState.eqProfile.limiter,
+                            onChange = viewModel::onVolumeBoostChanged,
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("sparkle"),
@@ -529,6 +542,71 @@ private fun SettingsToggleCard(
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, modifier = Modifier.padding(top = 2.dp))
         }
         CanopyToggle(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** "Lautstärke-Boost": 0..+12 dB in front of the EQ's look-ahead limiter, so quiet tracks
+ * get louder without clipping. Inactive while the limiter is switched off in the EQ. */
+@Composable
+private fun VolumeBoostCard(db: Int, limiterOn: Boolean, onChange: (Int) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CanopyShapes.medium)
+            .background(Canopy.surface)
+            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Lautstärke-Boost", style = MaterialTheme.typography.labelLarge)
+            Text(if (db == 0) "Aus" else "+$db dB", style = MaterialTheme.typography.labelLarge, color = Canopy.accent)
+        }
+        Text(
+            if (limiterOn) "Macht leise Titel lauter – ein Limiter verhindert Übersteuern."
+            else "Wirkt nur mit eingeschaltetem Limiter (Equalizer).",
+            style = MaterialTheme.typography.bodySmall,
+            color = Canopy.neutral500,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Slider(
+            value = db.toFloat(),
+            onValueChange = { v -> Math.round(v).let { if (it != db) onChange(it) } },
+            valueRange = 0f..12f,
+            enabled = limiterOn,
+            colors = SliderDefaults.colors(thumbColor = Canopy.accent, activeTrackColor = Canopy.accent, inactiveTrackColor = Canopy.neutral300),
+        )
+    }
+}
+
+/** "Hall-Anteil" (wet) slider under the 3D-Sound toggle: 0-200 % of the preset's own
+ * reverb level. Above 100 % the mix gets louder; the reverb processor's limiter keeps it
+ * from clipping. */
+@Composable
+private fun Sound3dWetCard(percent: Int, onChange: (Int) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CanopyShapes.medium)
+            .background(Canopy.surface)
+            .border(1.dp, Canopy.divider, CanopyShapes.medium)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Hall-Anteil (Wet)", style = MaterialTheme.typography.labelLarge)
+            Text("$percent %", style = MaterialTheme.typography.labelLarge, color = Canopy.accent)
+        }
+        Text(
+            "Mehr Hall macht es lauter – ein Limiter verhindert Übersteuern.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Canopy.neutral500,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Slider(
+            value = percent.toFloat(),
+            onValueChange = { v -> (Math.round(v / 5f) * 5).let { if (it != percent) onChange(it) } },
+            valueRange = 0f..200f,
+            colors = SliderDefaults.colors(thumbColor = Canopy.accent, activeTrackColor = Canopy.accent, inactiveTrackColor = Canopy.neutral300),
+        )
     }
 }
 

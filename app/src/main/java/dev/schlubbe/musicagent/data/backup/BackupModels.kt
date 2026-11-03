@@ -118,6 +118,10 @@ data class BackupSettingsDto(
     val autoBackup: Boolean,
     val profileName: String,
     val profileColorStyle: String,
+    /** "Hall-Anteil" in percent; null in backups made before the slider existed. */
+    val sound3dWetPercent: Int? = null,
+    /** "Lautstärke-Boost" in dB; null in backups made before it existed. */
+    val volumeBoostDb: Int? = null,
 )
 
 /** Closest legacy preset name for [BackupSettingsDto.eqPreset]. */

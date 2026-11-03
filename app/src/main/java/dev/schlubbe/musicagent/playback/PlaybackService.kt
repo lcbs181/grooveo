@@ -514,6 +514,17 @@ class PlaybackService : MediaLibraryService() {
                 sound3dController.applyPreset(preset)
             }
         }
+        serviceScope.launch {
+            settingsRepository.volumeBoostDb.collect { db ->
+                eqAudioProcessor.setBoost(db.toDouble())
+                tailEqAudioProcessor.setBoost(db.toDouble())
+            }
+        }
+        serviceScope.launch {
+            settingsRepository.sound3dWetPercent.collect { percent ->
+                reverbAudioProcessor.wetScale = percent / 100f
+            }
+        }
 
         val sessionActivity = PendingIntent.getActivity(
             this,
