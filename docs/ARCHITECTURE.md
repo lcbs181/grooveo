@@ -6,10 +6,29 @@ level deeper into the package layout.
 
 The Android app lives in the Gradle module `:app`
 (`dev.schlubbe.musicagent`). No backend is required for the core experience.
-A Linux desktop app lives in `:desktop` and compiles the platform-independent
+A desktop app for Linux and Windows lives in `:desktop` and compiles the platform-independent
 parts of `:app` (extraction, feed, lyrics, backup models, reverb, equalizer) directly from
 its sources; see [DESKTOP.md](DESKTOP.md) — see [Optional backend link](../README.md#optional-backend-link)
 for the one part that does talk to a server.
+
+## Two editions
+
+`:app` builds two apps from one source tree, as product flavors of the
+`edition` dimension (`app/build.gradle.kts`):
+
+| Flavor | App name | applicationId | Update asset |
+|---|---|---|---|
+| `grooveo` | Grooveo | `dev.schlubbe.musicagent.standalone` | `Grooveo-<version>.apk` |
+| `dawn` | Dawn Music | `dev.schlubbe.musicagent.dawn` | `DawnMusic-<version>.apk` |
+
+Both install side by side. Dawn Music is for listeners without a PC: a
+Spotify-style layout (Start · Suchen · Bibliothek, downloads as a library
+filter) without PC sync, live mix, DJ/mix controls, technical settings or the AI
+assistant. Shared code branches on `BuildConfig.DAWN` instead of forking
+screens; `app/src/dawn/` only overrides resources (launcher icon, splash mark,
+colors). Dawn also dresses up for Halloween, Weihnachten, Ostern, Karneval,
+Silvester and Valentinstag (`ui/theme/Theme.kt`, `holidayFor`). Dawn's artwork and its seasonal motifs are listed with their licences
+in [DAWN_ASSETS.md](DAWN_ASSETS.md).
 
 ## Package map
 
@@ -20,25 +39,32 @@ app/src/main/java/dev/schlubbe/musicagent/
 │   ├── local/             Room database: track cache, likes, playlists, downloads
 │   ├── remote/            DTOs + Retrofit client for the optional backend link
 │   ├── repository/        the repositories UI/ViewModels actually depend on
-│   └── backup/            local export/import of likes+playlists
+│   ├── backup/            local export/import of likes+playlists, phone/PC sync merge
+│   ├── sync/              PC sync client, live-mix stream, remote AI (Grooveo only)
+│   ├── spotify/           Spotify library import (Exportify, data export, CSV)
+│   ├── recommend/         on-device recommender for "Für dich" and radio
+│   └── tags/              genre/mood tags per track
 ├── di/                    Hilt modules
-├── download/              download queue/worker (WorkManager)
+├── download/              download queue/worker (WorkManager), MediaStore export
+├── follow/                new-upload notifications for followed artists
 ├── playback/              MediaLibraryService, PlayerController, queue state,
-│   │                      Android Auto browse tree (BrowseTree.kt)
+│   │                      crossfade, sleep fade, Android Auto browse tree
+│   ├── analysis/          background track analysis (tempo, mix points)
 │   ├── eq/                parametric equalizer DSP (shared with :desktop) and
 │   │                      its Media3 AudioProcessor
-│   └── reverb/            convolution reverb for 3D-Sound
+│   ├── reverb/            convolution reverb + peak limiter for 3D-Sound
+│   └── visualizer/        lock-free PCM ring buffer for the visualizers
 ├── update/                background update-check worker (see UpdateRepository)
 ├── widget/                home-screen widget (Jetpack Glance)
 └── ui/
     ├── navigation/        NavGraph, single-Activity navigation
     ├── theme/             Canopy design system: colors, type, tokens
     ├── components/        shared composables (buttons, cards, etc.)
-    ├── icons/              Phosphor icon lookup
-    ├── home/, search/, library/, playlist/, artist/, player/,
-    │   account/, settings/, onboarding/, auth/, update/, whatsnew/
-    │                       one package per screen/feature area
-    └── util/               small Compose/UI helpers
+    ├── icons/             Phosphor icon lookup
+    ├── home/, search/, library/, playlist/, artist/, player/, downloads/,
+    │   account/, settings/, onboarding/, spotify/, assistant/, update/,
+    │   whatsnew/          one package per screen/feature area
+    └── util/              small Compose/UI helpers
 ```
 
 ## Extraction (`data/extract/`)
@@ -101,7 +127,25 @@ audio-session change. Loudness compensation reads the music stream's real
 attenuation from `AudioManager.getStreamVolumeDb`. The crossfade tail player
 gets its own EQ instance, so the outgoing track keeps its EQ during a fade.
 
-The profile is stored as JSON in DataStore (`eq_profile`, see
+**Lautstärke-Boost** (Einstellungen › Wiedergabe, `volume_boost_db`, 0 to +12 dB)
+is a gain stage at the front of `EqProcessor`, on top of the EQ preamp and
+independent of the EQ switch. It pulls the EQ's look-ahead limiter into the
+path, so the boost raises quiet passages and only compresses peaks instead of
+clipping them. With the limiter switched off the boost is inactive ("off means
+off", same rule as loudness normalisation's boost). Both EQ instances (main and
+crossfade tail) get it.
+
+**3D-Sound** (`playback/reverb/`) convolves the signal with one of six
+impulse responses (Kino, Heimkino, Konzert, Rave, Studio, Kirche). Each preset
+has its own wet level; the "Hall-Anteil" slider in Einstellungen scales it from
+0 to 200 % (`sound_3d_wet` in DataStore, 100 = preset default) while the dry
+level stays put, so turning it up makes the mix louder. A stereo-linked
+look-ahead `PeakLimiter` (64 frames, ceiling −0.9 dBFS) sits after the mix and
+ramps the gain down before a peak arrives instead of clipping it. The limiter
+only runs while a preset is active; switching off drains its delay line so no
+audio is dropped.
+
+The EQ profile is stored as JSON in DataStore (`eq_profile`, see
 `playback/eq/EqCodec.kt`). Settings from older versions (a preset name plus
 five custom gains) are migrated on first read. Backups carry the full profile
 and the saved user profiles, and keep the old `eqPreset` name for older app
@@ -179,7 +223,10 @@ cut.
 ## Design system
 
 `ui/theme/` implements "Canopy" — the forest-green/coral design system (both
-light and dark palettes) used throughout the app (and the widget, via
+light and dark palettes) used throughout the app. Dawn Music swaps in its own
+palette (`OceanDawn`, "Sonnenaufgang am Meer": blue accent, sunrise pink as
+second colour) through the same tokens, plus "liquid glass" bars that blur the
+content behind them (`ui/theme/Glass.kt`, Haze) (and the widget, via
 duplicated plain `Color` constants in `widget/PlaybackWidget.kt`, since
 Glance widgets can't reference Compose's `MaterialTheme`). Icons come from
 Phosphor Icons (`ui/icons/`, `com.adamglin:phosphor-icon`).

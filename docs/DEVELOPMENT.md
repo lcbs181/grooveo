@@ -11,9 +11,8 @@
 
 ## First-time setup
 
-1. Clone the repo and open the `android/` directory as the project root in
-   Android Studio (this is the Gradle root — `settings.gradle.kts` lives
-   here).
+1. Clone the repo and open its root directory in Android Studio (this is
+   the Gradle root — `settings.gradle.kts` lives here).
 2. Let Android Studio generate `local.properties` (it sets `sdk.dir`
    automatically). If you're building from the CLI only, create it
    yourself:
@@ -32,8 +31,13 @@ likes, playlists, widget) — no backend, no account, no extra config.
 ## Running on a device/emulator
 
 ```
-./gradlew :app:installDebug
+./gradlew :app:installGrooveoDebug   # Grooveo
+./gradlew :app:installDawnDebug      # Dawn Music
 ```
+
+Both editions install side by side (see
+[ARCHITECTURE.md](ARCHITECTURE.md#two-editions)). Code that should only run in
+one of them checks `BuildConfig.DAWN`.
 
 or use Android Studio's Run button with a connected device/emulator
 (`minSdk` 30, so anything Android 11+).
@@ -61,13 +65,20 @@ that path specifically:
 
 ## Testing your change
 
-There's no unit/instrumented test suite for the app module yet. The current
-bar for a PR is:
+Both modules have JVM unit tests (`app/src/test/`, `desktop/src/test/`):
+DSP (equalizer, limiter), queue logic, sync merge, extraction parsers and more.
 
-1. `./gradlew :app:assembleDebug` succeeds.
+```
+./gradlew :app:testGrooveoDebugUnitTest :app:testDawnDebugUnitTest
+./gradlew :desktop:test                       # needs JDK 21
+```
+
+There is no instrumented (on-device) suite. The bar for a PR is:
+
+1. The unit tests above pass and `./gradlew :app:assembleDebug` succeeds.
 2. You've actually run the change on a device or emulator and exercised the
-   relevant screen(s) — including any edge cases the change affects (empty
-   states, errors, etc.).
+   relevant screen(s) — in both editions if the code is shared — including any
+   edge cases the change affects (empty states, errors, etc.).
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the rest of the PR checklist,
 including the What's New entry requirement for user-visible changes.

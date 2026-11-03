@@ -1,7 +1,8 @@
 # Contributing to Grooveo
 
 Thanks for considering a contribution. This is a small, on-device Android app
-(no backend required to build or run it) — most changes only need Android
+(no backend required to build or run it) that ships in two editions, Grooveo
+and Dawn Music, plus a desktop app — most changes only need Android
 Studio/Gradle and a device or emulator.
 
 ## Before you start
@@ -34,15 +35,16 @@ link](README.md#optional-backend-link) if you're also touching the
 backend-integration code path (analytics / update channel), which is the one
 part that needs extra config.
 
-Before opening a PR, make sure the app actually builds:
+Before opening a PR, make sure the app builds and the unit tests pass:
 
 ```
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug :app:testGrooveoDebugUnitTest :app:testDawnDebugUnitTest
 ```
 
-There's no unit/instrumented test suite covering the app module yet, so a
-successful build plus manually exercising the change (screen recording or
-description of what you tested in the PR) is the current bar.
+There is no instrumented suite, so also exercise the change on a device or
+emulator (screen recording or a description of what you tested in the PR) —
+in both editions when the code is shared. Gate edition-specific behaviour on
+`BuildConfig.DAWN` instead of copying screens.
 
 ## Code style
 
@@ -63,18 +65,25 @@ description of what you tested in the PR) is the current bar.
 Any change a user would actually notice (new feature, fixed bug, changed
 behavior) should get an entry in
 [`WhatsNewScreen.kt`](app/src/main/java/dev/schlubbe/musicagent/ui/whatsnew/WhatsNewScreen.kt)
-as part of the same PR — see the existing `ITEMS` list for the format
-(icon name from Phosphor Icons, short title, one-sentence description, in
-German). Internal refactors, CI/build changes, and other non-user-visible
+as part of the same PR — a `WhatsNewItem` in the `ITEMS` list (icon name from
+Phosphor Icons, short title, one-sentence description, in German). The list
+only holds the upcoming release and is cleared when a release is cut, so keep
+entries short. Internal refactors, CI/build changes, and other non-user-visible
 work don't need one.
+
+## Security
+
+Please read [`SECURITY.md`](SECURITY.md) before touching networking, sync,
+backups, the updater or anything that handles credentials — and never report a
+vulnerability in a public issue.
 
 ## Commit messages / PRs
 
 - Write commit messages that explain *why* a change was made, not just what
   changed (the diff already shows the "what").
 - Keep the PR description focused: what changed, why, and how you tested it.
-- Bump `versionCode`/`versionName` in `app/build.gradle.kts` only if you're
-  also cutting a release — regular PRs shouldn't touch it.
+- Bump `grooveo.versionCode`/`grooveo.versionName` in `gradle.properties` only
+  if you're also cutting a release — regular PRs shouldn't touch them.
 
 ## Releasing
 

@@ -26,11 +26,13 @@ Search, stream, download, like, and organize — all resolved and stored directl
 
 - [Features](#features)
 - [Screenshots](#screenshots)
+- [Dawn Music](#dawn-music)
 - [Architecture](#architecture)
 - [Building](#building)
 - [Optional backend link](#optional-backend-link)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
+- [Security](#security)
 - [License](#license)
 
 ## Features
@@ -44,6 +46,8 @@ Search, stream, download, like, and organize — all resolved and stored directl
 | **Home** | A *Charts* shelf (global SoundCloud/YouTube trending) and a *Für dich* feed computed entirely on-device from local play history and likes — no server-side aggregation. |
 | **Artist pages** | Collapsible bio, top/latest track shelves, and a paginated follower list (SoundCloud). |
 | **Player** | Waveform-style seek bar, shuffle/repeat, a sleep timer (15–90 min presets), a parametric equalizer (up to 16 bands, presets, bass enhancer, limiter, AutoEQ import), and a stream/download switch per track. |
+| **Lautstärke-Boost** | Up to +12 dB in front of the limiter: quiet tracks get louder, peaks are caught instead of clipped. |
+| **3D-Sound** | In-process convolution reverb with six rooms (Kino, Heimkino, Konzert, Rave, Studio, Kirche) and a *Hall-Anteil* slider (0–200 %); a look-ahead limiter lets it get louder without clipping. |
 | **Audio visualizers** | Five real-time, audio-reactive visualizer styles on the Player screen (bars, orb, particle sphere, circular spectrum, and a confetti-spraying pulse mode) — driven by an on-device FFT tapped directly from the decoded audio, not a fake animation. No `RECORD_AUDIO` permission needed; see [Architecture](docs/ARCHITECTURE.md#visualizer). |
 | **Home-screen widget** | Jetpack Glance, five size tiers from a 1×2 mini card up to a 3×7 tablet layout — play/pause/skip, now-playing artwork, and an up-next queue at the larger sizes. |
 | **Optional update channel** | Point it at the companion backend (see [below](#optional-backend-link)) and the app can check for and install new builds directly, with no Play Store listing. |
@@ -53,18 +57,65 @@ Search, stream, download, like, and organize — all resolved and stored directl
 <div align="center">
 <table>
 <tr>
-<td align="center"><img src="docs/readme/screenshots/01-home.jpg" alt="Home screen"><br><sub>Start</sub></td>
-<td align="center"><img src="docs/readme/screenshots/02-player.jpg" alt="Player screen"><br><sub>Player</sub></td>
-<td align="center"><img src="docs/readme/screenshots/03-search.jpg" alt="Search screen"><br><sub>Suche</sub></td>
-<td align="center"><img src="docs/readme/screenshots/04-library.jpg" alt="Library screen"><br><sub>Bibliothek</sub></td>
+<td align="center"><img src="docs/readme/screenshots/01-home.jpg" alt="Home screen" width="200"><br><sub>Start</sub></td>
+<td align="center"><img src="docs/readme/screenshots/02-player.jpg" alt="Player screen" width="200"><br><sub>Player</sub></td>
+<td align="center"><img src="docs/readme/screenshots/03-search.jpg" alt="Search screen" width="200"><br><sub>Suche</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/readme/screenshots/05-playlist.jpg" alt="Playlist screen"><br><sub>Playlist</sub></td>
-<td align="center"><img src="docs/readme/screenshots/06-artist.jpg" alt="Artist screen"><br><sub>Künstler</sub></td>
-<td align="center"><img src="docs/readme/screenshots/07-downloads.jpg" alt="Downloads screen"><br><sub>Downloads</sub></td>
-<td align="center"><img src="docs/readme/screenshots/08-equalizer.jpg" alt="Equalizer screen"><br><sub>Equalizer</sub></td>
+<td align="center"><img src="docs/readme/screenshots/04-library.jpg" alt="Library screen" width="200"><br><sub>Bibliothek</sub></td>
+<td align="center"><img src="docs/readme/screenshots/05-playlist.jpg" alt="Favorites list" width="200"><br><sub>Favoriten</sub></td>
+<td align="center"><img src="docs/readme/screenshots/06-artist.jpg" alt="Artist screen" width="200"><br><sub>Künstler</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/readme/screenshots/07-downloads.jpg" alt="Downloads screen" width="200"><br><sub>Downloads</sub></td>
+<td align="center"><img src="docs/readme/screenshots/08-equalizer.jpg" alt="Equalizer screen" width="200"><br><sub>Equalizer</sub></td>
+<td align="center"><img src="docs/readme/screenshots/09-settings.jpg" alt="Settings with 3D-Sound and Hall-Anteil" width="200"><br><sub>Einstellungen</sub></td>
 </tr>
 </table>
+
+<img src="docs/readme/screenshots/10-widget.jpg" alt="Grooveo home-screen widget" width="300"><br><sub>Widget</sub>
+</div>
+
+## Dawn Music
+
+**Dawn Music** is the second edition built from this repo: the same engine,
+for people who just want to listen — no PC, no settings jungle, a familiar
+Spotify-style layout.
+
+- **Three tabs**: Start · Suchen · Bibliothek. Downloads are a filter in the
+  library instead of a tab of their own.
+- **Left out on purpose**: PC sync and live mix, DJ/mix controls, technical
+  settings and the AI assistant.
+- **Look**: "Sonnenaufgang am Meer" — blue with a hint of sunrise pink,
+  translucent "liquid glass" bars and watercolour artwork with a dolphin as
+  the logo. For Halloween, Weihnachten, Ostern, Karneval, Silvester and
+  Valentinstag the app dresses up to match.
+- **Home-screen widget** in the same sunrise look (light glass card, ocean-blue
+  controls).
+- **Spotify import**: likes and playlists come over via Exportify, Spotify's
+  own data export or a TuneMyMusic CSV.
+- **Installs next to Grooveo** (`dev.schlubbe.musicagent.dawn`) and updates
+  itself from the same GitHub releases (`DawnMusic-<version>.apk`).
+
+Build it with `./gradlew :app:assembleDawnDebug`; the code is shared and
+switches on `BuildConfig.DAWN` (see [Architecture](docs/ARCHITECTURE.md#two-editions)).
+Image credits: [docs/DAWN_ASSETS.md](docs/DAWN_ASSETS.md).
+
+<div align="center">
+<table>
+<tr>
+<td align="center"><img src="docs/readme/screenshots/dawn/01-welcome.jpg" alt="Dawn Music welcome screen" width="200"><br><sub>Willkommen</sub></td>
+<td align="center"><img src="docs/readme/screenshots/dawn/02-home.jpg" alt="Dawn Music home screen" width="200"><br><sub>Start</sub></td>
+<td align="center"><img src="docs/readme/screenshots/dawn/03-player.jpg" alt="Dawn Music player" width="200"><br><sub>Player</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/readme/screenshots/dawn/04-search.jpg" alt="Dawn Music search with genre tiles" width="200"><br><sub>Suchen</sub></td>
+<td align="center"><img src="docs/readme/screenshots/dawn/05-library.jpg" alt="Dawn Music library" width="200"><br><sub>Bibliothek</sub></td>
+<td align="center"><img src="docs/readme/screenshots/dawn/06-onboarding.jpg" alt="Dawn Music artist picker" width="200"><br><sub>Einrichtung</sub></td>
+</tr>
+</table>
+
+<img src="docs/readme/screenshots/dawn/07-widget.jpg" alt="Dawn Music home-screen widget" width="300"><br><sub>Widget</sub>
 </div>
 
 ## Architecture
@@ -137,12 +188,6 @@ A subset of tracks (major-label content observed so far) are served exclusively 
 </details>
 
 <details>
-<summary>Very large SoundCloud playlists/albums only play the first batch</summary><br>
-
-They play whatever tracks SoundCloud's API embeds inline in the initial response (typically the first handful) — resolving the rest would need a second batch endpoint with a different response shape than every other call in this app expects.
-</details>
-
-<details>
 <summary>YouTube "Topic" channels sometimes expose no track list</summary><br>
 
 Auto-generated channels for artists without a manually managed one occasionally expose neither a "Tracks" nor "Videos" tab through NewPipeExtractor's channel model; the app falls back to whatever tab is available, logging what it found for diagnosis if it still comes up empty.
@@ -163,6 +208,12 @@ A track's "Zum Künstler" action only has an artist *name*, not an id, so it res
 ## Contributing
 
 Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, code style, and the PR process, and [`docs/`](docs/) for a deeper architecture/development/release writeup. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Found a vulnerability? Please report it privately, not in a public issue —
+see [`SECURITY.md`](SECURITY.md), which also has the security guidelines for
+contributors.
 
 ## License
 

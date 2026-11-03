@@ -19,7 +19,8 @@ and the update-check code has been repointed accordingly
 
 ## Cutting a release
 
-A release carries the Android APK, the Windows build (MSI installer and
+A release carries both Android APKs (`Grooveo-<version>.apk` and
+`DawnMusic-<version>.apk`), the Windows build (MSI installer and
 portable zip), the Linux build (`.deb` and portable `tar.gz`), the source
 tarball and `SHA256SUMS` over all of them. The full checklist, including the release-notes template, is the
 Claude Code skill [`.claude/skills/grooveo-release/SKILL.md`](../.claude/skills/grooveo-release/SKILL.md).
@@ -31,7 +32,11 @@ In short:
    `2900`), and the tag is `v<Android versionCode>` (`v2900`): the Android
    updater compares that number. The desktop updater compares the release
    **title**, which must be the `versionName`.
-2. Build the APKs locally with `./gradlew :app:assembleGrooveoRelease` and
+2. Clear `ITEMS` in
+   [`WhatsNewScreen.kt`](../app/src/main/java/dev/schlubbe/musicagent/ui/whatsnew/WhatsNewScreen.kt)
+   down to what is new in *this* release (the full history belongs in the
+   GitHub release notes). With an empty list the Home banner stays hidden.
+3. Build the APKs locally with `./gradlew :app:assembleGrooveoRelease` and
    `./gradlew :app:assembleDawnRelease` (Dawn Music flavor, released as "Dawn Music"). The `release`
    build type is signed with this machine's debug keystore
    (`~/.android/debug.keystore`) so it installs as an in-place update over the
@@ -39,12 +44,14 @@ In short:
    a different key means users must uninstall first. Never ship
    `assembleDebug`: a debuggable APK runs largely in the ART interpreter and was
    measured at ~3x slower cold start with heavy UI jank.
-3. Create the release as a **draft** with the APK (the only `.apk` asset) and
-   `git archive` source tarball, tag `v<versionCode>`, title `<versionName>`.
-4. Run `gh workflow run release.yml -f tag=v<versionCode>`: it builds the
+4. Create the release as a **draft** with both APKs (upload `Grooveo-*.apk`
+   first: updaters up to 0.7.0-test.9 take the first `.apk`; newer ones take
+   the asset starting with their own `APK_PREFIX`) and the `git archive`
+   source tarball, tag `v<versionCode>`, title `<versionName>`.
+5. Run `gh workflow run release.yml -f tag=v<versionCode>`: it builds the
    Windows and Linux packages on GitHub runners and uploads them to the draft.
    A last job downloads all assets, writes `SHA256SUMS` and uploads it too.
-5. Check that all seven assets (six files plus `SHA256SUMS`) are `uploaded`,
+6. Check that all eight assets (seven files plus `SHA256SUMS`) are `uploaded`,
    then publish the draft. Both updaters read `releases/latest`, so publish
    only once everything is there. The desktop updater verifies every download
    against `SHA256SUMS` and only offers the browser when it is missing; if an
@@ -74,7 +81,8 @@ On Android, the update check happens via `UpdateCheckWorker` (periodic) or
 whenever the update dialog is triggered manually — it hits
 `https://api.github.com/repos/lcbs181/grooveo/releases/latest`
 unauthenticated, compares the tag's version code against the installed
-app's, and offers the newer APK's `browser_download_url` if there is one.
+app's, and offers the `browser_download_url` of the APK whose name starts with
+its own edition's prefix (`BuildConfig.APK_PREFIX`) if there is one.
 With "Testversionen" on it reads `/releases` instead and takes the highest
 version code among releases and pre-releases.
 The desktop app polls the same endpoint and compares the release title with

@@ -28,8 +28,10 @@ The release notes also explain how to build the Linux app from source.
   pre-releases, see docs/RELEASING.md "Test builds".
 - **Title = `<versionName>`** (e.g. `0.6.0`). The desktop updater compares the
   release *title* with its `APP_VERSION` (`UpdateChecker`).
-- **Exactly one `.apk` asset.** The Android updater downloads the first `.apk`.
-- **The APK is built on this machine.** `release` is signed with
+- **Two `.apk` assets, `Grooveo-*` uploaded first.** Each updater takes the
+  APK starting with its own `APK_PREFIX`; updaters up to 0.7.0-test.9 take the
+  first `.apk`.
+- **The APKs are built on this machine.** `release` is signed with
   `~/.android/debug.keystore`; any other key breaks in-place updates. Never
   upload that keystore anywhere, and never ship `assembleDebug`.
 - Create the release as a **draft** and publish only after all assets are
@@ -54,7 +56,9 @@ The release notes also explain how to build the Linux app from source.
    ./gradlew :app:testGrooveoDebugUnitTest :app:testDawnDebugUnitTest :desktop:test
    GROOVEO_NETWORK_TESTS=1 ./gradlew :desktop:test --tests '*NetworkSmokeTest*'
    ```
-3. **Notes**: write the What's-New text in German, matching earlier releases
+3. **What's New**: clear `ITEMS` in `ui/whatsnew/WhatsNewScreen.kt` down to
+   this release's entries (empty is fine, the Home banner then stays hidden).
+   **Notes**: write the What's-New text in German, matching earlier releases
    (`gh release view v<prev> --json body`): `##` headings per feature,
    casual "du" tone, a "Kleinere Fixes" list, then the fixed footer from the
    template below. Collect changes with `git log v<prev>..HEAD --oneline`.
@@ -71,8 +75,6 @@ The release notes also explain how to build the Linux app from source.
    Each app's updater only takes the APK starting with its own name. Updaters up
    to 0.7.0-test.9 take the *first* `.apk`, so upload `Grooveo-*.apk` before
    `DawnMusic-*.apk`.
-   ```
-   ```
 6. **Source tarball** (tracked files only, no `local.properties`):
    ```
    git archive --format=tar.gz --prefix=grooveo-<version>/ -o dist/grooveo-<version>-source.tar.gz master
@@ -81,7 +83,7 @@ The release notes also explain how to build the Linux app from source.
    workflow checks the tag out, so push the tag first:
    ```
    git tag v<code> master && git push origin v<code>   # <code> = Android versionCode, e.g. 2800
-   gh release create v<code> dist/Grooveo-<version>.apk dist/grooveo-<version>-source.tar.gz \
+   gh release create v<code> dist/Grooveo-<version>.apk dist/DawnMusic-<version>.apk dist/grooveo-<version>-source.tar.gz \
      --repo lcbs181/grooveo --verify-tag --draft --title "<version>" --notes-file dist/notes.md
    ```
 8. **Desktop builds**:
@@ -91,7 +93,7 @@ The release notes also explain how to build the Linux app from source.
    ```
    On failure: `gh run view <id> --log-failed`, fix, push, rerun.
 9. **Check and publish**: `gh release view v<code> --json assets,isDraft`
-   lists seven assets (six files plus `SHA256SUMS`), all `uploaded`. Then
+   lists eight assets (seven files plus `SHA256SUMS`), all `uploaded`. Then
    `gh release edit v<code> --draft=false --latest`.
 10. Report the release URL to the user.
 
