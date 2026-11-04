@@ -349,6 +349,12 @@ fun SettingsScreen(
                             checked = uiState.notifyNewUploads,
                             onCheckedChange = viewModel::onNotifyNewUploadsChanged,
                         )
+                        ToggleRow(
+                            title = "Neuigkeiten",
+                            subtitle = null,
+                            checked = uiState.notifyNews,
+                            onCheckedChange = viewModel::onNotifyNewsChanged,
+                        )
                         if (!BuildConfig.DAWN) {
                             ToggleRow(
                                 title = "Mix & Stimmungen",

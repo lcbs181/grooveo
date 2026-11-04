@@ -111,6 +111,13 @@ android {
 }
 
 dependencies {
+    constraints {
+        // Guava comes in transitively (Media3, WorkManager, coroutines-guava) at
+        // 33.3.1; <= 33.7.1 has a deserialization memory-exhaustion advisory.
+        implementation("com.google.guava:guava:33.8.0-android") {
+            because("GHSA: CompactHashMap deserialization, fixed in 33.7.2")
+        }
+    }
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

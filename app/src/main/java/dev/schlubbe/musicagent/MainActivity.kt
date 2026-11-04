@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleSharedLinkIntent(intent)
+        if (savedInstanceState == null) handlePlayTrackIntent(intent)
     }
 
     // launchMode="singleTask" (see the manifest) routes a re-share while the app is
@@ -103,6 +104,22 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleSharedLinkIntent(intent)
+        handlePlayTrackIntent(intent)
+    }
+
+    /** A tapped "Neu von …" notification (NewUploadsWorker) carries its track: open
+     * the player and play it. The extra is removed so a later recreate of the
+     * activity doesn't start the song again. */
+    private fun handlePlayTrackIntent(intent: Intent?) {
+        val json = intent?.getStringExtra(EXTRA_PLAY_TRACK) ?: return
+        intent.removeExtra(EXTRA_PLAY_TRACK)
+        val track = runCatching {
+            com.google.gson.Gson().fromJson(json, dev.schlubbe.musicagent.data.remote.dto.TrackResultDto::class.java)
+        }.getOrNull() ?: return
+        lifecycleScope.launch {
+            sharedLinkNavHolder.pendingRoute.value = Routes.PLAYER
+            playerController.playTrack(track)
+        }
     }
 
     /** Resolves a SoundCloud/YouTube link this activity was opened or re-shared with
@@ -158,5 +175,10 @@ class MainActivity : ComponentActivity() {
         if (!granted) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    companion object {
+        /** JSON of a TrackResultDto to play on launch (new-upload notifications). */
+        const val EXTRA_PLAY_TRACK = "dev.schlubbe.musicagent.PLAY_TRACK"
     }
 }

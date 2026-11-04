@@ -60,6 +60,8 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val NOTIFY_NEW_UPLOADS = booleanPreferencesKey("notify_new_uploads")
         // NewUploadsWorker: uploads already reported, and followed artists checked once.
         val SEEN_UPLOADS = stringSetPreferencesKey("seen_uploads")
+        val NOTIFY_NEWS = booleanPreferencesKey("notify_news")
+        val SEEN_NEWS = stringSetPreferencesKey("seen_news")
         val UPLOAD_ARTISTS = stringSetPreferencesKey("upload_artists")
         val AUTO_BACKUP = booleanPreferencesKey("auto_backup")
         val LAST_BACKUP_AT = stringPreferencesKey("last_backup_at")
@@ -136,6 +138,18 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val notifyNewUploads: Flow<Boolean> = dataStore.data.map { it[Keys.NOTIFY_NEW_UPLOADS] ?: false }
     val seenUploads: Flow<Set<String>> = dataStore.data.map { it[Keys.SEEN_UPLOADS] ?: emptySet() }
     val uploadArtists: Flow<Set<String>> = dataStore.data.map { it[Keys.UPLOAD_ARTISTS] ?: emptySet() }
+
+    val notifyNews: Flow<Boolean> = dataStore.data.map { it[Keys.NOTIFY_NEWS] ?: true }
+    val seenNews: Flow<Set<String>> = dataStore.data.map { it[Keys.SEEN_NEWS] ?: emptySet() }
+
+    suspend fun setNotifyNews(enabled: Boolean) {
+        dataStore.edit { it[Keys.NOTIFY_NEWS] = enabled }
+    }
+
+    suspend fun markNewsSeen(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        dataStore.edit { it[Keys.SEEN_NEWS] = ((it[Keys.SEEN_NEWS] ?: emptySet()) + ids).toList().takeLast(500).toSet() }
+    }
 
     suspend fun markUploadsSeen(tracks: Set<String>, artists: Set<String>) {
         if (tracks.isEmpty() && artists.isEmpty()) return

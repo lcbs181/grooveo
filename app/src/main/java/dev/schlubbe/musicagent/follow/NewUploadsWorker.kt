@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.google.gson.Gson
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.schlubbe.musicagent.MainActivity
@@ -68,10 +69,14 @@ class NewUploadsWorker @AssistedInject constructor(
             description = "Neue Titel von Künstlern, denen du folgst"
         }
         applicationContext.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // the tap plays the new track (MainActivity.handlePlayTrackIntent); one
+        // request code per track, or every notification would play the last one
         val open = PendingIntent.getActivity(
-            applicationContext, 0,
-            Intent(applicationContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE,
+            applicationContext, "${track.source}:${track.sourceId}".hashCode(),
+            Intent(applicationContext, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(MainActivity.EXTRA_PLAY_TRACK, Gson().toJson(track)),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notif_small)

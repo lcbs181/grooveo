@@ -62,6 +62,7 @@ data class SettingsUiState(
     val cacheSizeMb: Long = 0L,
     // Benachrichtigungen
     val notifyNewUploads: Boolean = false,
+    val notifyNews: Boolean = true,
     // Startseite personalisieren
     val showMixControls: Boolean = true,
     val showFeatured: Boolean = true,
@@ -177,6 +178,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.notifyNewUploads.collect { enabled ->
                 _uiState.value = _uiState.value.copy(notifyNewUploads = enabled)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.notifyNews.collect { enabled ->
+                _uiState.value = _uiState.value.copy(notifyNews = enabled)
             }
         }
         viewModelScope.launch {
@@ -300,6 +306,11 @@ class SettingsViewModel @Inject constructor(
     fun onNotifyNewUploadsChanged(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(notifyNewUploads = enabled)
         viewModelScope.launch { settingsRepository.setNotifyNewUploads(enabled) }
+    }
+
+    fun onNotifyNewsChanged(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(notifyNews = enabled)
+        viewModelScope.launch { settingsRepository.setNotifyNews(enabled) }
     }
 
     fun onShowMixControlsChanged(enabled: Boolean) {

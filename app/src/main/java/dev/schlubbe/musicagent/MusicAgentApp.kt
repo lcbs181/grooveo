@@ -78,6 +78,13 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
                 .build(),
         )
         workManager.enqueueUniquePeriodicWork(
+            dev.schlubbe.musicagent.news.NewsWorker.UNIQUE_WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<dev.schlubbe.musicagent.news.NewsWorker>(4, TimeUnit.HOURS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build(),
+        )
+        workManager.enqueueUniquePeriodicWork(
             BackupWorker.UNIQUE_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<BackupWorker>(24, TimeUnit.HOURS).build(),
