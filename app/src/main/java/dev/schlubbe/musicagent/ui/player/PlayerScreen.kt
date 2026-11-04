@@ -245,6 +245,11 @@ fun PlayerScreen(
     // follow (see QueueNavigation).
     val upNextIndices = playbackState.upNextIndices
     val upNext = upNextIndices.map { playbackState.queue[it] }
+    // Endless queue: reaching the end of "Als Nächstes" loads the next batch at once.
+    val atListEnd by remember { androidx.compose.runtime.derivedStateOf { scrollState.maxValue > 0 && scrollState.value >= scrollState.maxValue - 200 } }
+    LaunchedEffect(atListEnd, upNext.size) {
+        if (atListEnd && upNext.size <= MAX_RENDERED_UPCOMING) viewModel.loadMoreUpNext()
+    }
     // Repeat-all wraps around the queue's ends, so the buttons stay enabled there -
     // the same rule PlayerController.skipToNext/skipToPrevious apply.
     val hasPrevious = playbackState.hasPrevious
@@ -256,10 +261,10 @@ fun PlayerScreen(
     }
 
     // Dawn Music: the backdrop takes the cover's colour like Spotify's player,
-    // lightened towards white so the dark text on it stays readable.
+    // lightened towards white (towards the navy background at night) so the text on it stays readable.
     val artworkColor = if (BuildConfig.DAWN) rememberArtworkColor(playbackState.artworkUrl) else null
     val topTint by animateColorAsState(
-        artworkColor?.let { lerp(it, Color.White, 0.45f) } ?: Canopy.accent200,
+        artworkColor?.let { if (Canopy.isDark) lerp(it, Canopy.bg, 0.45f) else lerp(it, Color.White, 0.45f) } ?: Canopy.accent200,
         animationSpec = tween(600),
         label = "playerTint",
     )

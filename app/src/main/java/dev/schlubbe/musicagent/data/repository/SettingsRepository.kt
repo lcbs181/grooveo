@@ -50,6 +50,7 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val SHOW_FEATURED = booleanPreferencesKey("show_featured")
         val SHOW_NEW_UPLOADS = booleanPreferencesKey("show_new_uploads")
         val PLAYER_STYLE = stringPreferencesKey("player_style")
+        val APPEARANCE = stringPreferencesKey("appearance")
         val AUTOPLAY_RADIO = booleanPreferencesKey("autoplay_radio")
         val SOUND_3D_PRESET = stringPreferencesKey("sound_3d_preset")
         val SOUND_3D_WET = intPreferencesKey("sound_3d_wet")
@@ -119,6 +120,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val showNewUploads: Flow<Boolean> = dataStore.data.map { it[Keys.SHOW_NEW_UPLOADS] ?: true }
     // "waveform" or "bars" -- the Player screen's progress-bar visual style.
     val playerStyle: Flow<String> = dataStore.data.map { it[Keys.PLAYER_STYLE] ?: "waveform" }
+    /** Dawn Music's design: "system" (follow the phone's dark mode), "light" or "dark". */
+    val appearance: Flow<String> = dataStore.data.map { it[Keys.APPEARANCE] ?: "system" }
+    // No longer a switch in the app (the queue always fills itself); only kept so backups stay compatible.
     val autoplayRadio: Flow<Boolean> = dataStore.data.map { it[Keys.AUTOPLAY_RADIO] ?: false }
     // One of Sound3dPreset's names (see playback/Sound3dController.kt), or null/
     // "DISABLED" for off.
@@ -203,7 +207,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     private val eqProfileCache = MutableStateFlow(EqProfile.flat())
     private val sound3dPresetCache = MutableStateFlow("DISABLED")
     private val downloadsWifiOnlyCache = MutableStateFlow(false)
-    private val autoplayRadioCache = MutableStateFlow(false)
     private val contentSafetyFilterCache = MutableStateFlow(true)
     private val crossfadeSecondsCache = MutableStateFlow(0)
 
@@ -214,7 +217,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val eqProfileCached: EqProfile get() = eqProfileCache.value
     val sound3dPresetCached: String get() = sound3dPresetCache.value
     val downloadsWifiOnlyCached: Boolean get() = downloadsWifiOnlyCache.value
-    val autoplayRadioCached: Boolean get() = autoplayRadioCache.value
     val contentSafetyFilterCached: Boolean get() = contentSafetyFilterCache.value
     val crossfadeSecondsCached: Int get() = crossfadeSecondsCache.value
 
@@ -226,7 +228,6 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         scope.launch { eqProfile.collect { eqProfileCache.value = it } }
         scope.launch { sound3dPreset.collect { sound3dPresetCache.value = it } }
         scope.launch { downloadsWifiOnly.collect { downloadsWifiOnlyCache.value = it } }
-        scope.launch { autoplayRadio.collect { autoplayRadioCache.value = it } }
         scope.launch { contentSafetyFilter.collect { contentSafetyFilterCache.value = it } }
         scope.launch { crossfadeSeconds.collect { crossfadeSecondsCache.value = it } }
     }
@@ -294,6 +295,10 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
 
     suspend fun setShowNewUploads(enabled: Boolean) {
         dataStore.edit { it[Keys.SHOW_NEW_UPLOADS] = enabled }
+    }
+
+    suspend fun setAppearance(mode: String) {
+        dataStore.edit { it[Keys.APPEARANCE] = mode }
     }
 
     suspend fun setPlayerStyle(style: String) {

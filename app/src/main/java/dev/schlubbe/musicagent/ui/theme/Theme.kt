@@ -60,9 +60,24 @@ fun GrooveoTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     // Dawn Music: dressed for today's holiday (Halloween, Advent ...), if any
     val holiday = if (BuildConfig.DAWN) androidx.compose.runtime.remember { holidayFor(HolidayClock.today()) } else null
     val canopy = when {
+        // at night the holiday keeps its greeting and art, not its daylight colours
+        BuildConfig.DAWN && darkTheme -> OceanDawnNight
         BuildConfig.DAWN -> OceanDawn.withHoliday(holiday?.look)
         darkTheme -> CanopyDark
         else -> CanopyLight
+    }
+    if (BuildConfig.DAWN) {
+        // status and navigation bar icons dark on the light sky, light at night
+        val view = androidx.compose.ui.platform.LocalView.current
+        if (!view.isInEditMode) {
+            androidx.compose.runtime.SideEffect {
+                val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
+                androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !canopy.isDark
+                    isAppearanceLightNavigationBars = !canopy.isDark
+                }
+            }
+        }
     }
     CompositionLocalProvider(LocalCanopyColors provides canopy, LocalHoliday provides holiday) {
         MaterialTheme(

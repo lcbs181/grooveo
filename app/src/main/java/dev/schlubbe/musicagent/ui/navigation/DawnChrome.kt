@@ -75,7 +75,11 @@ fun DawnBottomChrome(
                             .clip(RoundedCornerShape(34.dp))
                             .background(
                                 if (selected) {
-                                    Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.75f), Canopy.accent100.copy(alpha = 0.55f)))
+                                    if (Canopy.isDark) {
+                                        Brush.verticalGradient(listOf(Canopy.accent300.copy(alpha = 0.75f), Canopy.accent200.copy(alpha = 0.55f)))
+                                    } else {
+                                        Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.75f), Canopy.accent100.copy(alpha = 0.55f)))
+                                    }
                                 } else {
                                     Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
                                 },

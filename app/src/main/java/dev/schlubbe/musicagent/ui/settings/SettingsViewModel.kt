@@ -49,7 +49,7 @@ data class SettingsUiState(
     val eqUserPresets: List<EqProfile> = emptyList(),
     val loudnessNormalization: Boolean = true,
     val playerStyle: String = "waveform",
-    val autoplayRadio: Boolean = false,
+    val appearance: String = "system",
     val contentSafetyFilter: Boolean = true,
     val crossfadeSeconds: Int = 0,
     // 3D-Sound
@@ -139,8 +139,8 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            settingsRepository.autoplayRadio.collect { enabled ->
-                _uiState.value = _uiState.value.copy(autoplayRadio = enabled)
+            settingsRepository.appearance.collect { mode ->
+                _uiState.value = _uiState.value.copy(appearance = mode)
             }
         }
         viewModelScope.launch {
@@ -256,15 +256,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setEqUserPresets(list) }
     }
 
+    fun onAppearanceChanged(mode: String) {
+        _uiState.value = _uiState.value.copy(appearance = mode)
+        viewModelScope.launch { settingsRepository.setAppearance(mode) }
+    }
+
     fun onPlayerStyleChanged(style: String) {
         _uiState.value = _uiState.value.copy(playerStyle = style)
         viewModelScope.launch { settingsRepository.setPlayerStyle(style) }
     }
 
-    fun onAutoplayRadioChanged(enabled: Boolean) {
-        _uiState.value = _uiState.value.copy(autoplayRadio = enabled)
-        viewModelScope.launch { settingsRepository.setAutoplayRadio(enabled) }
-    }
 
     fun onContentSafetyFilterChanged(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(contentSafetyFilter = enabled)

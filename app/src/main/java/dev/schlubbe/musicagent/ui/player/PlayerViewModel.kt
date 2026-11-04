@@ -248,6 +248,8 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { playerController.moveInQueue(from, to) }
     }
 
+    fun loadMoreUpNext() = playerController.loadMoreUpNext()
+
     fun clearUpNext() {
         viewModelScope.launch { playerController.clearUpNext() }
     }

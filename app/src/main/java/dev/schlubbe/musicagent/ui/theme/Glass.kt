@@ -28,14 +28,18 @@ val LocalGlassState = staticCompositionLocalOf<HazeState?> { null }
  * scroll on under it, so their lists end with this much padding; 0 elsewhere. */
 val LocalChromeInset = androidx.compose.runtime.compositionLocalOf { 0.dp }
 
-/** "Morgen am Meer": Dawn Music's page background, a soft sunrise pink
+/** "Morgen am Meer": Dawn Music's page background, a soft golden first light
  * at the top turning into sky blue and fading into the pale [OceanDawn]
- * background; on a holiday its own sky ([HolidayLook.sky]). Tab screens draw on
- * it with a transparent container (see [dawnContainer]). */
+ * background; on a holiday its own sky ([HolidayLook.sky]). At night a deep
+ * pre-dawn blue fading into [OceanDawnNight]'s navy. Tab screens draw on it with
+ * a transparent container (see [dawnContainer]). */
 val DawnSky: Brush
     @Composable
     get() {
-        val sky = LocalHoliday.current?.look?.sky ?: listOf(Color(0xFFF9CFC6), Color(0xFFB4D6F4), Color(0xFFE4F0FB))
+        val sky = when {
+            Canopy.isDark -> listOf(Color(0xFF1C2D4A), Color(0xFF102039), Color(0xFF0A1626))
+            else -> LocalHoliday.current?.look?.sky ?: listOf(Color(0xFFF5E2C2), Color(0xFFB4D6F4), Color(0xFFE4F0FB))
+        }
         return Brush.verticalGradient(0f to sky[0], 0.35f to sky[1], 1f to sky[2])
     }
 
@@ -47,10 +51,18 @@ val dawnContainer: Color
 @Composable
 fun Modifier.glassSurface(shape: Shape): Modifier {
     val state = LocalGlassState.current
-    val glow = Canopy.accent.copy(alpha = 0.35f)
+    val dark = Canopy.isDark
+    val glow = Canopy.accent.copy(alpha = if (dark) 0.20f else 0.35f)
     val warmEdge = Canopy.accent2.copy(alpha = 0.10f)
+    // milky glass by day, smoked navy glass at night
+    val tint = if (dark) Canopy.surface else Color.White
+    val sheen = if (dark) 0.10f else 0.25f
     val rim = Brush.verticalGradient(
-        listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.35f), Canopy.accent2.copy(alpha = 0.25f)),
+        listOf(
+            Color.White.copy(alpha = if (dark) 0.28f else 0.95f),
+            Color.White.copy(alpha = if (dark) 0.08f else 0.35f),
+            Canopy.accent2.copy(alpha = if (dark) 0.18f else 0.25f),
+        ),
     )
     return this
         .shadow(elevation = 16.dp, shape = shape, ambientColor = glow, spotColor = glow)
@@ -58,18 +70,18 @@ fun Modifier.glassSurface(shape: Shape): Modifier {
         .hazeEffect(
             state,
             HazeStyle(
-                tint = HazeTint(Color.White.copy(alpha = 0.5f)),
+                tint = HazeTint(tint.copy(alpha = if (dark) 0.62f else 0.5f)),
                 blurRadius = 12.dp,
                 noiseFactor = 0.03f,
                 // no blur below Android 12: nearly opaque instead, so text stays readable
-                fallbackTint = HazeTint(Color.White.copy(alpha = 0.9f)),
+                fallbackTint = HazeTint(tint.copy(alpha = 0.92f)),
             ),
         )
         .drawBehind {
             drawRect(
                 Brush.verticalGradient(
-                    0f to Color.White.copy(alpha = 0.25f),
-                    0.5f to Color.White.copy(alpha = 0.08f),
+                    0f to Color.White.copy(alpha = sheen),
+                    0.5f to Color.White.copy(alpha = sheen / 3),
                     1f to Color.Transparent,
                 ),
             )

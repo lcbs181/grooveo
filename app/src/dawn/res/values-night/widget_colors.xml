@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dawn Music widget at night (phone in dark mode): smoked navy glass, pre-dawn
+     blue at the top, light text, lit sky-blue accent. Mirrors OceanDawnNight. -->
+<resources>
+    <color name="widget_card_start">#1C2D4A</color>
+    <color name="widget_card_center">#13233A</color>
+    <color name="widget_card_end">#0F1D31</color>
+    <color name="widget_text_primary">#EAF2FB</color>
+    <color name="widget_text_secondary">#B8C6D6</color>
+    <color name="widget_accent">#6CB0F0</color>
+    <color name="widget_accent2">#F2A65A</color>
+    <color name="widget_on_accent">#06203F</color>
+    <color name="widget_icon">#EAF2FB</color>
+    <color name="widget_icon_muted">#9DAEC2</color>
+    <color name="widget_heart_outline">#9DAEC2</color>
+    <color name="widget_track_bg">#4DEAF2FB</color>
+    <color name="widget_thumb">#243A58</color>
+    <color name="widget_card_stroke">#33FFFFFF</color>
+</resources>

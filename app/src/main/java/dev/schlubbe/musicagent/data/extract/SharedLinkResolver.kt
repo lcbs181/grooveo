@@ -49,7 +49,13 @@ class SharedLinkResolver @Inject constructor(
     /** First URL found in the intent's data (ACTION_VIEW) or EXTRA_TEXT (a shared
      * ACTION_SEND, which can be an arbitrary sentence with a link buried in it). */
     fun extractUrl(intent: Intent): String? {
-        intent.data?.toString()?.let { return it }
+        // Only a real VIEW/SEND of a web link: the home-screen widget starts the app
+        // with Glance's own glance-action:// data URI, which is no link at all.
+        when (intent.action) {
+            Intent.ACTION_VIEW -> return intent.data?.takeIf { it.scheme == "https" || it.scheme == "http" }?.toString()
+            Intent.ACTION_SEND -> Unit
+            else -> return null
+        }
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return null
         val matcher = Patterns.WEB_URL.matcher(sharedText)
         return if (matcher.find()) matcher.group() else null

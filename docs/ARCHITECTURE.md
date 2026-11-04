@@ -100,13 +100,33 @@ playback through a single shared `MediaController` wrapper,
 This is what keeps playback state (now-playing, queue, position) consistent
 across the whole app and the widget without manual synchronization.
 
+### Endless queue and gapless playback
+
+The queue always fills itself (there is no setting for it any more):
+`PlayerController.topUpQueue()` runs after every queue start, track change,
+queue edit and repeat/shuffle change, and once fewer than `RADIO_AHEAD` (3)
+tracks are left in play order it calls `continueWithRadio()`, which appends a
+batch from `FeedRepository.predictNext` (downloads as offline fallback). Repeat
+modes loop the queue themselves and are left alone. The old `autoplay_radio`
+key stays in DataStore and backups only for compatibility.
+
+ExoPlayer joins playlist items without a gap as long as the output format
+stays the same. The remaining gap source is silence baked into the files:
+`SilenceMeter` (a `TeeAudioProcessor` sink at the front of the chain) counts
+the current run of near-silent decoded frames (≈ −66 dBFS), and
+`PlaybackService.skipTrailingSilence()` moves to the next item once that run
+is 1.2 s long within a track's last 12 s. The decoder is at most the AudioTrack
+buffer ahead of what is heard, so only silence is cut. The jump is reported as
+a completed play, not a skip. With crossfade on, its mix points handle the
+track ends instead.
+
 ### Audio processing
 
 All effects run in-process inside the `DefaultAudioSink`'s processor chain, so
 they behave the same on every device:
 
 ```
-decoder ─ ParametricEqAudioProcessor ─ TeeAudioProcessor (visualizer) ─ ConvolutionReverbAudioProcessor ─ AudioTrack
+decoder ─ TeeAudioProcessor (SilenceMeter) ─ ParametricEqAudioProcessor ─ TeeAudioProcessor (visualizer) ─ ConvolutionReverbAudioProcessor ─ AudioTrack
 ```
 
 The **parametric equalizer** (`playback/eq/`) is the same code the desktop app
@@ -224,9 +244,11 @@ cut.
 
 `ui/theme/` implements "Canopy" — the forest-green/coral design system (both
 light and dark palettes) used throughout the app. Dawn Music swaps in its own
-palette (`OceanDawn`, "Sonnenaufgang am Meer": blue accent, sunrise pink as
-second colour) through the same tokens, plus "liquid glass" bars that blur the
+palette (`OceanDawn`, "Sonnenaufgang am Meer": blue accent, amber as second
+colour; `OceanDawnNight` for dark mode, picked by the `appearance` setting —
+system/light/dark — in `MainActivity`) through the same tokens, plus "liquid glass" bars that blur the
 content behind them (`ui/theme/Glass.kt`, Haze) (and the widget, via
-duplicated plain `Color` constants in `widget/PlaybackWidget.kt`, since
+day/night `ColorProvider` pairs in `widget/PlaybackWidget.kt` and
+`dawn/res/values-night/widget_colors.xml`, since
 Glance widgets can't reference Compose's `MaterialTheme`). Icons come from
 Phosphor Icons (`ui/icons/`, `com.adamglin:phosphor-icon`).

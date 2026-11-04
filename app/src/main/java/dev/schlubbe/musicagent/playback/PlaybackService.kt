@@ -118,6 +118,7 @@ class PlaybackService : MediaLibraryService() {
     private val reverbAudioProcessor = ConvolutionReverbAudioProcessor(this)
     private val sound3dController = Sound3dController(reverbAudioProcessor)
     private val audioVisualizerController = AudioVisualizerController()
+    private val silenceMeter = SilenceMeter()
     private var crossfadeController: CrossfadeController? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -349,7 +350,9 @@ class PlaybackService : MediaLibraryService() {
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(arrayOf(eqAudioProcessor, TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor))
+                .setAudioProcessors(
+                    arrayOf(TeeAudioProcessor(silenceMeter), eqAudioProcessor, TeeAudioProcessor(audioVisualizerController), reverbAudioProcessor),
+                )
                 .build()
         }.apply {
             if (readHiResAudioSetting()) {
@@ -461,6 +464,7 @@ class PlaybackService : MediaLibraryService() {
                 crossfadeController?.poll(settingsRepository.crossfadeSecondsCached * 1000L) {
                     playerController.markCurrentTrackCompletedForCrossfade()
                 }
+                skipTrailingSilence(exoPlayer)
             }
         }
 
@@ -531,6 +535,21 @@ class PlaybackService : MediaLibraryService() {
             likesRepository.likedTrackIds
                 .collect { runCatching { PlaybackWidget().updateAll(this@PlaybackService) } }
         }
+        // The widget polls its own position while its Glance session runs, but Glance
+        // closes an idle session after ~45 s: poke it every few seconds while music
+        // plays and the screen is on (nobody sees it otherwise), and only if a widget
+        // is actually placed.
+        serviceScope.launch {
+            val power = getSystemService(android.os.PowerManager::class.java)
+            val glance = androidx.glance.appwidget.GlanceAppWidgetManager(this@PlaybackService)
+            while (isActive) {
+                delay(WIDGET_TICK_MS)
+                val p = player ?: continue
+                if (!p.isPlaying || power?.isInteractive != true) continue
+                val placed = runCatching { glance.getGlanceIds(PlaybackWidget::class.java).isNotEmpty() }.getOrDefault(false)
+                if (placed) runCatching { PlaybackWidget().updateAll(this@PlaybackService) }
+            }
+        }
         serviceScope.launch {
             settingsRepository.volumeBoostDb.collect { db ->
                 eqAudioProcessor.setBoost(db.toDouble())
@@ -553,6 +572,12 @@ class PlaybackService : MediaLibraryService() {
         mediaSession = MediaLibrarySession.Builder(this, userCommandPlayer(exoPlayer), sessionCallback)
             .setSessionActivity(sessionActivity)
             .build()
+        // The widget (and the notification's like state) read PlayerController's
+        // state, which only follows the player once it is connected. Playback can
+        // start without the app's UI ever opening (headset, Bluetooth, the
+        // notification after a process restart) - connect from here as well, or the
+        // widget keeps showing the track from before.
+        playerController.connectInBackground()
 
         // Keeps the notification's heart icon in sync with the actual liked state
         // (filled vs outline) as it changes - either from this same notification's
@@ -651,6 +676,23 @@ class PlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
+    /** Gapless playback: ExoPlayer already joins tracks without a gap, but many uploads
+     * end in seconds of dead air. Once [SilenceMeter] shows the end of the current track
+     * is silent, the player moves straight on to the next one. With crossfade on, its
+     * own mix points handle the ends instead. */
+    private fun skipTrailingSilence(p: ExoPlayer) {
+        if (settingsRepository.crossfadeSecondsCached > 0 || crossfadeController?.isFading == true) return
+        if (!p.isPlaying || p.repeatMode == Player.REPEAT_MODE_ONE || !p.hasNextMediaItem()) return
+        val duration = p.duration
+        if (duration == C.TIME_UNSET || duration <= 0) return
+        val remaining = duration - p.currentPosition
+        if (remaining !in 1..TAIL_WINDOW_MS) return
+        if (silenceMeter.silentMs < TAIL_SILENCE_MS) return
+        silenceMeter.reset()
+        playerController.markCurrentTrackCompletedForCrossfade()
+        p.seekToNextMediaItem()
+    }
+
     companion object {
         private const val STALE_CHECK_INTERVAL_MS = 250L
         private const val VOLUME_POLL_MS = 1_000L
@@ -661,6 +703,12 @@ class PlaybackService : MediaLibraryService() {
         /** How often the crossfade trigger condition is checked - see
          * CrossfadeController.poll's kdoc. */
         private const val CROSSFADE_POLL_INTERVAL_MS = 200L
+        private const val WIDGET_TICK_MS = 10_000L
+        /** Silence this long in the decoded audio is surely audible already (the decoder
+         * runs at most the AudioTrack buffer, ≤ 0.75 s, ahead). */
+        private const val TAIL_SILENCE_MS = 1_200L
+        /** Only a track's last seconds count as its end; a pause further in is music. */
+        private const val TAIL_WINDOW_MS = 12_000L
         private const val ACTION_LIKE = "dev.schlubbe.musicagent.ACTION_LIKE"
         private const val ACTION_DOWNLOAD = "dev.schlubbe.musicagent.ACTION_DOWNLOAD"
 

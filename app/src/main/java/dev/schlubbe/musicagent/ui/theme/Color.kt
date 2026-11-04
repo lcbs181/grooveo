@@ -114,7 +114,7 @@ val CanopyDark = CanopyColors(
 )
 
 /** Dawn Music: "Sonnenaufgang am Meer" - pale sky-blue background, ocean
- * blue as the main accent, a sunrise pink as the second one, deep navy text.
+ * blue as the main accent, a sunrise amber as the second one, deep navy text.
  * Light-mode ramp order like [CanopyLight] (accent100 lightest). Tuned for
  * contrast on the dawn gradient's darkest stop (#B4D6F4): text 11:1, secondary
  * greys (500+) at least 5.9:1, icon grey (400) 4:1; white on the accent 5.6:1. */
@@ -123,7 +123,7 @@ val OceanDawn = CanopyColors(
     surface = Color(0xFFFFFFFF),
     text = Color(0xFF0B1A2E),
     accent = Color(0xFF1665C8),
-    accent2 = Color(0xFFC93A78),
+    accent2 = Color(0xFF9A4E08),
     divider = Color(0x290B1A2E),
     neutral100 = Color(0xFFFFFFFF),
     neutral200 = Color(0xFFD5E5F5),
@@ -143,10 +143,46 @@ val OceanDawn = CanopyColors(
     accent700 = Color(0xFF10478F),
     accent800 = Color(0xFF0D3973),
     accent900 = Color(0xFF06203F),
-    accent2_100 = Color(0xFFFDE6F0),
-    accent2_500 = Color(0xFFC93A78),
-    accent2_800 = Color(0xFF8A1F4D),
+    accent2_100 = Color(0xFFFCEBD6),
+    accent2_500 = Color(0xFF9A4E08),
+    accent2_800 = Color(0xFF6B3606),
     isDark = false,
+)
+
+/** Dawn Music at night: "Meer vor der Dämmerung" - deep navy background, a lit
+ * sky blue as the main accent, warm amber as the second one. Dark-mode ramp
+ * order like [CanopyDark] (accent100 darkest, accent900 the dark text on the
+ * light accent). Text on bg 15:1, greys (500+) at least 6:1, accent on bg 7:1,
+ * navy on the accent 7.5:1. */
+val OceanDawnNight = CanopyColors(
+    bg = Color(0xFF0A1626),
+    surface = Color(0xFF13233A),
+    text = Color(0xFFEAF2FB),
+    accent = Color(0xFF6CB0F0),
+    accent2 = Color(0xFFF2A65A),
+    divider = Color(0x29EAF2FB),
+    neutral100 = Color(0xFF13233A),
+    neutral200 = Color(0xFF1A2D47),
+    neutral300 = Color(0xFF243A58),
+    neutral400 = Color(0xFF8193A8),
+    neutral500 = Color(0xFF9DAEC2),
+    neutral600 = Color(0xFFB8C6D6),
+    neutral700 = Color(0xFFD0DBE7),
+    neutral800 = Color(0xFFE2EAF3),
+    neutral900 = Color(0xFFF2F6FB),
+    accent100 = Color(0xFF0F2440),
+    accent200 = Color(0xFF15335A),
+    accent300 = Color(0xFF1C4677),
+    accent400 = Color(0xFF2F69A8),
+    accent500 = Color(0xFF6CB0F0),
+    accent600 = Color(0xFF8CC3F4),
+    accent700 = Color(0xFFAFD5F7),
+    accent800 = Color(0xFFD3E8FB),
+    accent900 = Color(0xFF06203F),
+    accent2_100 = Color(0xFF3A2410),
+    accent2_500 = Color(0xFFF2A65A),
+    accent2_800 = Color(0xFFFAD6B0),
+    isDark = true,
 )
 
 val LocalCanopyColors = staticCompositionLocalOf { CanopyDark }

@@ -260,7 +260,7 @@ private fun QuickAccessGrid(tracks: List<TrackEntity>, onClick: (TrackEntity) ->
                             .weight(1f)
                             .height(56.dp)
                             .clip(CanopyShapes.small)
-                            .background(Color.White.copy(alpha = 0.72f))
+                            .background(Canopy.surface.copy(alpha = 0.72f))
                             .clickable { onClick(track) },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

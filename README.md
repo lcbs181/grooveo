@@ -46,6 +46,8 @@ Search, stream, download, like, and organize — all resolved and stored directl
 | **Home** | A *Charts* shelf (global SoundCloud/YouTube trending) and a *Für dich* feed computed entirely on-device from local play history and likes — no server-side aggregation. |
 | **Artist pages** | Collapsible bio, top/latest track shelves, and a paginated follower list (SoundCloud). |
 | **Player** | Waveform-style seek bar, shuffle/repeat, a sleep timer (15–90 min presets), a parametric equalizer (up to 16 bands, presets, bass enhancer, limiter, AutoEQ import), and a stream/download switch per track. |
+| **Endless queue** | Whatever you start — one track, an album, a playlist, a download — matching tracks from the on-device recommender are appended while the last ones still play, so the queue never runs out (repeat modes excepted). |
+| **Gapless** | Tracks run straight into each other; dead air at the end of an upload is detected in the decoded audio and skipped. |
 | **Lautstärke-Boost** | Up to +12 dB in front of the limiter: quiet tracks get louder, peaks are caught instead of clipped. |
 | **3D-Sound** | In-process convolution reverb with six rooms (Kino, Heimkino, Konzert, Rave, Studio, Kirche) and a *Hall-Anteil* slider (0–200 %); a look-ahead limiter lets it get louder without clipping. |
 | **Audio visualizers** | Five real-time, audio-reactive visualizer styles on the Player screen (bars, orb, particle sphere, circular spectrum, and a confetti-spraying pulse mode) — driven by an on-device FFT tapped directly from the decoded audio, not a fake animation. No `RECORD_AUDIO` permission needed; see [Architecture](docs/ARCHITECTURE.md#visualizer). |
@@ -86,12 +88,13 @@ Spotify-style layout.
   library instead of a tab of their own.
 - **Left out on purpose**: PC sync and live mix, DJ/mix controls, technical
   settings and the AI assistant.
-- **Look**: "Sonnenaufgang am Meer" — blue with a hint of sunrise pink,
-  translucent "liquid glass" bars and watercolour artwork with a dolphin as
+- **Look**: "Sonnenaufgang am Meer" — ocean blue with warm amber first light,
+  a dark mode ("Meer vor der Dämmerung", deep navy; Einstellungen › Design:
+  System / Hell / Dunkel), translucent "liquid glass" bars and watercolour artwork with a dolphin as
   the logo. For Halloween, Weihnachten, Ostern, Karneval, Silvester and
   Valentinstag the app dresses up to match.
 - **Home-screen widget** in the same sunrise look (light glass card, ocean-blue
-  controls).
+  controls), dark navy glass when the phone is in dark mode.
 - **Spotify import**: likes and playlists come over via Exportify, Spotify's
   own data export or a TuneMyMusic CSV.
 - **Installs next to Grooveo** (`dev.schlubbe.musicagent.dawn`) and updates

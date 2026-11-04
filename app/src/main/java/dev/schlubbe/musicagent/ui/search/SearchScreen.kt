@@ -229,7 +229,7 @@ private data class BrowseTile(val label: String, val query: String, val color: C
 // dark enough everywhere for bold white labels (>= 3:1)
 private val BROWSE_TILES = listOf(
     BrowseTile("Charts", "Top Hits 2026", Color(0xFF1665C8)),
-    BrowseTile("Party", "Party Hits", Color(0xFFC93A78)),
+    BrowseTile("Party", "Party Hits", Color(0xFFC2410C)),
     BrowseTile("Chill", "Chill Vibes", Color(0xFF2F7F73)),
     BrowseTile("Workout", "Workout Musik", Color(0xFFB83A3A)),
     BrowseTile("Fokus", "Focus Music", Color(0xFF3A5FCD)),

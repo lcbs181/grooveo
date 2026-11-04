@@ -1,5 +1,7 @@
 package dev.schlubbe.musicagent
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -39,6 +41,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var sharedLinkResolver: SharedLinkResolver
     @Inject lateinit var sharedLinkNavHolder: SharedLinkNavHolder
     @Inject lateinit var downloadDao: DownloadDao
+    @Inject lateinit var settingsRepository: dev.schlubbe.musicagent.data.repository.SettingsRepository
 
     private val mediaPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -77,7 +80,15 @@ class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch { requestMediaAccessIfDownloadsUnreadable() }
         setContent {
-            GrooveoTheme {
+            // Grooveo is dark-only; Dawn Music follows its "Design" setting
+            val appearance by settingsRepository.appearance.collectAsState(initial = "system")
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val dark = !BuildConfig.DAWN || when (appearance) {
+                "dark" -> true
+                "light" -> false
+                else -> systemDark
+            }
+            GrooveoTheme(darkTheme = dark) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MusicAgentNavGraph()
                 }

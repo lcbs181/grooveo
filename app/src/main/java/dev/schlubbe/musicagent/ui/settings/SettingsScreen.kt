@@ -280,8 +280,8 @@ fun SettingsScreen(
                         )
                         SettingsNavRow(
                             icon = phosphorIcon("arrow-circle-down"),
-                            title = "Von Spotify importieren",
-                            subtitle = "Likes, Playlists und Künstler übernehmen",
+                            title = "Musik importieren",
+                            subtitle = "Von Spotify oder Amazon Music: Likes, Playlists, Künstler",
                             onClick = onSpotifyImportClick,
                         )
                         SettingsNavRow(
@@ -297,6 +297,19 @@ fun SettingsScreen(
                 Column {
                     CanopySectionHeader(title = "Weitere Einstellungen")
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        if (BuildConfig.DAWN) Column {
+                            SettingLabel("Design")
+                            Spacer(modifier = Modifier.padding(top = 8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("system" to "System", "light" to "Hell", "dark" to "Dunkel").forEach { (mode, label) ->
+                                    CanopyChip(
+                                        label = label,
+                                        active = uiState.appearance == mode,
+                                        onClick = { viewModel.onAppearanceChanged(mode) },
+                                    )
+                                }
+                            }
+                        }
                         if (!BuildConfig.DAWN) Column {
                             SettingLabel("Wiedergabestil")
                             Spacer(modifier = Modifier.padding(top = 8.dp))
@@ -313,12 +326,6 @@ fun SettingsScreen(
                                 )
                             }
                         }
-                        ToggleRow(
-                            title = "Automatische Weiterempfehlung",
-                            subtitle = "Spielt ähnliche Titel, wenn die Warteschlange endet",
-                            checked = uiState.autoplayRadio,
-                            onCheckedChange = viewModel::onAutoplayRadioChanged,
-                        )
                         ToggleRow(
                             title = "Nur über WLAN herunterladen",
                             subtitle = null,

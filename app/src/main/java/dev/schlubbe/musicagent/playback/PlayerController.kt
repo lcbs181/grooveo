@@ -64,10 +64,11 @@ private const val MAX_PLAYBACK_ERROR_RETRIES = 2
 private const val CONNECT_TIMEOUT_MS = 5_000L
 
 /** How many predicted tracks [PlayerController.continueWithRadio] tries to resolve
- * and append per pass, once "Autoplay-Radio" continues a queue that has run out. */
+ * and append per pass when the queue is about to run out. */
 private const val EXTEND_BATCH_SIZE = 8
-/** Radio loads more once fewer than this many tracks are left after the current one. */
-private const val RADIO_AHEAD = 2
+/** Radio loads more once fewer than this many tracks are left after the current one,
+ * so "Als Nächstes" always shows a good stretch ahead instead of running out. */
+private const val RADIO_AHEAD = 10
 /** Waits before each radio lookup: at once, then backing off over about 20 s. */
 private val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
 
@@ -348,6 +349,11 @@ class PlayerController @Inject constructor(
         _sleepTimerEndAtMs.value = null
     }
 
+    /** Connects to the session without waiting; see PlaybackService.onCreate. */
+    fun connectInBackground() {
+        scope.launch { runCatching { ensureConnected() } }
+    }
+
     private suspend fun ensureConnected(): MediaController = connectMutex.withLock {
         // isConnected(), not just "non-null" - the whole point of this fix. A
         // PlaybackService that dies or gets throttled in the background (MIUI, not
@@ -515,10 +521,7 @@ class PlayerController @Inject constructor(
                     unavailableMessage = null,
                 )
                 refreshDownloadAvailability(newTrack)
-                // load the radio batch while the last tracks still play, not once silence begins
-                if (settingsRepository.autoplayRadioCached && controller?.repeatMode == Player.REPEAT_MODE_OFF &&
-                    currentQueue.size - 1 - newLogicalIndex < RADIO_AHEAD
-                ) continueWithRadio()
+                topUpQueue()
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -529,17 +532,19 @@ class PlayerController @Inject constructor(
                     // STATE_ENDED only fires once the whole queue is exhausted with no
                     // repeat mode active (a single track ending mid-queue instead fires
                     // onMediaItemTransition with reason AUTO) - the right moment to
-                    // extend the queue with something else, if the user asked for it.
-                    if (settingsRepository.autoplayRadioCached) continueWithRadio()
+                    // extend the queue with something else (normally it was topped up long before).
+                    continueWithRadio()
                 }
             }
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 _playbackState.value = _playbackState.value.copy(shuffleEnabled = shuffleModeEnabled)
+                topUpQueue()
             }
 
             override fun onRepeatModeChanged(repeatMode: Int) {
                 _playbackState.value = _playbackState.value.copy(repeatMode = repeatMode)
+                topUpQueue()
             }
 
             // Runs after each batch of the callbacks above, so the shuffle order shown
@@ -820,6 +825,7 @@ class PlayerController @Inject constructor(
         refreshDownloadAvailability(requestedStartTrack)
 
         if (tracks.size > 1) launchBackgroundQueueFill(tracks, startIndex, myGeneration)
+        topUpQueue()
     }
 
     /** Resolves every slot in [tracks] other than [startIndex] - already handled by
@@ -911,6 +917,7 @@ class PlayerController @Inject constructor(
         if (index < currentQueueIndex) currentQueueIndex--
         exoIndexForLogical = remap(loaded)
         publishQueue()
+        topUpQueue()
     }
 
     /** Moves an upcoming entry from logical [from] to [to]; both must be after the
@@ -950,6 +957,7 @@ class PlayerController @Inject constructor(
         currentQueue = currentQueue.take(currentQueueIndex + 1)
         exoIndexForLogical = exoIndexForLogical.take(currentQueueIndex + 1)
         publishQueue()
+        topUpQueue()
     }
 
     /** Plays [track] directly from its already-downloaded [localUri], with full
@@ -1012,6 +1020,7 @@ class PlayerController @Inject constructor(
             mediaController.setMediaItem(buildMediaItem(track, ResolvedStream(url = localUri, isHls = false)))
             mediaController.prepare()
             mediaController.play()
+            topUpQueue()
         } finally {
             if (pendingTrackKey == requestedKey) pendingTrackKey = null
             if (myGeneration == playRequestGeneration) {
@@ -1604,14 +1613,39 @@ class PlayerController @Inject constructor(
      * (STATE_ENDED shouldn't repeat while a pass is already resolving, but nothing
      * stops it structurally).
      */
-    private fun continueWithRadio() {
+    /** Tracks still to come after the current one, in play order (the shuffle order with shuffle on). */
+    private fun upcomingCount(): Int =
+        if (controller?.shuffleModeEnabled == true) {
+            refreshShuffledUpNext()
+            _playbackState.value.shuffledUpNext?.size ?: (currentQueue.size - 1 - currentQueueIndex)
+        } else {
+            currentQueue.size - 1 - currentQueueIndex
+        }
+
+    /** Endless queue: however playback was started (a single track, an album, a playlist,
+     * a download), matching tracks are appended while the last few still play, so the
+     * queue never runs dry. Repeat modes loop the queue themselves and are left alone. */
+    private fun topUpQueue() {
+        if (controller?.repeatMode != Player.REPEAT_MODE_OFF) return
+        if (currentQueue.isEmpty() || currentQueueIndex < 0) return
+        if (upcomingCount() < RADIO_AHEAD) continueWithRadio()
+    }
+
+    /** "Als Nächstes" was scrolled to its end: append the next batch right away. */
+    fun loadMoreUpNext() {
+        if (controller?.repeatMode != Player.REPEAT_MODE_OFF) return
+        if (currentQueue.isEmpty() || currentQueueIndex < 0) return
+        continueWithRadio(force = true)
+    }
+
+    private fun continueWithRadio(force: Boolean = false) {
         // the PC's live mix never ends by itself and is no seed for radio
         if (radioJob?.isActive == true || isPlayingPcLive) return
         radioJob = scope.launch {
             extendQueueMutex.withLock {
                 if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock
                 // a batch fetched ahead of time is already there: just move on to it
-                if (currentQueue.size - 1 - currentQueueIndex >= RADIO_AHEAD) {
+                if (!force && upcomingCount() >= RADIO_AHEAD) {
                     startAppendedIfEnded(currentQueueIndex + 1)
                     return@withLock
                 }
@@ -1637,7 +1671,8 @@ class PlayerController @Inject constructor(
                 if (resolved.isEmpty()) resolved = resolveAll(offlinePool(excludeIds))
                 if (myGeneration != playRequestGeneration) return@withLock
                 if (resolved.isEmpty()) {
-                    showToast("Keine weiteren Titel gefunden – bist du offline?")
+                    // fetched ahead, a miss is retried on the next track change; only say so once it is quiet
+                    if (controller?.playbackState == Player.STATE_ENDED) showToast("Keine weiteren Titel gefunden – bist du offline?")
                     return@withLock
                 }
 

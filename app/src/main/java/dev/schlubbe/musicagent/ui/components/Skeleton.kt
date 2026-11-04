@@ -26,12 +26,13 @@ fun Modifier.skeleton(): Modifier {
         animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing), RepeatMode.Restart),
         label = "sweep",
     )
+    val shimmer = Color.White.copy(alpha = if (Canopy.isDark) 0.08f else 0.55f)
     return background(Canopy.neutral200).drawWithContent {
         drawContent()
         val x = size.width * sweep
         drawRect(
             Brush.linearGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = 0.55f), Color.Transparent),
+                listOf(Color.Transparent, shimmer, Color.Transparent),
                 start = Offset(x - size.width * 0.5f, 0f),
                 end = Offset(x + size.width * 0.5f, size.height),
             ),

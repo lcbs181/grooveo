@@ -59,6 +59,7 @@ import dev.schlubbe.musicagent.R
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.playback.PlaybackUiState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 // Canopy dark-theme tokens (see ui/theme/Color.kt's CanopyDark) - Glance widgets
@@ -71,26 +72,31 @@ import kotlinx.coroutines.withContext
 // (dawn/res/drawable/widget_card_gradient.xml) with navy text and the ocean-blue
 // accent. The XML side of both palettes lives in res/values/widget_colors.xml.
 private val DAWN = BuildConfig.DAWN
-private val WIDGET_ACCENT = if (DAWN) Color(0xFF1665C8) else Color(0xFF4A8F76)
-private val WIDGET_ACCENT2 = if (DAWN) Color(0xFFC93A78) else Color(0xFFFF7A5C)
+
+/** Dawn Music's widget follows the phone's dark mode (day / night colour);
+ * Grooveo's is dark-only. */
+private fun widgetColor(dawnDay: Long, dawnNight: Long, grooveo: Long): ColorProvider =
+    if (DAWN) androidx.glance.color.ColorProvider(day = Color(dawnDay), night = Color(dawnNight)) else ColorProvider(Color(grooveo))
+private val WIDGET_ACCENT = widgetColor(0xFF1665C8, 0xFF6CB0F0, 0xFF4A8F76)
+private val WIDGET_ACCENT2 = widgetColor(0xFF9A4E08, 0xFFF2A65A, 0xFFFF7A5C)
 private val WIDGET_BACKGROUND = if (DAWN) Color(0xFFE4F0FB) else Color(0xFF10201A)
-private val WIDGET_SURFACE = if (DAWN) Color(0x660B1A2E) else Color(0xFF1B2E26)
-private val WIDGET_TEXT_PRIMARY = if (DAWN) Color(0xFF0B1A2E) else Color.White
-private val WIDGET_TEXT_SECONDARY = if (DAWN) Color(0xFF3B4A5D) else Color(0xFFAAAAAA)
-private val WIDGET_TEXT_TERTIARY = if (DAWN) Color(0xFF526377) else Color(0xFF96A89D) // Canopy neutral500, dark theme
+private val WIDGET_SURFACE = widgetColor(0x660B1A2E, 0x66EAF2FB, 0xFF1B2E26)
+private val WIDGET_TEXT_PRIMARY = widgetColor(0xFF0B1A2E, 0xFFEAF2FB, 0xFFFFFFFF)
+private val WIDGET_TEXT_SECONDARY = widgetColor(0xFF3B4A5D, 0xFFB8C6D6, 0xFFAAAAAA)
+private val WIDGET_TEXT_TERTIARY = widgetColor(0xFF526377, 0xFF9DAEC2, 0xFF96A89D)
 // Dawn: a bright glass rim instead of a dark hairline
-private val WIDGET_DIVIDER = if (DAWN) Color(0xB3FFFFFF) else Color(0x33FFFFFF)
-private val WIDGET_QUEUE_ROW_BG = if (DAWN) Color(0x66FFFFFF) else Color(0x14FFFFFF)
+private val WIDGET_DIVIDER = widgetColor(0xB3FFFFFF, 0x33FFFFFF, 0x33FFFFFF)
+private val WIDGET_QUEUE_ROW_BG = widgetColor(0x66FFFFFF, 0x14FFFFFF, 0x14FFFFFF)
 private val WIDGET_APP_NAME = if (DAWN) "Dawn Music" else "Grooveo"
 private val WIDGET_COVER_LETTER = if (DAWN) "D" else "G"
-private val WIDGET_COVER_LETTER_COLOR = if (DAWN) Color.White else Color(0xFF0D1F1A)
+private val WIDGET_COVER_LETTER_COLOR = widgetColor(0xFFFFFFFF, 0xFF06203F, 0xFF0D1F1A)
 
 // Opaque, matching "Grooveo Widgets.dc.html"'s own var(--color-surface) card
 // exactly. An earlier version of this file made the card translucent, but the
 // design's radial-gradient backdrop is the mockup's own stand-in for a phone
 // wallpaper *behind* the widget, not part of the card - the card itself has no
 // transparency in the spec.
-private val WIDGET_CARD_BG = if (DAWN) Color(0x99FFFFFF) else Color(0xFF1B2E26)
+private val WIDGET_CARD_BG = widgetColor(0x99FFFFFF, 0x9913233A, 0xFF1B2E26)
 
 // Every one of the design's 5 tiers states the same `border-radius:24px` on its
 // outer card. This file previously used 14dp (Canopy's --radius-md token for
@@ -161,14 +167,21 @@ class PlaybackWidget : GlanceAppWidget() {
                 }
             }
 
-            // Glance has no live position ticker of its own (unlike the in-app
-            // Player's 1s polling coroutine) - PlaybackUiState only carries
-            // duration, not a continuously updating position. This reads the
-            // position once per recomposition (play/pause/track-change), which
-            // updates the bar at those points rather than every second, but is
-            // still meaningfully "where you left off" rather than a fake number.
+            // Glance has no position ticker of its own and PlaybackUiState carries no
+            // position, so the position is polled into state here: once a second
+            // while playing (each change recomposes the widget), once on pause or a
+            // track change. PlaybackService's tick keeps this session alive past
+            // Glance's idle timeout while music plays.
+            var positionMs by remember { mutableStateOf(playerController.currentPositionMs()) }
+            LaunchedEffect(state.isPlaying, state.currentTrackId) {
+                positionMs = playerController.currentPositionMs()
+                while (state.isPlaying) {
+                    delay(1_000L)
+                    positionMs = playerController.currentPositionMs()
+                }
+            }
             val progress = if (state.durationMs > 0) {
-                (playerController.currentPositionMs().toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
+                (positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
             } else {
                 0f
             }
@@ -369,7 +382,7 @@ private fun TitleText(state: PlaybackUiState, size: androidx.compose.ui.unit.Tex
     Text(
         text = state.title ?: "Nichts wird abgespielt",
         maxLines = maxLines,
-        style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = size, fontWeight = FontWeight.Bold),
+        style = TextStyle(color = WIDGET_TEXT_PRIMARY, fontSize = size, fontWeight = FontWeight.Bold),
     )
 }
 
@@ -379,7 +392,7 @@ private fun ArtistText(state: PlaybackUiState, size: androidx.compose.ui.unit.Te
     Text(
         text = if (suffix != null && state.artist != null) "$artist · $suffix" else artist,
         maxLines = 1,
-        style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = size),
+        style = TextStyle(color = WIDGET_TEXT_SECONDARY, fontSize = size),
     )
 }
 
@@ -388,7 +401,7 @@ private fun SourceText(source: String?) {
     Text(
         text = sourceLabel(source).uppercase(),
         maxLines = 1,
-        style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 10.sp, fontWeight = FontWeight.Bold),
+        style = TextStyle(color = WIDGET_TEXT_TERTIARY, fontSize = 10.sp, fontWeight = FontWeight.Bold),
     )
 }
 
@@ -404,8 +417,8 @@ private fun ProgressWithTimes(state: PlaybackUiState, progress: Float) {
     LinearProgressIndicator(
         progress = progress,
         modifier = GlanceModifier.fillMaxWidth().height(4.dp),
-        color = ColorProvider(WIDGET_ACCENT),
-        backgroundColor = ColorProvider(WIDGET_SURFACE),
+        color = WIDGET_ACCENT,
+        backgroundColor = WIDGET_SURFACE,
     )
     Spacer(modifier = GlanceModifier.height(3.dp))
     TimeRow(state, progress)
@@ -472,11 +485,11 @@ private fun QueueRow(indexedTrack: kotlin.collections.IndexedValue<TrackResultDt
             )
         }
         Column(modifier = GlanceModifier.defaultWeight().padding(horizontal = 10.dp)) {
-            Text(track.title, maxLines = 1, style = TextStyle(color = ColorProvider(WIDGET_TEXT_PRIMARY), fontSize = 12.5.sp))
-            Text(track.artist ?: "", maxLines = 1, style = TextStyle(color = ColorProvider(WIDGET_TEXT_SECONDARY), fontSize = 11.sp))
+            Text(track.title, maxLines = 1, style = TextStyle(color = WIDGET_TEXT_PRIMARY, fontSize = 12.5.sp))
+            Text(track.artist ?: "", maxLines = 1, style = TextStyle(color = WIDGET_TEXT_SECONDARY, fontSize = 11.sp))
         }
         durationLabel(track.durationSec)?.let {
-            Text(it, style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp))
+            Text(it, style = TextStyle(color = WIDGET_TEXT_TERTIARY, fontSize = 11.sp))
         }
     }
 }
@@ -498,9 +511,9 @@ private fun LikeButton(isLiked: Boolean, touchTarget: Dp = 40.dp, iconSize: Dp =
 @Composable
 private fun TimeRow(state: PlaybackUiState, progress: Float) {
     Row(modifier = GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.Horizontal.Start) {
-        Text(elapsedLabel(state, progress), style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp))
+        Text(elapsedLabel(state, progress), style = TextStyle(color = WIDGET_TEXT_TERTIARY, fontSize = 11.sp))
         Spacer(modifier = GlanceModifier.defaultWeight())
-        Text(totalLabel(state), style = TextStyle(color = ColorProvider(WIDGET_TEXT_TERTIARY), fontSize = 11.sp))
+        Text(totalLabel(state), style = TextStyle(color = WIDGET_TEXT_TERTIARY, fontSize = 11.sp))
     }
 }
 
@@ -563,7 +576,7 @@ private fun CoverPlaceholder() {
         Text(
             WIDGET_COVER_LETTER,
             style = TextStyle(
-                color = ColorProvider(WIDGET_COVER_LETTER_COLOR),
+                color = WIDGET_COVER_LETTER_COLOR,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
             ),
@@ -582,7 +595,7 @@ private fun WidgetControlButton(
     action: Action,
     touchTarget: Dp = CONTROL_TOUCH_TARGET,
     iconSize: Dp = 22.dp,
-    tint: Color? = null,
+    tint: ColorProvider? = null,
 ) {
     Box(
         modifier = GlanceModifier.size(touchTarget).clickable(action),
@@ -592,7 +605,7 @@ private fun WidgetControlButton(
             provider = ImageProvider(icon),
             contentDescription = contentDescription,
             modifier = GlanceModifier.size(iconSize),
-            colorFilter = tint?.let { ColorFilter.tint(ColorProvider(it)) },
+            colorFilter = tint?.let { ColorFilter.tint(it) },
         )
     }
 }
