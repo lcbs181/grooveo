@@ -6,6 +6,10 @@ import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.fill.Sparkle
 import com.adamglin.phosphoricons.regular.Stop
+import com.adamglin.phosphoricons.regular.ArrowSquareOut
+import com.adamglin.phosphoricons.regular.NumberCircleOne
+import com.adamglin.phosphoricons.regular.NumberCircleTwo
+import com.adamglin.phosphoricons.regular.NumberCircleThree
 import com.adamglin.phosphoricons.regular.Folder
 import com.adamglin.phosphoricons.regular.Chats
 import com.adamglin.phosphoricons.regular.Flask
@@ -182,6 +186,10 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "sparkle" -> PhosphorIcons.Regular.Sparkle
         "arrow-left" -> PhosphorIcons.Regular.ArrowLeft
         "link" -> PhosphorIcons.Regular.Link
+        "arrow-square-out" -> PhosphorIcons.Regular.ArrowSquareOut
+        "number-circle-one" -> PhosphorIcons.Regular.NumberCircleOne
+        "number-circle-two" -> PhosphorIcons.Regular.NumberCircleTwo
+        "number-circle-three" -> PhosphorIcons.Regular.NumberCircleThree
         "wifi-high" -> PhosphorIcons.Regular.WifiHigh
         "hard-drives" -> PhosphorIcons.Regular.HardDrives
         "shuffle-angular" -> PhosphorIcons.Regular.ShuffleAngular

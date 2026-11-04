@@ -43,7 +43,11 @@ data class SpotifyLibrary(
 object SpotifyExport {
 
     private const val MAX_ENTRY_BYTES = 40L * 1024 * 1024
-    private val LIKED_NAMES = setOf("liked", "liked songs", "lieblingssongs", "favorites", "favourites", "favorite songs", "saved tracks")
+    // Spotify (Exportify, TuneMyMusic) and Amazon Music (via TuneMyMusic) names for the liked songs
+    private val LIKED_NAMES = setOf(
+        "liked", "liked songs", "lieblingssongs", "favorites", "favourites", "favorite songs", "saved tracks",
+        "my likes", "meine likes", "likes", "favoriten", "lieblingstitel", "gefällt mir", "songs mit gefällt mir", "liked tracks",
+    )
 
     fun read(fileName: String?, input: InputStream): SpotifyLibrary {
         val bytes = input.readBytes()

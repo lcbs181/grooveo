@@ -48,6 +48,8 @@ sealed interface SpotifyImportUiState {
     data object Intro : SpotifyImportUiState
     /** Exportify is open; [saving] once its export has been caught. */
     data class Exportify(val saving: Boolean) : SpotifyImportUiState
+    /** Amazon Music's web player is open; [collected] are the playlists read so far. */
+    data class AmazonMusic(val collected: List<Pair<String, Int>>, val reading: Boolean, val message: String?) : SpotifyImportUiState
     data class Running(val progress: SpotifyImportProgress?) : SpotifyImportUiState
     data class Done(val summary: SpotifyImportSummary?) : SpotifyImportUiState
     data class Failed(val message: String) : SpotifyImportUiState
@@ -65,14 +67,18 @@ class SpotifyImportViewModel @Inject constructor(
     private val web = MutableStateFlow(WebState.CLOSED)
     private val fileError = MutableStateFlow<String?>(null)
 
+    private data class AmazonState(val playlists: List<AmazonPlaylist>, val reading: Boolean, val message: String?)
+    private val amazon = MutableStateFlow<AmazonState?>(null)
+
     private val work = workManager.getWorkInfosForUniqueWorkFlow(W.UNIQUE_WORK_NAME)
         .map { infos -> infos.lastOrNull()?.let(::toState) }
         .flowOn(Dispatchers.IO)
 
-    val uiState: StateFlow<SpotifyImportUiState> = combine(web, work, fileError) { webState, workState, error ->
+    val uiState: StateFlow<SpotifyImportUiState> = combine(web, work, fileError, amazon) { webState, workState, error, amz ->
         when {
             workState is SpotifyImportUiState.Running -> workState
             webState != WebState.CLOSED -> SpotifyImportUiState.Exportify(saving = webState == WebState.SAVING)
+            amz != null -> SpotifyImportUiState.AmazonMusic(amz.playlists.map { it.name to it.tracks.size }, amz.reading, amz.message)
             error != null -> SpotifyImportUiState.Failed(error)
             else -> workState ?: SpotifyImportUiState.Intro
         }
@@ -85,6 +91,47 @@ class SpotifyImportViewModel @Inject constructor(
 
     fun closeExportify() {
         web.value = WebState.CLOSED
+    }
+
+    fun openAmazonMusic() {
+        fileError.value = null
+        amazon.value = AmazonState(emptyList(), reading = false, message = null)
+    }
+
+    fun closeAmazonMusic() {
+        amazon.value = null
+    }
+
+    /** The page is being read (scrolled through) right now. */
+    fun onAmazonReading() {
+        amazon.value = amazon.value?.copy(reading = true, message = null)
+    }
+
+    /** A playlist read off the page; the same playlist read twice replaces itself. */
+    fun onAmazonPlaylist(playlist: AmazonPlaylist?) {
+        val current = amazon.value ?: return
+        amazon.value = if (playlist == null) {
+            current.copy(reading = false, message = "Hier finde ich keine Songs. Öffne erst eine Playlist oder „Meine Likes“.")
+        } else {
+            current.copy(
+                playlists = current.playlists.filterNot { it.name == playlist.name } + playlist,
+                reading = false,
+                message = "„${playlist.name}“: ${playlist.tracks.size} Songs übernommen.",
+            )
+        }
+    }
+
+    /** Hands everything read to the regular import as a TuneMyMusic-style CSV. */
+    fun finishAmazonMusic() {
+        val playlists = amazon.value?.playlists.orEmpty()
+        if (playlists.isEmpty()) return
+        amazon.value = null
+        viewModelScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                writeImportFile("amazon-music.csv") { it.write(AmazonCsv.write(playlists).toByteArray()) }
+            }
+            start(file)
+        }
     }
 
     /** The ZIP/CSV Exportify just tried to download. */

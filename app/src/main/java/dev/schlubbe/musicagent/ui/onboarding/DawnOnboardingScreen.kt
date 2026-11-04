@@ -587,11 +587,11 @@ private fun SpotifyStep(onBack: () -> Unit, onImport: () -> Unit, onSkip: () -> 
     StepScaffold(
         progress = 2,
         onBack = onBack,
-        title = "Kommst du von Spotify?",
+        title = "Kommst du von Spotify oder Amazon Music?",
         subtitle = "Nimm deine Musik einfach mit, dann ist von Anfang an alles da.",
         button = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                PillButton("Von Spotify übernehmen", onClick = onImport)
+                PillButton("Meine Musik übernehmen", onClick = onImport)
                 PillButton("Nein, ich fange neu an", secondary = true, onClick = onSkip)
             }
         },
@@ -621,7 +621,7 @@ private fun SpotifyStep(onBack: () -> Unit, onImport: () -> Unit, onSkip: () -> 
                 }
             }
             Text(
-                "Du meldest dich einmal bei Spotify an und tippst auf „Alles exportieren“ – den Rest macht die App.",
+                "Bei Spotify meldest du dich einmal an und tippst auf „Alles exportieren“, Amazon Music kommt als Datei über TuneMyMusic – den Rest macht die App.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Canopy.neutral600,
             )

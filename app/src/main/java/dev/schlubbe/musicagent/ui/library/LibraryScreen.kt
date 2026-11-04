@@ -316,8 +316,8 @@ private fun LibraryHomeContent(
                 if (BuildConfig.DAWN) {
                     QuickAccessRow(
                         icon = phosphorIcon("arrow-circle-down"),
-                        label = "Von Spotify importieren",
-                        subtitle = "Likes, Playlists und Künstler mitnehmen",
+                        label = "Musik importieren",
+                        subtitle = "Von Spotify oder Amazon Music mitnehmen",
                         onClick = onSpotifyImport,
                     )
                 }

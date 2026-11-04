@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,7 +53,9 @@ import dev.schlubbe.musicagent.ui.theme.LocalChromeInset
 import androidx.compose.ui.res.stringResource
 import dev.schlubbe.musicagent.R
 
-/** "Von Spotify importieren": intro → Exportify (WebView) or a picked export file
+/** "Musik importieren": intro → Exportify (WebView), Amazon Music's web player
+ * (WebView, [AmazonMusicWebView]) or a picked export file (Spotify's own data
+ * ZIP, Exportify, TuneMyMusic)
  * → progress → summary.
  * The import itself runs in [SpotifyImportWorker], so leaving this screen does not
  * stop it; coming back shows its live progress or the last result. */
@@ -64,9 +69,13 @@ fun SpotifyImportScreen(
         if (uri != null) viewModel.importUri(uri)
     }
     val openPicker = { pickFile.launch(arrayOf("*/*")) }
-    val inWeb = state is SpotifyImportUiState.Exportify
+    val inExportify = state is SpotifyImportUiState.Exportify
+    val inAmazon = state is SpotifyImportUiState.AmazonMusic
+    val inWeb = inExportify || inAmazon
+    val closeWeb = { if (inAmazon) viewModel.closeAmazonMusic() else viewModel.closeExportify() }
 
-    BackHandler(enabled = inWeb) { viewModel.closeExportify() }
+    BackHandler(enabled = inWeb) { closeWeb() }
+    val navBarInset = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Scaffold(containerColor = Canopy.bg, contentWindowInsets = WindowInsets(0)) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -76,12 +85,16 @@ fun SpotifyImportScreen(
             ) {
                 CanopyIconButton(
                     icon = phosphorIcon(if (inWeb) "x" else "caret-left"),
-                    onClick = { if (inWeb) viewModel.closeExportify() else onNavigateBack() },
+                    onClick = { if (inWeb) closeWeb() else onNavigateBack() },
                     iconSize = 20.dp,
                     contentDescription = if (inWeb) "Export abbrechen" else "Zurück",
                 )
                 Text(
-                    if (inWeb) "Spotify exportieren" else "Von Spotify importieren",
+                    when {
+                        inAmazon -> "Amazon Music"
+                        inExportify -> "Spotify exportieren"
+                        else -> "Musik importieren"
+                    },
                     style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.padding(start = 6.dp),
                 )
@@ -89,20 +102,84 @@ fun SpotifyImportScreen(
 
             when (val s = state) {
                 is SpotifyImportUiState.Exportify -> ExportifyContent(s.saving, viewModel::onExportCaught)
+                is SpotifyImportUiState.AmazonMusic -> AmazonContent(
+                    state = s,
+                    onReading = viewModel::onAmazonReading,
+                    onPlaylist = viewModel::onAmazonPlaylist,
+                    onFinish = viewModel::finishAmazonMusic,
+                )
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp + LocalChromeInset.current),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp + LocalChromeInset.current + navBarInset),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     when (s) {
-                        SpotifyImportUiState.Intro -> introItems(viewModel::openExportify, openPicker)
+                        SpotifyImportUiState.Intro -> introItems(viewModel::openExportify, openPicker, viewModel::openAmazonMusic)
                         is SpotifyImportUiState.Running -> runningItems(s, viewModel::cancelImport)
                         is SpotifyImportUiState.Done -> doneItems(s.summary, viewModel::openExportify)
                         is SpotifyImportUiState.Failed -> failedItems(s.message, viewModel::openExportify, openPicker)
-                        is SpotifyImportUiState.Exportify -> Unit
+                        is SpotifyImportUiState.Exportify, is SpotifyImportUiState.AmazonMusic -> Unit
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AmazonContent(
+    state: SpotifyImportUiState.AmazonMusic,
+    onReading: () -> Unit,
+    onPlaylist: (AmazonPlaylist?) -> Unit,
+    onFinish: () -> Unit,
+) {
+    var scrapeRequest by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            state.message ?: "Anmelden, eine Playlist oder „Meine Likes“ öffnen, dann „Playlist übernehmen“.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Canopy.neutral600,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            AmazonMusicWebView(scrapeRequest = scrapeRequest, onPlaylist = onPlaylist, modifier = Modifier.fillMaxSize())
+            if (state.reading) {
+                Column(
+                    modifier = Modifier.fillMaxSize().background(Canopy.bg.copy(alpha = 0.85f)),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator(color = Canopy.accent)
+                    Text(
+                        "Lese die Playlist … bei vielen Songs dauert das etwas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Canopy.neutral600,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp + LocalChromeInset.current),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            CanopyButton(
+                text = "Playlist übernehmen",
+                onClick = {
+                    onReading()
+                    scrapeRequest++
+                },
+                enabled = !state.reading,
+                leadingIcon = phosphorIcon("arrow-circle-down"),
+                modifier = Modifier.weight(1f),
+            )
+            CanopyButton(
+                text = "Fertig (${state.collected.size})",
+                onClick = onFinish,
+                enabled = state.collected.isNotEmpty() && !state.reading,
+                variant = CanopyButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -129,7 +206,7 @@ private fun ExportifyContent(saving: Boolean, onExport: (String, ByteArray) -> U
     }
 }
 
-private fun LazyListScope.introItems(onExportify: () -> Unit, onPickFile: () -> Unit) {
+private fun LazyListScope.introItems(onExportify: () -> Unit, onPickFile: () -> Unit, onAmazon: () -> Unit) {
     item {
         Card {
             Text("Nimm deine Musik mit", style = MaterialTheme.typography.titleMedium)
@@ -172,6 +249,30 @@ private fun LazyListScope.introItems(onExportify: () -> Unit, onPickFile: () -> 
             style = MaterialTheme.typography.bodySmall,
             color = Canopy.neutral500,
             modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp),
+        )
+    }
+    item {
+        Card {
+            Text("Von Amazon Music", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Amazon Music öffnet sich direkt hier, ohne zusätzliches Konto oder fremden Dienst. ${stringResource(R.string.app_name)} liest die Songs von der Seite ab.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Canopy.neutral600,
+                modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
+            )
+            Hint("number-circle-one", "Bei Amazon anmelden – ${stringResource(R.string.app_name)} sieht dein Passwort nie.")
+            Hint("number-circle-two", "Eine Playlist oder „Meine Likes“ öffnen und auf „Playlist übernehmen“ tippen. Das geht für so viele Playlists, wie du willst.")
+            Hint("number-circle-three", "Auf „Fertig“ tippen – der Rest geht von selbst.")
+        }
+    }
+    item {
+        CanopyButton(
+            text = "Von Amazon Music übernehmen",
+            onClick = onAmazon,
+            variant = CanopyButtonVariant.Secondary,
+            leadingIcon = phosphorIcon("arrow-circle-down"),
+            block = true,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
