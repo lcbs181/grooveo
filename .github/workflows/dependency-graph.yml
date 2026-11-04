@@ -1,0 +1,26 @@
+name: Dependency graph
+
+# GitHub cannot read Gradle builds on its own: this resolves every project's
+# dependencies (Android app and desktop) and submits them, which fills
+# Insights → Dependency graph and lets Dependabot alerts cover them.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/dependency-submission@v4
