@@ -92,7 +92,7 @@ class UpdateViewModel @Inject constructor(
                 is UpdateDownloadState.Running -> _uiState.value = UpdateUiState.Downloading(info, st.progressPct, st.waitingForNetwork)
                 is UpdateDownloadState.Done -> {
                     _uiState.value = UpdateUiState.ReadyToInstall(info)
-                    if (install) install(info)
+                    if (install) install(info, force = false)
                     return
                 }
                 is UpdateDownloadState.Failed -> { _uiState.value = UpdateUiState.Error(st.message, info); return }
@@ -102,11 +102,15 @@ class UpdateViewModel @Inject constructor(
         }
     }
 
-    /** Opens the system installer for the downloaded APK; downloads it first if it is missing. */
-    fun install(info: UpdateInfoDto) {
+    /** Installs the downloaded APK (PackageInstaller session); downloads it first if
+     * it is missing. [force] = false when the download just finished on its own -
+     * the download receiver may already have started the same install. */
+    fun install(info: UpdateInfoDto, force: Boolean = true) {
         val file = updateRepository.downloadedApk(info) ?: return downloadAndInstall(info)
-        runCatching { updateRepository.installApk(file) }
-            .onFailure { _uiState.value = UpdateUiState.Error(it.message ?: "Installation konnte nicht starten", info) }
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { updateRepository.installApk(file, interactive = true, force = force) } }
+                .onFailure { _uiState.value = UpdateUiState.Error(it.message ?: "Installation konnte nicht starten", info) }
+        }
     }
 
     /** Hides the dialog; a running download continues in the background (system notification). */

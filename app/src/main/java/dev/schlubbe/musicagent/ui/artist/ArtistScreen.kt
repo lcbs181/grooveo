@@ -870,7 +870,7 @@ private fun ArtistTrackRow(
                         Icon(
                             phosphorIcon("heart", filled = isLiked),
                             contentDescription = "Gefällt mir",
-                            tint = if (isLiked) Canopy.accent2 else Canopy.neutral500,
+                            tint = if (isLiked) Canopy.like else Canopy.neutral500,
                             modifier = Modifier
                                 .size(14.dp)
                                 .graphicsLayer { scaleX = popScale; scaleY = popScale }

@@ -1001,6 +1001,7 @@ private fun DownloadRow(
                             onLikeClick()
                         },
                         contentDescription = if (isLiked) "Gefällt mir entfernen" else "Gefällt mir",
+                        tint = if (isLiked) Canopy.like else null,
                     )
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
@@ -1130,6 +1131,7 @@ private fun LikeRow(
                             onUnlikeClick()
                         },
                         contentDescription = "Gefällt mir entfernen",
+                        tint = Canopy.like,
                     )
                     Box {
                         CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true }, contentDescription = "Weitere Optionen")
@@ -1156,7 +1158,7 @@ private fun LikeRow(
                             )
                             DropdownMenuItem(
                                 text = { Text("Nicht mehr gefällt mir") },
-                                leadingIcon = { Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Canopy.accent) },
+                                leadingIcon = { Icon(phosphorIcon("heart", filled = true), contentDescription = null, tint = Canopy.like) },
                                 onClick = { menuExpanded = false; onUnlikeClick() },
                             )
                             DropdownMenuItem(

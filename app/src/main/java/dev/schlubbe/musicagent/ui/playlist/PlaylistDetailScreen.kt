@@ -498,7 +498,7 @@ private fun PlaylistTrackRow(
                         Icon(
                             phosphorIcon("heart", filled = isLiked),
                             contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
-                            tint = Canopy.neutral500,
+                            tint = if (isLiked) Canopy.like else Canopy.neutral500,
                             modifier = Modifier
                                 .size(14.dp)
                                 .clickable {

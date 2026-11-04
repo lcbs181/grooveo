@@ -129,6 +129,7 @@ fun CanopyIconButton(
     badge: Boolean = false,
     enabled: Boolean = true,
     contentDescription: String? = null,
+    tint: Color? = null,
 ) {
     val background = when (variant) {
         CanopyButtonVariant.Ghost -> Color.Transparent
@@ -158,7 +159,7 @@ fun CanopyIconButton(
         Icon(
             icon,
             contentDescription = contentDescription,
-            tint = contentColor,
+            tint = tint ?: contentColor,
             modifier = Modifier.size(iconSize),
         )
         if (badge) {

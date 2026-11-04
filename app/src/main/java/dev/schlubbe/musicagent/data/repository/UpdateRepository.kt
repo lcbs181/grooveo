@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import dev.schlubbe.musicagent.update.UpdateInstaller
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -205,7 +206,7 @@ class UpdateRepository @Inject constructor(
             val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
             return when (status) {
                 DownloadManager.STATUS_SUCCESSFUL -> downloadedApk(info)?.let { UpdateDownloadState.Done(it) }
-                    ?: UpdateDownloadState.Failed("Heruntergeladene Datei ist unvollständig")
+                    ?: UpdateDownloadState.Failed(invalidDownloadMessage(info))
                 DownloadManager.STATUS_FAILED -> UpdateDownloadState.Failed(failureMessage(reason))
                 else -> UpdateDownloadState.Running(
                     progressPct = if (total > 0) ((done * 100) / total).toInt().coerceIn(0, 100) else 0,
@@ -239,6 +240,22 @@ class UpdateRepository @Inject constructor(
         }
     }
 
+    /** Why a download the system calls finished is still no usable APK. A tiny file
+     * almost always means a filter (ad blocker, private DNS, school/company WLAN)
+     * answered GitHub's download host with its own page instead of the APK. */
+    fun invalidDownloadMessage(info: UpdateInfoDto): String {
+        val got = apkFile(info).takeIf { it.isFile }?.length() ?: 0L
+        fun mb(b: Long) = String.format(java.util.Locale.GERMANY, "%.1f MB", b / 1_048_576.0)
+        val expected = if (info.sizeBytes > 0) " statt ${mb(info.sizeBytes)}" else ""
+        return when {
+            got < 1_048_576 -> "Download blockiert: nur ${got / 1024} KB$expected angekommen. " +
+                "Ein Werbeblocker, privates DNS oder WLAN-Filter sperrt wohl GitHub " +
+                "(objects.githubusercontent.com). Kurz ausschalten oder mobile Daten nutzen."
+            info.sizeBytes > 0 && got != info.sizeBytes -> "Download unvollständig: ${mb(got)}$expected. Bitte noch einmal versuchen."
+            else -> "Heruntergeladene Datei ist keine gültige Version von ${context.getString(dev.schlubbe.musicagent.R.string.app_name)}"
+        }
+    }
+
     private fun failureMessage(reason: Int) = when (reason) {
         DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Nicht genug Speicherplatz"
         DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_CANNOT_RESUME -> "Verbindung abgebrochen"
@@ -256,9 +273,20 @@ class UpdateRepository @Inject constructor(
         }
     }
 
-    /** Launches the system installer for a previously downloaded APK file. */
-    fun installApk(file: File) {
-        context.startActivity(installIntent(file))
+    /** Installs [file] through a PackageInstaller session (silent on Android 12+
+     * when allowed). [interactive]: the person is in the app and asked for it, so a
+     * confirmation screen may open directly; otherwise it arrives as a notification.
+     * [force] = false skips the call when an install of this version started in the
+     * last two minutes (download receiver and dialog both finish the same download). */
+    fun installApk(file: File, interactive: Boolean, force: Boolean = true) {
+        val code = Regex("""grooveo-(\d+)\.apk""").matchEntire(file.name)?.groupValues?.get(1)?.toLongOrNull() ?: -1
+        synchronized(UpdateRepository::class.java) {
+            val last = prefs.getLong(KEY_INSTALL_AT, 0)
+            val recent = prefs.getLong(KEY_INSTALL_VERSION, -2) == code && System.currentTimeMillis() - last < 120_000
+            if (recent && !force) return
+            prefs.edit().putLong(KEY_INSTALL_VERSION, code).putLong(KEY_INSTALL_AT, System.currentTimeMillis()).commit()
+        }
+        UpdateInstaller.install(context, file, interactive)
     }
 
     private companion object {
@@ -266,5 +294,7 @@ class UpdateRepository @Inject constructor(
         const val KEY_ID = "download_id"
         const val KEY_VERSION = "download_version"
         const val KEY_TEST_CHANNEL = "test_channel"
+        const val KEY_INSTALL_VERSION = "install_version"
+        const val KEY_INSTALL_AT = "install_at"
     }
 }

@@ -29,6 +29,19 @@ private fun darkScheme(c: CanopyColors) = darkColorScheme(
     onSurfaceVariant = c.neutral500,
     outline = c.divider,
     outlineVariant = c.neutral300,
+    // Dialogs, menus, sheets, search bars and snackbars draw from these; left
+    // unset they fall back to Material's purple-grey defaults.
+    surfaceTint = c.accent,
+    surfaceDim = c.bg,
+    surfaceBright = c.neutral300,
+    surfaceContainerLowest = c.bg,
+    surfaceContainerLow = c.surface,
+    surfaceContainer = c.surface,
+    surfaceContainerHigh = c.neutral200,
+    surfaceContainerHighest = c.neutral300,
+    inverseSurface = c.text,
+    inverseOnSurface = c.bg,
+    inversePrimary = c.accent400,
 )
 
 private fun lightScheme(c: CanopyColors) = lightColorScheme(
@@ -49,6 +62,17 @@ private fun lightScheme(c: CanopyColors) = lightColorScheme(
     onSurfaceVariant = c.neutral500,
     outline = c.divider,
     outlineVariant = c.neutral300,
+    surfaceTint = c.accent,
+    surfaceDim = c.neutral200,
+    surfaceBright = c.surface,
+    surfaceContainerLowest = c.surface,
+    surfaceContainerLow = c.surface,
+    surfaceContainer = c.surface,
+    surfaceContainerHigh = c.surface,
+    surfaceContainerHighest = c.neutral100,
+    inverseSurface = c.neutral900,
+    inverseOnSurface = c.neutral100,
+    inversePrimary = c.accent300,
 )
 
 /** Applies the Canopy design system. [darkTheme] defaults to true because the

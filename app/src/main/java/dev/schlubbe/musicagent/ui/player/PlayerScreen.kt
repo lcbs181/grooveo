@@ -357,7 +357,7 @@ fun PlayerScreen(
                     )
                     DropdownMenuItem(
                         text = { Text(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir") },
-                        leadingIcon = { Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = Canopy.accent) },
+                        leadingIcon = { Icon(phosphorIcon("heart", filled = isLiked), contentDescription = null, tint = if (isLiked) Canopy.like else Canopy.accent) },
                         onClick = {
                             showMoreMenu = false
                             haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
@@ -612,7 +612,7 @@ fun PlayerScreen(
                     Icon(
                         phosphorIcon("heart", filled = isLiked),
                         contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
-                        tint = if (isLiked) Canopy.accent2 else Canopy.text,
+                        tint = if (isLiked) Canopy.like else Canopy.text,
                         modifier = Modifier
                             .size(21.dp)
                             .graphicsLayer { scaleX = popScale; scaleY = popScale },

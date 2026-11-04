@@ -120,6 +120,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Result of an update PackageInstaller session (UpdateInstaller); only
+             reached through the session's own PendingIntent. -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.schlubbe.musicagent.UPDATE_INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

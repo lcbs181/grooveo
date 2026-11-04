@@ -168,7 +168,7 @@ fun MiniPlayerBar(
                 Icon(
                     phosphorIcon("heart", filled = true),
                     contentDescription = if (isLiked) "Gefällt mir nicht mehr" else "Gefällt mir",
-                    tint = if (isLiked) Canopy.accent2 else Canopy.neutral400,
+                    tint = if (isLiked) Canopy.like else Canopy.neutral400,
                     modifier = Modifier
                         .padding(8.dp)
                         .size(20.dp)

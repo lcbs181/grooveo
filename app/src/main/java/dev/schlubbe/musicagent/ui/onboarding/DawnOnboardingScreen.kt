@@ -203,7 +203,7 @@ private fun PillButton(text: String, enabled: Boolean = true, secondary: Boolean
     val haptic = LocalHapticFeedback.current
     val background = when {
         !enabled -> Brush.horizontalGradient(listOf(Canopy.neutral300, Canopy.neutral300))
-        secondary -> Brush.horizontalGradient(listOf(Color.White, Color.White))
+        secondary -> Brush.horizontalGradient(listOf(Canopy.surface, Canopy.surface))
         else -> Brush.horizontalGradient(listOf(Canopy.accent, Canopy.accent2))
     }
     Box(
@@ -224,7 +224,7 @@ private fun PillButton(text: String, enabled: Boolean = true, secondary: Boolean
             color = when {
                 !enabled -> Canopy.neutral500
                 secondary -> Canopy.text
-                else -> Color.White
+                else -> Canopy.onAccent
             },
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
@@ -329,7 +329,7 @@ private fun NameStep(viewModel: DawnOnboardingViewModel, onBack: () -> Unit, onN
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color.White)
+                            .background(Canopy.surface)
                             .border(1.5.dp, if (name.isBlank()) Canopy.divider else Canopy.accent, RoundedCornerShape(18.dp))
                             .padding(horizontal = 18.dp, vertical = 16.dp),
                     ) {
@@ -466,7 +466,7 @@ private fun ArtistStep(viewModel: DawnOnboardingViewModel, onBack: () -> Unit, o
                     .padding(horizontal = 24.dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White)
+                    .background(Canopy.surface)
                     .border(1.dp, Canopy.divider, RoundedCornerShape(14.dp))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -601,7 +601,7 @@ private fun SpotifyStep(onBack: () -> Unit, onImport: () -> Unit, onSkip: () -> 
                 .padding(horizontal = 24.dp)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color.White.copy(alpha = 0.8f))
+                .background(Canopy.surface.copy(alpha = if (Canopy.isDark) 0.92f else 0.8f))
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -621,7 +621,7 @@ private fun SpotifyStep(onBack: () -> Unit, onImport: () -> Unit, onSkip: () -> 
                 }
             }
             Text(
-                "Bei Spotify meldest du dich einmal an und tippst auf „Alles exportieren“, Amazon Music kommt als Datei über TuneMyMusic – den Rest macht die App.",
+                "Bei Spotify meldest du dich einmal an und tippst auf „Alles exportieren“, bei Amazon Music öffnest du deine Playlists direkt in der App – den Rest macht sie selbst.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Canopy.neutral600,
             )

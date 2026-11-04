@@ -202,6 +202,9 @@ object Canopy {
         @Composable @ReadOnlyComposable
         get() = LocalCanopyColors.current.let { if (it.accent.luminance() < 0.35f) Color.White else it.accent900 }
     val accent2: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.accent2
+
+    /** "Gefällt mir" hearts, see [CanopyColors.likeColor]. */
+    val like: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.likeColor
     val divider: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.divider
     val neutral100: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.neutral100
     val neutral200: Color @Composable @ReadOnlyComposable get() = LocalCanopyColors.current.neutral200
@@ -245,3 +248,12 @@ fun accentColorFor(colorKey: String?, autoSeed: String): Color = when (colorKey)
         autoPalette[kotlin.math.abs(autoSeed.hashCode()) % autoPalette.size]
     }
 }
+
+/** Colour of a "Gefällt mir" heart. Dawn keeps its pink hearts in both light and
+ * dark mode (the rest of its palette moved to blue/amber); Grooveo uses accent2. */
+val CanopyColors.likeColor: Color
+    get() = when {
+        !dev.schlubbe.musicagent.BuildConfig.DAWN -> accent2
+        isDark -> Color(0xFFF472B6)
+        else -> Color(0xFFDB2777)
+    }

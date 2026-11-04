@@ -323,6 +323,7 @@ private fun RemotePlaylistTrackRow(
                         haptic.performHapticFeedback(if (isLiked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                         onLikeClick()
                     },
+                    tint = if (isLiked) Canopy.like else null,
                 )
                 Box {
                     CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menuExpanded = true })

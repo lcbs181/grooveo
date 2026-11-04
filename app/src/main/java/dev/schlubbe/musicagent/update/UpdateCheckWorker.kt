@@ -97,7 +97,7 @@ class UpdateCheckWorker @AssistedInject constructor(
 
     private fun ensureNotificationChannel() {
         val channel = NotificationChannel(CHANNEL_ID, "Updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "Benachrichtigung, wenn eine neue Version von Grooveo verfügbar ist"
+            description = "Benachrichtigung, wenn eine neue Version von ${applicationContext.getString(R.string.app_name)} verfügbar ist"
         }
         applicationContext.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
