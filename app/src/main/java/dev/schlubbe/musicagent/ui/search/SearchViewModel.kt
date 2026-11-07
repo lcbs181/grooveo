@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -33,11 +34,14 @@ import javax.inject.Inject
 data class SearchUiState(
     val query: String = "",
     val source: String = "all",
-    val resultType: String = "tracks",
+    // "all" (sections like SoundCloud's "Alle"), or one kind: tracks, artists, ...
+    val resultType: String = "all",
     val results: List<TrackResultDto> = emptyList(),
     val artistResults: List<ArtistResultDto> = emptyList(),
     val playlistResults: List<PlaylistResultDto> = emptyList(),
     val albumResults: List<AlbumResultDto> = emptyList(),
+    val podcastResults: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
+    val hoerspielResults: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val likedTrackIds: Set<String> = emptySet(),
@@ -71,6 +75,7 @@ class SearchViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val eventReporter: EventReporter,
     private val searchHistoryRepository: SearchHistoryRepository,
+    private val podcastRepository: dev.schlubbe.musicagent.podcast.PodcastRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
 ) : ViewModel() {
 
@@ -201,6 +206,13 @@ class SearchViewModel @Inject constructor(
                     .onFailure { e ->
                         _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e))
                     }
+                "podcasts" -> runCatching { podcastRepository.searchPodcasts(query) }
+                    .onSuccess { shows -> _uiState.value = _uiState.value.copy(podcastResults = shows, isLoading = false) }
+                    .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e)) }
+                "hoerspiele" -> runCatching { podcastRepository.searchHoerspiele(query) }
+                    .onSuccess { shows -> _uiState.value = _uiState.value.copy(hoerspielResults = shows, isLoading = false) }
+                    .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e)) }
+                "all" -> searchAll(query, source)
                 "albums" -> runCatching { searchRepository.searchAlbums(query, source) }
                     .onSuccess { albums ->
                         _uiState.value = _uiState.value.copy(albumResults = albums, isLoading = false)
@@ -219,6 +231,31 @@ class SearchViewModel @Inject constructor(
                     }
             }
         }
+    }
+
+    /** "Alle": every kind at once, each one allowed to fail on its own. Only when the
+     * tracks fail as well is it an error. */
+    private suspend fun searchAll(query: String, source: String) = kotlinx.coroutines.coroutineScope {
+        val tracks = async { runCatching { searchRepository.search(query, source) } }
+        val artists = async { runCatching { searchRepository.searchArtists(query, source) }.getOrDefault(emptyList()) }
+        val playlists = async { runCatching { searchRepository.searchPlaylists(query, source) }.getOrDefault(emptyList()) }
+        val albums = async { runCatching { searchRepository.searchAlbums(query, source) }.getOrDefault(emptyList()) }
+        val podcasts = async { runCatching { podcastRepository.searchPodcasts(query) }.getOrDefault(emptyList()) }
+        val hoerspiele = async { runCatching { podcastRepository.searchHoerspiele(query) }.getOrDefault(emptyList()) }
+        val trackResult = tracks.await()
+        val artistList = artists.await()
+        val error = trackResult.exceptionOrNull()
+        _uiState.value = _uiState.value.copy(
+            results = trackResult.getOrDefault(emptyList()),
+            artistResults = artistList,
+            playlistResults = playlists.await(),
+            albumResults = albums.await(),
+            podcastResults = podcasts.await(),
+            hoerspielResults = hoerspiele.await(),
+            isLoading = false,
+            error = error?.takeIf { artistList.isEmpty() }?.let(::friendlyError),
+        )
+        if (error == null) eventReporter.search(query)
     }
 
     // A playlist/album search result now opens the browse screen instead of

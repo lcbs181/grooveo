@@ -32,12 +32,12 @@ class EventReporter @Inject constructor(
 
     private fun send(event: EventCreateDto) {
         // the PC's live mix is no track of its own
-        if (event.track?.source == "pc") return
+        if (event.track?.source == "pc" || dev.schlubbe.musicagent.podcast.isPodcastSource(event.track?.source)) return
         scope.launch { runCatching { backendApi.recordEvent(event) } }
     }
 
     fun playStart(track: TrackResultDto) {
-        if (track.source == "pc") return
+        if (track.source == "pc" || dev.schlubbe.musicagent.podcast.isPodcastSource(track.source)) return
         val now = System.currentTimeMillis()
         current = track to now
         send(EventCreateDto(eventType = "play_start", track = track))

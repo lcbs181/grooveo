@@ -106,8 +106,9 @@ class FeedRepository @Inject constructor(
         preferredGenres: Set<String> = emptySet(),
         preferredArtists: List<String> = emptyList(),
     ): FeedResult {
-        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
+        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first().filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.source) }
         val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
+            .filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.track.source) } // episodes are no music taste
         val hasHistory = recentlyPlayed.isNotEmpty() || likes.isNotEmpty()
 
         val excludeIds = (recentlyPlayed.map { it.id } + likes.map { it.track.id }).toSet()
@@ -250,8 +251,9 @@ class FeedRepository @Inject constructor(
         preferredGenres: Set<String> = emptySet(),
         preferredArtists: List<String> = emptyList(),
     ): List<TrackResultDto> {
-        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
+        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first().filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.source) }
         val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
+            .filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.track.source) } // episodes are no music taste
         if (recentlyPlayed.isEmpty() && likes.isEmpty()) {
             return getTastePool(limit, preferredGenres, preferredArtists)
         }
@@ -333,7 +335,8 @@ class FeedRepository @Inject constructor(
             }
         }
         val likes = runCatching { likesRepository.refresh() }.getOrDefault(emptyList())
-        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first()
+            .filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.track.source) } // episodes are no music taste
+        val recentlyPlayed = trackDao.observeRecentlyPlayed(RECENT_WINDOW).first().filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.source) }
         val affinity = buildArtistAffinity(recentlyPlayed, likes)
             .filterKeys { (_, artist) -> signals.skipRatio(artist) < 0.5 }
         val byAffinity = weightedSampleArtists(affinity.entries.sortedByDescending { it.value }.take(CANDIDATE_ARTIST_POOL), TOP_ARTIST_COUNT)

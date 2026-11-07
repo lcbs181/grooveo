@@ -63,6 +63,10 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
+        // before anything (Hilt singletons included) can open a connection
+        dev.schlubbe.musicagent.data.remote.PrivacyProxySelector.install(
+            dev.schlubbe.musicagent.data.remote.ProxyConfig.load(this),
+        )
         super.onCreate()
         dev.schlubbe.musicagent.data.repository.MergedResults.enabled = BuildConfig.DAWN
 
@@ -84,6 +88,13 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
             dev.schlubbe.musicagent.news.NewsWorker.UNIQUE_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<dev.schlubbe.musicagent.news.NewsWorker>(4, TimeUnit.HOURS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build(),
+        )
+        workManager.enqueueUniquePeriodicWork(
+            dev.schlubbe.musicagent.podcast.NewEpisodesWorker.UNIQUE_WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<dev.schlubbe.musicagent.podcast.NewEpisodesWorker>(6, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build(),
         )

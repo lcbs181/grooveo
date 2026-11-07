@@ -101,6 +101,7 @@ fun LibraryScreen(
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     onOpenSettings: () -> Unit,
     onSpotifyImport: () -> Unit = {},
+    onOpenPodcasts: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val downloads by viewModel.downloads.collectAsState()
@@ -159,6 +160,7 @@ fun LibraryScreen(
                         downloadedCount = downloads.count { it.entity.state == DownloadState.COMPLETED },
                         onOpenSettings = onOpenSettings,
                         onSpotifyImport = onSpotifyImport,
+                        onOpenPodcasts = onOpenPodcasts,
                         onOpenLikes = { viewModel.openSection(LibraryTab.LIKES) },
                         onOpenPlaylists = { viewModel.openSection(LibraryTab.PLAYLISTS) },
                         onOpenDownloads = { viewModel.openSection(LibraryTab.DOWNLOADS) },
@@ -247,6 +249,7 @@ private fun LibraryHomeContent(
     downloadedCount: Int,
     onOpenSettings: () -> Unit,
     onSpotifyImport: () -> Unit,
+    onOpenPodcasts: () -> Unit,
     onOpenLikes: () -> Unit,
     onOpenPlaylists: () -> Unit,
     onOpenDownloads: () -> Unit,
@@ -304,6 +307,12 @@ private fun LibraryHomeContent(
                     label = "Downloads",
                     subtitle = "$downloadedCount Titel offline verfügbar",
                     onClick = onOpenDownloads,
+                )
+                QuickAccessRow(
+                    icon = phosphorIcon("microphone"),
+                    label = "Podcasts & Hörspiele",
+                    subtitle = "Abonnieren, weiterhören, RSS-Feeds",
+                    onClick = onOpenPodcasts,
                 )
                 QuickAccessRow(
                     icon = phosphorIcon("user-circle"),

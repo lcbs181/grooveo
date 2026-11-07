@@ -30,6 +30,7 @@ Search, stream, download, like, and organize — all resolved and stored directl
 - [Architecture](#architecture)
 - [Building](#building)
 - [Optional backend link](#optional-backend-link)
+- [Privacy](#privacy)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
 - [Security](#security)
@@ -181,6 +182,30 @@ The app works completely standalone. If you also run the companion FastAPI backe
    serviceAccountPassword=your-password
    ```
    This is a real account on your backend (created via its own register/invite flow) used for a silent background login — the app never shows a login screen. Analytics events and the update check simply no-op if left blank.
+
+## Privacy
+
+Grooveo has no account, no analytics and no crash reporting, and it sends nothing
+to its developers. The optional backend link is off unless you set a URL.
+
+That does not make you invisible: music, podcasts and artwork are fetched straight
+from third-party services (YouTube, SoundCloud, the ARD Audiothek, podcast hosts,
+fyyd, image CDNs, GitHub for update checks, and Apple only if the fallback below is
+on). Each of them sees your IP address and what you request, and may log it.
+
+What the app does to keep that small (Einstellungen > Datenschutz):
+
+- **Podcast search** goes to [fyyd](https://fyyd.de) first. Apple's directory is
+  only asked when fyyd has no match, and that fallback can be switched off.
+- **Tracking prefixes** (Podtrac, Chartable, Podscribe, OP3, Spotify's prefix and
+  similar) are removed from episode URLs, so the audio is fetched from the host
+  directly and the measurement service is skipped.
+- **New-episode checks** can be switched off or limited to Wi-Fi.
+- **Proxy:** all app traffic can go through Tor (via Orbot) or your own SOCKS5
+  proxy, with DNS resolved by the proxy. If the proxy is down, requests fail
+  rather than falling back to a direct connection. The Spotify/Amazon import
+  (a WebView) and update downloads (Android's download manager) do not use it,
+  and YouTube often blocks Tor exit nodes.
 
 ## Known limitations
 

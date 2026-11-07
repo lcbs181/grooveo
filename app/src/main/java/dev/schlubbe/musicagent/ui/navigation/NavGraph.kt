@@ -112,11 +112,14 @@ object Routes {
     const val ARTIST_DETAIL = "artist/{source}/{sourceId}"
     const val ARTIST_FOLLOWERS = "artist/{source}/{sourceId}/followers"
     const val REMOTE_PLAYLIST_DETAIL = "remote_playlist/{source}/{sourceId}"
+    const val PODCASTS = "podcasts"
+    const val PODCAST_DETAIL = "podcast/{showId}"
 
     fun playlistDetail(playlistId: String) = "playlist/$playlistId"
     fun artistDetail(source: String, sourceId: String) = "artist/$source/${Uri.encode(sourceId)}"
     fun artistFollowers(source: String, sourceId: String) = "artist/$source/${Uri.encode(sourceId)}/followers"
     fun remotePlaylistDetail(source: String, sourceId: String) = "remote_playlist/$source/${Uri.encode(sourceId)}"
+    fun podcastDetail(showId: String) = "podcast/${Uri.encode(showId)}"
 }
 
 private data class BottomNavItem(val route: String, val label: String, val iconName: String)
@@ -342,6 +345,8 @@ fun MusicAgentNavGraph(
                     onSeeAllArtistsClick = { navController.navigate(Routes.LIBRARY) },
                     onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
+                    onOpenPodcasts = { navController.navigate(Routes.PODCASTS) },
+                    onPodcastShowClick = { navController.navigate(Routes.podcastDetail(it)) },
                     onArtistClick = { source, sourceId ->
                         navController.navigate(Routes.artistDetail(source, sourceId))
                     },
@@ -356,6 +361,7 @@ fun MusicAgentNavGraph(
                     onPlaylistSelected = { source, sourceId ->
                         navController.navigate(Routes.remotePlaylistDetail(source, sourceId))
                     },
+                    onPodcastSelected = { navController.navigate(Routes.podcastDetail(it)) },
                 )
             }
             composable(Routes.PLAYER) {
@@ -414,6 +420,23 @@ fun MusicAgentNavGraph(
                     },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                     onSpotifyImport = { navController.navigate(Routes.SPOTIFY_IMPORT) },
+                    onOpenPodcasts = { navController.navigate(Routes.PODCASTS) },
+                )
+            }
+            composable(Routes.PODCASTS) {
+                dev.schlubbe.musicagent.ui.podcast.PodcastsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onShowSelected = { navController.navigate(Routes.podcastDetail(it)) },
+                    onEpisodePlayed = { navController.navigate(Routes.PLAYER) },
+                )
+            }
+            composable(
+                Routes.PODCAST_DETAIL,
+                arguments = listOf(navArgument("showId") { type = NavType.StringType }),
+            ) {
+                dev.schlubbe.musicagent.ui.podcast.PodcastDetailScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onEpisodePlayed = { navController.navigate(Routes.PLAYER) },
                 )
             }
             composable(

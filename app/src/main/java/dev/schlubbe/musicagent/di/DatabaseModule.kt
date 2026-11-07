@@ -22,6 +22,7 @@ import dev.schlubbe.musicagent.data.local.MIGRATION_10_11
 import dev.schlubbe.musicagent.data.local.MIGRATION_11_12
 import dev.schlubbe.musicagent.data.local.MIGRATION_12_13
 import dev.schlubbe.musicagent.data.local.MIGRATION_13_14
+import dev.schlubbe.musicagent.data.local.MIGRATION_14_15
 import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
 import dev.schlubbe.musicagent.data.local.dao.FollowedArtistDao
@@ -47,6 +48,7 @@ object DatabaseModule {
                 MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                 MIGRATION_12_13,
                 MIGRATION_13_14,
+                MIGRATION_14_15,
             )
             .build()
 
@@ -55,6 +57,9 @@ object DatabaseModule {
 
     @Provides
     fun providePlayEventDao(database: AppDatabase): PlayEventDao = database.playEventDao()
+
+    @Provides
+    fun providePodcastDao(database: AppDatabase): dev.schlubbe.musicagent.data.local.dao.PodcastDao = database.podcastDao()
 
     @Provides
     fun provideDownloadDao(database: AppDatabase): DownloadDao = database.downloadDao()

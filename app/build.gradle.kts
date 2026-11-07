@@ -179,4 +179,6 @@ dependencies {
     implementation(libs.phosphor.icon)
 
     testImplementation(kotlin("test-junit"))
+    // XmlPullParser implementation for JVM unit tests (Android ships its own)
+    testImplementation("net.sf.kxml:kxml2:2.3.0")
 }

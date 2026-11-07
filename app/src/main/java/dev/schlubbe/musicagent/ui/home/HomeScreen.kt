@@ -86,6 +86,8 @@ fun HomeScreen(
     onSeeAllArtistsClick: () -> Unit,
     onArtistClick: (source: String, sourceId: String) -> Unit = { _, _ -> },
     onWhatsNewClick: () -> Unit = {},
+    onOpenPodcasts: () -> Unit = {},
+    onPodcastShowClick: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -140,6 +142,14 @@ fun HomeScreen(
                             },
                         )
                     }
+                }
+
+                item {
+                    dev.schlubbe.musicagent.ui.podcast.HomePodcastShelves(
+                        onOpenPodcasts = onOpenPodcasts,
+                        onShowSelected = onPodcastShowClick,
+                        onEpisodePlayed = onTrackSelected,
+                    )
                 }
 
                 if (uiState.onRepeat.isNotEmpty()) {

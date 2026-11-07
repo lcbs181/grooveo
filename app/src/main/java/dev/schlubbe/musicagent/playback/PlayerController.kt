@@ -18,6 +18,9 @@ import dev.schlubbe.musicagent.data.extract.ResolvedStream
 import dev.schlubbe.musicagent.data.extract.StreamResolverRegistry
 import dev.schlubbe.musicagent.data.extract.soundcloud.SoundCloudDrmOnlyException
 import dev.schlubbe.musicagent.data.local.dao.DownloadDao
+import dev.schlubbe.musicagent.data.local.dao.PodcastDao
+import dev.schlubbe.musicagent.data.local.entity.PodcastProgressEntity
+import dev.schlubbe.musicagent.podcast.isPodcastSource
 import dev.schlubbe.musicagent.data.local.dao.TrackDao
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
@@ -72,6 +75,11 @@ private const val RADIO_AHEAD = 10
 // Signed stream links (SoundCloud, YouTube without an expire stamp) are refreshed
 // once they are this old; YouTube's own links last about six hours.
 private const val STREAM_MAX_AGE_MS = 2 * 60 * 60 * 1000L
+// Podcasts: how often the listening position is saved while playing, from when on a
+// position counts at all, and how close to the end an episode counts as heard.
+private const val PODCAST_SAVE_INTERVAL_MS = 10_000L
+private const val PODCAST_MIN_PROGRESS_MS = 15_000L
+private const val PODCAST_DONE_MARGIN_MS = 30_000L
 // Head start for refreshing the next item before it plays.
 private const val STREAM_EXPIRY_MARGIN_MS = 10 * 60 * 1000L
 /** Waits before each radio lookup: at once, then backing off over about 20 s. */
@@ -171,6 +179,7 @@ class PlayerController @Inject constructor(
     private val streamResolverRegistry: StreamResolverRegistry,
     private val searchRepository: SearchRepository,
     private val feedRepository: FeedRepository,
+    private val podcastDao: PodcastDao,
 ) {
     private var controller: MediaController? = null
 
@@ -396,6 +405,7 @@ class PlayerController @Inject constructor(
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) resetPlaybackErrorState()
                 _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
+                onPodcastPlayingChanged(isPlaying)
             }
 
             // ExoPlayer drops to STATE_IDLE on any fatal error (network hiccup mid-stream,
@@ -477,6 +487,7 @@ class PlayerController @Inject constructor(
                     suppressNextTransitionEvent = false
                     return
                 }
+                onPodcastTransition(mediaItem, reason)
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
                 resetPlaybackErrorState()
                 val newExoIndex = controller?.currentMediaItemIndex ?: return
@@ -540,6 +551,7 @@ class PlayerController @Inject constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _playbackState.value = _playbackState.value.copy(playerState = playbackState)
                 if (playbackState == Player.STATE_ENDED) {
+                    currentTrack?.takeIf { isPodcastSource(it.source) }?.let { savePodcastProgress(it, 0L, currentDurationMs(), completed = true) }
                     currentTrack?.let { eventReporter.playComplete(it, currentPositionMs()) }
                     currentTrackCompleted = true
                     // STATE_ENDED only fires once the whole queue is exhausted with no
@@ -732,7 +744,7 @@ class PlayerController @Inject constructor(
             unavailableMessage = null,
         )
 
-        mediaController.setMediaItems(mediaItems, newQueueIndex, 0L)
+        mediaController.setMediaItems(mediaItems, newQueueIndex, podcastResumeMs(startTrack))
         mediaController.prepare()
         eventReporter.playStart(startTrack)
         mediaController.play()
@@ -815,7 +827,7 @@ class PlayerController @Inject constructor(
         )
 
         if (mediaItems.isNotEmpty()) {
-            mediaController.setMediaItems(mediaItems, 0, 0L)
+            mediaController.setMediaItems(mediaItems, 0, podcastResumeMs(requestedStartTrack))
             mediaController.prepare()
             eventReporter.playStart(requestedStartTrack)
             mediaController.play()
@@ -1205,6 +1217,7 @@ class PlayerController @Inject constructor(
         if (!streamStale(uri, startsInMs)) return
         val logical = exoIndexForLogical.indexOf(nextExo).takeIf { it >= 0 } ?: return
         val track = currentQueue.getOrNull(logical) ?: return
+        if (isPodcastSource(track.source)) return // episode files do not expire
         if (item.mediaId != "${track.source}:${track.sourceId}") return
         scope.launch {
             val fresh = resolveWithRetry(track).getOrNull() ?: return@launch
@@ -1213,6 +1226,91 @@ class PlayerController @Inject constructor(
             if (now.currentMediaItemIndex == nextExo) return@launch // already playing: the error path handles it
             now.replaceMediaItem(nextExo, buildMediaItem(track, fresh))
         }
+    }
+
+    // ---- podcasts: where listening stopped ----
+
+    private var podcastTickJob: Job? = null
+
+    /** The current track, if it is a podcast episode and really the loaded item. */
+    private fun currentPodcastTrack(): TrackResultDto? = currentTrack?.takeIf {
+        isPodcastSource(it.source) && controller?.currentMediaItem?.mediaId == "${it.source}:${it.sourceId}"
+    }
+
+    private fun onPodcastPlayingChanged(isPlaying: Boolean) {
+        if (isPlaying) {
+            if (podcastTickJob?.isActive == true) return
+            podcastTickJob = scope.launch {
+                while (true) {
+                    delay(PODCAST_SAVE_INTERVAL_MS)
+                    saveCurrentPodcastProgress()
+                }
+            }
+        } else {
+            podcastTickJob?.cancel()
+            podcastTickJob = null
+            saveCurrentPodcastProgress()
+        }
+    }
+
+    private fun saveCurrentPodcastProgress() {
+        val track = currentPodcastTrack() ?: return
+        val position = currentPositionMs()
+        if (position < PODCAST_MIN_PROGRESS_MS) return
+        val duration = currentDurationMs()
+        val done = duration > 0 && position >= duration - PODCAST_DONE_MARGIN_MS
+        savePodcastProgress(track, position, duration, done)
+    }
+
+    /** An episode that played to its end is done; a newly started one continues where
+     * it was left. */
+    private fun onPodcastTransition(mediaItem: MediaItem?, reason: Int) {
+        val previous = currentTrack
+        val previousDurationMs = (previous?.durationSec ?: 0) * 1000L
+        // AUTO, or skipped on in the last seconds (also the trailing-silence skip)
+        val heardOut = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+            (previousDurationMs > 0 && (outgoingPositionMs ?: 0L) >= previousDurationMs - PODCAST_DONE_MARGIN_MS)
+        if (previous != null && isPodcastSource(previous.source) &&
+            mediaItem?.mediaId != "${previous.source}:${previous.sourceId}" && heardOut
+        ) {
+            savePodcastProgress(previous, 0L, (previous.durationSec ?: 0) * 1000L, completed = true)
+        }
+        val mediaId = mediaItem?.mediaId ?: return
+        if (!mediaId.startsWith("${dev.schlubbe.musicagent.podcast.PODCAST_SOURCE}:")) return
+        val audioUrl = mediaId.substringAfter(':')
+        // a fresh queue already starts at the saved position (see podcastResumeMs)
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
+        scope.launch {
+            val position = podcastResumeMs(audioUrl)
+            if (position <= 0L) return@launch
+            val now = controller ?: return@launch
+            if (now.currentMediaItem?.mediaId != mediaId || now.currentPosition > PODCAST_MIN_PROGRESS_MS) return@launch
+            now.seekTo(position)
+        }
+    }
+
+    /** Where to start [track]: the saved position of a half-heard episode, else 0. */
+    private suspend fun podcastResumeMs(track: TrackResultDto): Long =
+        if (isPodcastSource(track.source)) podcastResumeMs(track.sourceId) else 0L
+
+    private suspend fun podcastResumeMs(audioUrl: String): Long {
+        val saved = runCatching { podcastDao.getProgress(audioUrl) }.getOrNull() ?: return 0L
+        return if (saved.completed || saved.positionMs < PODCAST_MIN_PROGRESS_MS) 0L else saved.positionMs
+    }
+
+    private fun savePodcastProgress(track: TrackResultDto, positionMs: Long, durationMs: Long, completed: Boolean) {
+        val entity = PodcastProgressEntity(
+            audioUrl = track.sourceId,
+            showId = track.album,
+            showTitle = track.artist,
+            title = track.title,
+            imageUrl = track.thumbnailUrl,
+            positionMs = if (completed) 0L else positionMs,
+            durationMs = durationMs.takeIf { it > 0 } ?: ((track.durationSec ?: 0) * 1000L),
+            completed = completed,
+            updatedAt = System.currentTimeMillis(),
+        )
+        scope.launch(Dispatchers.IO) { runCatching { podcastDao.upsertProgress(entity) } }
     }
 
     private fun isRemoteItem(item: MediaItem): Boolean {
@@ -1700,6 +1798,7 @@ class PlayerController @Inject constructor(
     private fun topUpQueue() {
         if (controller?.repeatMode != Player.REPEAT_MODE_OFF) return
         if (currentQueue.isEmpty() || currentQueueIndex < 0) return
+        if (isPodcastSource(currentTrack?.source)) return // an episode is no seed for music radio
         if (upcomingCount() < RADIO_AHEAD) continueWithRadio()
     }
 
@@ -1712,7 +1811,7 @@ class PlayerController @Inject constructor(
 
     private fun continueWithRadio(force: Boolean = false) {
         // the PC's live mix never ends by itself and is no seed for radio
-        if (radioJob?.isActive == true || isPlayingPcLive) return
+        if (radioJob?.isActive == true || isPlayingPcLive || isPodcastSource(currentTrack?.source)) return
         radioJob = scope.launch {
             extendQueueMutex.withLock {
                 if (currentQueue.isEmpty() || currentQueueIndex < 0) return@withLock
@@ -1780,7 +1879,7 @@ class PlayerController @Inject constructor(
     /** Downloaded tracks not in the queue yet, for radio without network. */
     private suspend fun offlinePool(excludeIds: Set<String>): List<TrackResultDto> =
         runCatching { trackDao.observeWithDownload().first() }.getOrDefault(emptyList())
-            .filter { it.id !in excludeIds }
+            .filter { it.id !in excludeIds && !isPodcastSource(it.source) }
             .shuffled()
             .take(EXTEND_BATCH_SIZE)
             .map {

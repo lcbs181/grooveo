@@ -61,6 +61,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         // NewUploadsWorker: uploads already reported, and followed artists checked once.
         val SEEN_UPLOADS = stringSetPreferencesKey("seen_uploads")
         val NOTIFY_NEWS = booleanPreferencesKey("notify_news")
+        val PODCAST_APPLE = booleanPreferencesKey("podcast_apple_fallback")
+        val PODCAST_CHECK = booleanPreferencesKey("podcast_check_new")
+        val PODCAST_CHECK_WIFI = booleanPreferencesKey("podcast_check_wifi_only")
         val SEEN_NEWS = stringSetPreferencesKey("seen_news")
         val UPLOAD_ARTISTS = stringSetPreferencesKey("upload_artists")
         val AUTO_BACKUP = booleanPreferencesKey("auto_backup")
@@ -145,6 +148,17 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     suspend fun setNotifyNews(enabled: Boolean) {
         dataStore.edit { it[Keys.NOTIFY_NEWS] = enabled }
     }
+
+    // ---- privacy: podcasts and the network route ----
+
+    /** Ask Apple's directory when the open one (fyyd) has no matching podcast. */
+    val podcastAppleFallback: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_APPLE] ?: true }
+    val podcastCheckNew: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_CHECK] ?: true }
+    val podcastCheckWifiOnly: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_CHECK_WIFI] ?: true }
+
+    suspend fun setPodcastAppleFallback(enabled: Boolean) = dataStore.edit { it[Keys.PODCAST_APPLE] = enabled }
+    suspend fun setPodcastCheckNew(enabled: Boolean) = dataStore.edit { it[Keys.PODCAST_CHECK] = enabled }
+    suspend fun setPodcastCheckWifiOnly(enabled: Boolean) = dataStore.edit { it[Keys.PODCAST_CHECK_WIFI] = enabled }
 
     suspend fun markNewsSeen(ids: Set<String>) {
         if (ids.isEmpty()) return

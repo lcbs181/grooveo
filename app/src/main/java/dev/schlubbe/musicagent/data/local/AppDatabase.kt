@@ -28,6 +28,9 @@ import dev.schlubbe.musicagent.data.local.entity.TrackAnalysisEntity
 import dev.schlubbe.musicagent.data.local.entity.TrackEntity
 import dev.schlubbe.musicagent.data.local.entity.PlayEventEntity
 import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
+import dev.schlubbe.musicagent.data.local.dao.PodcastDao
+import dev.schlubbe.musicagent.data.local.entity.PodcastProgressEntity
+import dev.schlubbe.musicagent.data.local.entity.PodcastShowEntity
 
 @Database(
     entities = [
@@ -42,8 +45,10 @@ import dev.schlubbe.musicagent.data.local.dao.PlayEventDao
         TrackAnalysisEntity::class,
         TrackTagsEntity::class,
         PlayEventEntity::class,
+        PodcastShowEntity::class,
+        PodcastProgressEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 @TypeConverters(DownloadStateConverter::class)
@@ -59,6 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trackAnalysisDao(): TrackAnalysisDao
     abstract fun trackTagsDao(): TrackTagsDao
     abstract fun playEventDao(): PlayEventDao
+    abstract fun podcastDao(): PodcastDao
 }
 
 // Backend-less variant: likes/playlists move from the (removed) server to local
@@ -255,5 +261,21 @@ val MIGRATION_13_14 = object : Migration(13, 14) {
                 "artist TEXT, startedAt INTEGER NOT NULL, listenedMs INTEGER NOT NULL, durationMs INTEGER NOT NULL, endReason TEXT NOT NULL)",
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS index_play_events_startedAt ON play_events (startedAt)")
+    }
+}
+
+// Podcasts and Hörspiele: subscriptions and where listening stopped.
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `podcast_shows` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT, " +
+                "`imageUrl` TEXT, `kind` TEXT NOT NULL, `subscribedAt` INTEGER NOT NULL, `latestEpisodeAt` INTEGER, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `podcast_progress` (`audioUrl` TEXT NOT NULL, `showId` TEXT, `showTitle` TEXT, " +
+                "`title` TEXT NOT NULL, `imageUrl` TEXT, `positionMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, " +
+                "`completed` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`audioUrl`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_podcast_progress_updatedAt` ON `podcast_progress` (`updatedAt`)")
     }
 }

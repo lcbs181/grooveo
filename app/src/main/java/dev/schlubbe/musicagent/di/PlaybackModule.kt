@@ -30,6 +30,9 @@ object PlaybackModule {
         // to Android's own ContentDataSource/FileDataSource for everything else.
         // The PC's live mix ("Auf dem Handy hören") comes over its own LAN-only reader.
         val dataSourceFactory = LiveStreamDataSource.Factory(DefaultDataSource.Factory(context, okHttpDataSourceFactory))
-        return DefaultMediaSourceFactory(dataSourceFactory)
+        // Podcast MP3s often carry no seek table: without constant-bitrate seeking they
+        // cannot be spooled, and resuming an episode would start it over.
+        val extractors = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
+        return DefaultMediaSourceFactory(dataSourceFactory, extractors)
     }
 }

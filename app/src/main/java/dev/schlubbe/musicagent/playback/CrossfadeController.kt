@@ -156,6 +156,8 @@ class CrossfadeController(
         // it in the first place (see PlayerController.currentQueue's kdoc), so this
         // naturally never fades into an unplayable gap.
         if (!mainPlayer.hasNextMediaItem()) return
+        // spoken word: an episode's last words are no tail to blend away
+        if (isPodcastItem(mainPlayer.currentMediaItem?.mediaId) || isPodcastItem(nextMediaId())) return
         val duration = mainPlayer.duration
         if (duration == C.TIME_UNSET) return
         val position = mainPlayer.currentPosition
@@ -363,5 +365,8 @@ class CrossfadeController(
 
 /** Whether a media item's URI scheme points at a file on the device (a download) rather
  * than a network stream - the only case where analysed mix points are trusted. */
+private fun isPodcastItem(mediaId: String?): Boolean =
+    mediaId?.startsWith("${dev.schlubbe.musicagent.podcast.PODCAST_SOURCE}:") == true
+
 internal fun isLocalMediaUri(scheme: String?): Boolean =
     scheme.equals("content", ignoreCase = true) || scheme.equals("file", ignoreCase = true)

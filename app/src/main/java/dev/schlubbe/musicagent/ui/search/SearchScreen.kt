@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.schlubbe.musicagent.data.local.entity.DownloadState
 import dev.schlubbe.musicagent.data.remote.dto.ArtistResultDto
+import dev.schlubbe.musicagent.data.remote.dto.AlbumResultDto
+import dev.schlubbe.musicagent.data.remote.dto.PlaylistResultDto
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 import dev.schlubbe.musicagent.ui.components.CanopyAvatar
 import dev.schlubbe.musicagent.ui.components.CanopyChip
@@ -98,10 +100,13 @@ private val SOURCES = listOf(
 )
 
 private val RESULT_TABS = listOf(
+    "all" to "Alle",
     "tracks" to "Titel",
     "artists" to "Künstler",
     "playlists" to "Playlists",
     "albums" to "Alben",
+    "podcasts" to "Podcasts",
+    "hoerspiele" to "Hörspiele",
 )
 
 private const val CONTENT_BOTTOM_PADDING = 150
@@ -111,6 +116,7 @@ fun SearchScreen(
     onTrackSelected: () -> Unit,
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     onPlaylistSelected: (source: String, sourceId: String) -> Unit,
+    onPodcastSelected: (showId: String) -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -199,6 +205,11 @@ fun SearchScreen(
                         },
                         onArtistClick = viewModel::onArtistResultClicked,
                         onPlaylistClick = viewModel::onPlaylistResultClicked,
+                        onShowClick = {
+                            focusManager.clearFocus()
+                            onPodcastSelected(it)
+                        },
+                        onShowAll = viewModel::onResultTypeChanged,
                         onHistoryTapped = viewModel::onHistoryQueryTapped,
                         onHistoryDeleted = viewModel::onHistoryQueryDeleted,
                         trackActions = TrackActions(
@@ -453,8 +464,15 @@ private fun SearchHeader(
         if (query.isBlank()) return@Column
 
         // Underline tabs: active gets full-strength text plus a 2dp accent rule,
-        // inactive is neutral-500 with no rule.
+        // inactive is neutral-500 with no rule. Scrolls to the active one, which
+        // "Alle anzeigen" may pick off-screen.
+        val tabsState = androidx.compose.foundation.lazy.rememberLazyListState()
+        LaunchedEffect(resultType) {
+            val index = RESULT_TABS.indexOfFirst { it.first == resultType }
+            if (index >= 0) tabsState.animateScrollToItem(maxOf(0, index - 1))
+        }
         LazyRow(
+            state = tabsState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -519,6 +537,8 @@ private fun ResultsList(
     onTrackClick: (TrackResultDto) -> Unit,
     onArtistClick: (ArtistResultDto) -> Unit,
     onPlaylistClick: (source: String, sourceId: String) -> Unit,
+    onShowClick: (String) -> Unit,
+    onShowAll: (String) -> Unit,
     onHistoryTapped: (String) -> Unit,
     onHistoryDeleted: (String) -> Unit,
     trackActions: TrackActions,
@@ -528,75 +548,14 @@ private fun ResultsList(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = maxOf(CONTENT_BOTTOM_PADDING.dp, LocalChromeInset.current + 16.dp)),
     ) {
         when (uiState.resultType) {
-            "artists" -> items(uiState.artistResults, key = { it.source + it.sourceId }) { artist ->
-                ResultRow(
-                    title = artist.name,
-                    subtitle = listOfNotNull(
-                        "Künstler",
-                        sourceLabel(artist.source),
-                        artist.subscriberCount?.takeIf { it.isNotBlank() },
-                    ).joinToString(" · "),
-                    thumbnailUrl = artist.thumbnailUrl,
-                    seed = artist.name,
-                    circular = true,
-                    onClick = { onArtistClick(artist) },
-                )
-            }
-            "playlists" -> items(uiState.playlistResults, key = { it.source + it.sourceId }) { playlist ->
-                ResultRow(
-                    title = playlist.title,
-                    subtitle = listOfNotNull("Playlist", sourceLabel(playlist.source)).joinToString(" · "),
-                    thumbnailUrl = playlist.thumbnailUrl,
-                    seed = playlist.title,
-                    onClick = { onPlaylistClick(playlist.source, playlist.sourceId) },
-                )
-            }
-            "albums" -> items(uiState.albumResults, key = { it.source + it.sourceId }) { album ->
-                ResultRow(
-                    title = album.title,
-                    subtitle = listOfNotNull(album.artist, "Album", sourceLabel(album.source)).joinToString(" · "),
-                    thumbnailUrl = album.thumbnailUrl,
-                    seed = album.title,
-                    // Albums open through the same remote-playlist browse screen
-                    // (an album *is* a playlist with is_album=true upstream).
-                    onClick = { onPlaylistClick(album.source, album.sourceId) },
-                )
-            }
+            "all" -> allSections(uiState, onTrackClick, onArtistClick, onPlaylistClick, onShowClick, onShowAll, trackActions)
+            "artists" -> items(uiState.artistResults, key = { it.source + it.sourceId }) { ArtistResult(it, onArtistClick) }
+            "playlists" -> items(uiState.playlistResults, key = { it.source + it.sourceId }) { PlaylistResult(it, onPlaylistClick) }
+            "podcasts" -> items(uiState.podcastResults, key = { it.id }) { ShowResult(it, "Podcast", onShowClick) }
+            "hoerspiele" -> items(uiState.hoerspielResults, key = { it.id }) { ShowResult(it, "Hörspiel", onShowClick) }
+            "albums" -> items(uiState.albumResults, key = { it.source + it.sourceId }) { AlbumResult(it, onPlaylistClick) }
             else -> items(uiState.results, key = { it.source + it.sourceId }) { track ->
-                val key = "${track.source}:${track.sourceId}"
-                val download = uiState.downloadStates[key]
-                var menuExpanded by remember { mutableStateOf(false) }
-                ResultRow(
-                    title = track.title,
-                    subtitle = listOfNotNull(
-                        track.artist,
-                        sourceLabel(track.source),
-                        track.durationSec?.takeIf { it > 0 }?.let { "%d:%02d".format(it / 60, it % 60) },
-                    ).joinToString(" · "),
-                    thumbnailUrl = track.thumbnailUrl,
-                    seed = track.title,
-                    state = stateFor(track, download),
-                    onClick = { onTrackClick(track) },
-                    onLongClick = { menuExpanded = true },
-                    trailing = {
-                        Box {
-                            CanopyIconButton(
-                                icon = phosphorIcon("dots-three-vertical"),
-                                onClick = { menuExpanded = true },
-                                size = 36.dp,
-                                contentDescription = "Weitere Optionen",
-                            )
-                            TrackActionsMenu(
-                                expanded = menuExpanded,
-                                onDismiss = { menuExpanded = false },
-                                track = track,
-                                isLiked = key in uiState.likedTrackIds,
-                                download = download,
-                                actions = trackActions,
-                            )
-                        }
-                    },
-                )
+                TrackResult(track, uiState, onTrackClick, trackActions)
             }
         }
 
@@ -621,6 +580,186 @@ private fun ResultsList(
             }
         }
     }
+}
+
+/** "Alle", laid out like SoundCloud's: the best match first, then a few of each kind
+ * with "Alle anzeigen" leading to that kind's tab, and the remaining tracks last. */
+private fun androidx.compose.foundation.lazy.LazyListScope.allSections(
+    uiState: SearchUiState,
+    onTrackClick: (TrackResultDto) -> Unit,
+    onArtistClick: (ArtistResultDto) -> Unit,
+    onPlaylistClick: (source: String, sourceId: String) -> Unit,
+    onShowClick: (String) -> Unit,
+    onShowAll: (String) -> Unit,
+    trackActions: TrackActions,
+) {
+    val query = uiState.query.trim()
+    val topArtist = uiState.artistResults.firstOrNull()?.takeIf { matchesQuery(it.name, query) }
+    val topTrack = uiState.results.firstOrNull()
+    val artists = uiState.artistResults.filter { it !== topArtist }.take(ALL_SECTION_SIZE)
+    val tracks = uiState.results.drop(1).take(ALL_TRACKS)
+    val more = uiState.results.drop(1 + ALL_TRACKS)
+    val nothing = topTrack == null && uiState.artistResults.isEmpty() && uiState.podcastResults.isEmpty() &&
+        uiState.hoerspielResults.isEmpty() && uiState.albumResults.isEmpty() && uiState.playlistResults.isEmpty()
+    if (nothing) {
+        item { Text("Nichts gefunden", color = Canopy.neutral500, modifier = Modifier.padding(vertical = 24.dp)) }
+        return
+    }
+
+    if (topArtist != null || topTrack != null) {
+        item(key = "h:best") { AllHeader("Bestes Ergebnis") }
+        topArtist?.let { item(key = "best:artist") { ArtistResult(it, onArtistClick) } }
+        topTrack?.let { item(key = "best:track") { TrackResult(it, uiState, onTrackClick, trackActions) } }
+    }
+    fun <T> section(title: String, tab: String, list: List<T>, key: (T) -> String, row: @Composable (T) -> Unit) {
+        if (list.isEmpty()) return
+        item(key = "h:$tab") { AllHeader(title) { onShowAll(tab) } }
+        items(list.take(ALL_SECTION_SIZE), key = { "$tab:${key(it)}" }) { row(it) }
+    }
+    section("Künstler", "artists", artists, { it.source + it.sourceId }) { ArtistResult(it, onArtistClick) }
+    if (tracks.isNotEmpty()) {
+        item(key = "h:tracks") { AllHeader("Titel") { onShowAll("tracks") } }
+        items(tracks, key = { "tracks:${it.source}${it.sourceId}" }) { TrackResult(it, uiState, onTrackClick, trackActions) }
+    }
+    section("Podcasts", "podcasts", uiState.podcastResults, { it.id }) { ShowResult(it, "Podcast", onShowClick) }
+    section("Hörspiele", "hoerspiele", uiState.hoerspielResults, { it.id }) { ShowResult(it, "Hörspiel", onShowClick) }
+    section("Alben", "albums", uiState.albumResults, { it.source + it.sourceId }) { AlbumResult(it, onPlaylistClick) }
+    section("Playlists", "playlists", uiState.playlistResults, { it.source + it.sourceId }) { PlaylistResult(it, onPlaylistClick) }
+    if (more.isNotEmpty()) {
+        item(key = "h:more") { AllHeader("Weitere Ergebnisse") }
+        items(more, key = { "more:${it.source}${it.sourceId}" }) { TrackResult(it, uiState, onTrackClick, trackActions) }
+    }
+}
+
+private const val ALL_SECTION_SIZE = 3
+private const val ALL_TRACKS = 4
+
+private fun matchesQuery(name: String, query: String): Boolean {
+    val a = name.lowercase().filter(Char::isLetterOrDigit)
+    val b = query.lowercase().filter(Char::isLetterOrDigit)
+    return b.isNotEmpty() && (a == b || a.startsWith(b) || b.startsWith(a) && a.length >= 3)
+}
+
+@Composable
+private fun AllHeader(title: String, onShowAll: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Canopy.text,
+            modifier = Modifier.weight(1f),
+        )
+        if (onShowAll != null) {
+            Text(
+                "Alle anzeigen",
+                style = MaterialTheme.typography.labelLarge,
+                color = Canopy.text,
+                modifier = Modifier
+                    .clip(CanopyPillShape)
+                    .background(Canopy.surface)
+                    .clickable(onClick = onShowAll)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistResult(artist: ArtistResultDto, onClick: (ArtistResultDto) -> Unit) {
+    ResultRow(
+        title = artist.name,
+        subtitle = listOfNotNull(
+            "Künstler",
+            sourceLabel(artist.source),
+            artist.subscriberCount?.takeIf { it.isNotBlank() },
+        ).joinToString(" · "),
+        thumbnailUrl = artist.thumbnailUrl,
+        seed = artist.name,
+        circular = true,
+        onClick = { onClick(artist) },
+    )
+}
+
+@Composable
+private fun PlaylistResult(playlist: PlaylistResultDto, onClick: (source: String, sourceId: String) -> Unit) {
+    ResultRow(
+        title = playlist.title,
+        subtitle = listOfNotNull("Playlist", sourceLabel(playlist.source)).joinToString(" · "),
+        thumbnailUrl = playlist.thumbnailUrl,
+        seed = playlist.title,
+        onClick = { onClick(playlist.source, playlist.sourceId) },
+    )
+}
+
+@Composable
+private fun AlbumResult(album: AlbumResultDto, onClick: (source: String, sourceId: String) -> Unit) {
+    ResultRow(
+        title = album.title,
+        subtitle = listOfNotNull(album.artist, "Album", sourceLabel(album.source)).joinToString(" · "),
+        thumbnailUrl = album.thumbnailUrl,
+        seed = album.title,
+        // Albums open through the same remote-playlist browse screen
+        // (an album *is* a playlist with is_album=true upstream).
+        onClick = { onClick(album.source, album.sourceId) },
+    )
+}
+
+@Composable
+private fun ShowResult(show: dev.schlubbe.musicagent.podcast.PodcastShow, kind: String, onClick: (String) -> Unit) {
+    ResultRow(
+        title = show.title,
+        subtitle = listOfNotNull(kind, show.author, show.episodeCount?.takeIf { it > 0 }?.let { "$it Folgen" }).joinToString(" · "),
+        thumbnailUrl = show.imageUrl,
+        seed = show.title,
+        onClick = { onClick(show.id) },
+    )
+}
+
+@Composable
+private fun TrackResult(
+    track: TrackResultDto,
+    uiState: SearchUiState,
+    onTrackClick: (TrackResultDto) -> Unit,
+    trackActions: TrackActions,
+) {
+    val key = "${track.source}:${track.sourceId}"
+    val download = uiState.downloadStates[key]
+    var menuExpanded by remember { mutableStateOf(false) }
+    ResultRow(
+        title = track.title,
+        subtitle = listOfNotNull(
+            track.artist,
+            sourceLabel(track.source),
+            track.durationSec?.takeIf { it > 0 }?.let { "%d:%02d".format(it / 60, it % 60) },
+        ).joinToString(" · "),
+        thumbnailUrl = track.thumbnailUrl,
+        seed = track.title,
+        state = stateFor(track, download),
+        onClick = { onTrackClick(track) },
+        onLongClick = { menuExpanded = true },
+        trailing = {
+            Box {
+                CanopyIconButton(
+                    icon = phosphorIcon("dots-three-vertical"),
+                    onClick = { menuExpanded = true },
+                    size = 36.dp,
+                    contentDescription = "Weitere Optionen",
+                )
+                TrackActionsMenu(
+                    expanded = menuExpanded,
+                    onDismiss = { menuExpanded = false },
+                    track = track,
+                    isLiked = key in uiState.likedTrackIds,
+                    download = download,
+                    actions = trackActions,
+                )
+            }
+        },
+    )
 }
 
 /** A "Zuletzt gesucht" chip: taps re-run that query, and a long-press surfaces a

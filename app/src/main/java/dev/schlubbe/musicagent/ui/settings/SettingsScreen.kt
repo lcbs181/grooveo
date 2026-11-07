@@ -293,6 +293,8 @@ fun SettingsScreen(
                     }
                 }
 
+                PrivacySection()
+
                 // — Weitere Einstellungen — (existing features the mockup doesn't depict)
                 Column {
                     CanopySectionHeader(title = "Weitere Einstellungen")

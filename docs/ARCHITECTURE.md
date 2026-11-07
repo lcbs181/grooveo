@@ -47,6 +47,7 @@ app/src/main/java/dev/schlubbe/musicagent/
 ├── di/                    Hilt modules
 ├── download/              download queue/worker (WorkManager), MediaStore export
 ├── follow/                new-upload notifications for followed artists
+├── podcast/               podcasts and Hörspiele: RSS parser, search, new episodes
 ├── playback/              MediaLibraryService, PlayerController, queue state,
 │   │                      crossfade, sleep fade, Android Auto browse tree
 │   ├── analysis/          background track analysis (tempo, mix points)
@@ -63,7 +64,7 @@ app/src/main/java/dev/schlubbe/musicagent/
     ├── icons/             Phosphor icon lookup
     ├── home/, search/, library/, playlist/, artist/, player/, downloads/,
     │   account/, settings/, onboarding/, spotify/, assistant/, update/,
-    │   whatsnew/          one package per screen/feature area
+    │   whatsnew/, podcast/ one package per screen/feature area
     └── util/              small Compose/UI helpers
 ```
 
@@ -225,10 +226,55 @@ batches its draw calls by colour/brightness bucket into a handful of native
 `drawPoints` calls, rather than one `drawCircle` per point, to stay under one
 display-frame's time budget at high point counts.
 
+## Podcasts and Hörspiele
+
+`podcast/` adds spoken-word content next to the music, reached from the Library
+and the start page. Three sources, none needing an account or key:
+
+- **fyyd** (`api.fyyd.de`) to find podcasts, with **Apple's directory** as a
+  fallback when no fyyd title matches the query (switchable; with it off, the
+  browse page shows ARD categories instead of Apple's charts). Both only supply
+  the RSS feed URL; everything else comes from the feed.
+- **RSS feeds** read by `RssParser` (a pull parser, so no DOCTYPE or external
+  entity is ever resolved; feeds are capped at 20 MB). Any feed URL can also be
+  added by hand ("RSS-Feed hinzufügen").
+- **ARD Audiothek** (public GraphQL API) for Hörspiele. Many of its program sets
+  have no public feed, so they are read from the API directly. Announced episodes
+  already list audio URLs that 404 until their date, so future ones are dropped.
+
+A show id is `rss:<feed url>` or `ard:<program set id>` (`ShowId`). An episode
+plays as a track with source `podcast` and its audio URL as the source id, so the
+queue, notification, widget and downloads work unchanged; the resolver returns
+the URL as it is. Podcast tracks are kept out of music radio, recommendations,
+listening history and the YouTube fallback.
+
+Listening position lives in `podcast_progress` (saved every 10 s while playing
+and on pause; within 30 s of the end counts as heard). A queue that starts on a
+half-heard episode starts at the saved position; an episode reached by
+auto-advance seeks there. Constant-bitrate seeking is on in the extractor
+factory, since many podcast MP3s have no seek table. `NewEpisodesWorker` checks
+subscriptions every 6 h (switchable, Wi-Fi only by default) and notifies once
+per show.
+
+`TrackingPrefixes` strips measurement redirects (Podtrac, Chartable, OP3,
+Podscribe and others) from episode URLs, so audio is fetched from the host
+directly.
+
+## Network privacy
+
+`data/remote/NetworkPrivacy.kt` holds the proxy setting (off, Tor via Orbot on
+127.0.0.1:9050, or a custom SOCKS5 host). It lives in plain SharedPreferences so
+`MusicAgentApp` can read it synchronously and install `PrivacyProxySelector` as
+the process-wide `ProxySelector` before anything opens a connection. Every OkHttp
+client picks it up without its own wiring; SOCKS addresses are left unresolved so
+the proxy does the DNS lookup. Local hosts (PC sync) go direct, and there is no
+fallback to a direct connection when the proxy fails. Changing the setting
+restarts the process, so pooled connections cannot keep the old route.
+
 ## Local storage
 
-Room (`data/local/`) backs the track metadata cache, likes, playlists, and
-download records. DataStore backs user settings (backend URL/API key,
+Room (`data/local/`) backs the track metadata cache, likes, playlists,
+download records, podcast subscriptions and listening positions. DataStore backs user settings (backend URL/API key,
 Datensparmodus, equalizer preset, etc.).
 
 ## Update channel

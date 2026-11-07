@@ -6,6 +6,10 @@ import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.fill.Sparkle
 import com.adamglin.phosphoricons.regular.Stop
+import com.adamglin.phosphoricons.regular.Rss
+import com.adamglin.phosphoricons.regular.Microphone
+import com.adamglin.phosphoricons.regular.Bell
+import com.adamglin.phosphoricons.regular.BellSlash
 import com.adamglin.phosphoricons.regular.ArrowSquareOut
 import com.adamglin.phosphoricons.regular.NumberCircleOne
 import com.adamglin.phosphoricons.regular.NumberCircleTwo
@@ -256,6 +260,10 @@ fun phosphorIcon(name: String, filled: Boolean = false): ImageVector = if (fille
         "upload-simple" -> PhosphorIcons.Regular.UploadSimple
         "chats" -> PhosphorIcons.Regular.Chats
         "flask" -> PhosphorIcons.Regular.Flask
+        "rss" -> PhosphorIcons.Regular.Rss
+        "microphone" -> PhosphorIcons.Regular.Microphone
+        "bell" -> PhosphorIcons.Regular.Bell
+        "bell-slash" -> PhosphorIcons.Regular.BellSlash
         else -> PhosphorIcons.Regular.WarningCircle
     }
 }

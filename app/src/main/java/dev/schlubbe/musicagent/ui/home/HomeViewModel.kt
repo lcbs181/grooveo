@@ -327,7 +327,9 @@ class HomeViewModel @Inject constructor(
         // A live Room query -- no explicit reload needed, it just emits whenever a
         // track is played anywhere in the app.
         viewModelScope.launch {
-            trackDao.observeRecentlyPlayed(RECENTLY_PLAYED_LIMIT).collect { tracks ->
+            trackDao.observeRecentlyPlayed(RECENTLY_PLAYED_LIMIT).collect { all ->
+                // episodes have their own "Weiterhören" shelf
+                val tracks = all.filterNot { dev.schlubbe.musicagent.podcast.isPodcastSource(it.source) }
                 _uiState.value = _uiState.value.copy(recentlyPlayed = tracks, statLine = weeklyListenStatLine(tracks))
                 recomputeTopArtists()
             }

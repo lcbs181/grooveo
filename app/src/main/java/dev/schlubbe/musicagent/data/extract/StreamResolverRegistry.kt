@@ -62,6 +62,9 @@ class StreamResolverRegistry @Inject constructor(
             ?.takeIf { it.state == DownloadState.COMPLETED && it.mediaStoreUri != null }
             ?.let { return ResolvedStream(url = it.mediaStoreUri!!, isHls = false) }
 
+        // podcast episodes are their own audio file: nothing to resolve, nothing to swap in
+        if (dev.schlubbe.musicagent.podcast.isPodcastSource(source)) return resolve(source, sourceId, preferProgressive)
+
         return runCatching { resolve(source, sourceId, preferProgressive) }.getOrElse { error ->
             val replacement = youTubeFallback.findReplacement(title, artist, durationSec) ?: throw error
             Log.i(TAG, "resolveWithFallback: playing '$title' from ${replacement.source} instead of $source:$sourceId")
@@ -97,6 +100,8 @@ class StreamResolverRegistry @Inject constructor(
     }
 
     private suspend fun resolveOnce(source: String, sourceId: String, preferProgressive: Boolean): ResolvedStream = when {
+        dev.schlubbe.musicagent.podcast.isPodcastSource(source) ->
+            ResolvedStream(url = sourceId.takeIf { dev.schlubbe.musicagent.podcast.isWebUrl(it) } ?: error("not a web URL"), isHls = false)
         soundCloud.supports(source) -> soundCloud.resolve(sourceId, preferProgressive)
         youTube.supports(source) -> youTube.resolve(sourceId, preferProgressive)
         else -> error("unknown source: $source")
