@@ -69,6 +69,11 @@ private const val EXTEND_BATCH_SIZE = 8
 /** Radio loads more once fewer than this many tracks are left after the current one,
  * so "Als Nächstes" always shows a good stretch ahead instead of running out. */
 private const val RADIO_AHEAD = 10
+// Signed stream links (SoundCloud, YouTube without an expire stamp) are refreshed
+// once they are this old; YouTube's own links last about six hours.
+private const val STREAM_MAX_AGE_MS = 2 * 60 * 60 * 1000L
+// Head start for refreshing the next item before it plays.
+private const val STREAM_EXPIRY_MARGIN_MS = 10 * 60 * 1000L
 /** Waits before each radio lookup: at once, then backing off over about 20 s. */
 private val RADIO_RETRY_MS = longArrayOf(0, 2_000, 5_000, 15_000)
 
@@ -409,10 +414,17 @@ class PlayerController @Inject constructor(
                 if (playbackErrorRetryCount < MAX_PLAYBACK_ERROR_RETRIES) {
                     playbackErrorRetryCount++
                     val mediaIdAtError = controllerRef.currentMediaItem?.mediaId
+                    // The first retry fetches a fresh stream address: the one in the
+                    // item was resolved when the track was queued, and the signed CDN
+                    // links expire after a few hours - prepare() alone would only open
+                    // the same dead link again. That was "after a long radio session
+                    // songs stop, but downloading them works" (a download resolves anew).
+                    val reResolve = playbackErrorRetryCount == 1
                     playbackRetryJob?.cancel()
                     playbackRetryJob = scope.launch {
                         delay(1_000L * playbackErrorRetryCount)
                         if (controller?.currentMediaItem?.mediaId != mediaIdAtError) return@launch
+                        if (reResolve) refreshCurrentStream(controllerRef)
                         controllerRef.prepare()
                         controllerRef.play()
                     }
@@ -522,6 +534,7 @@ class PlayerController @Inject constructor(
                 )
                 refreshDownloadAvailability(newTrack)
                 topUpQueue()
+                refreshNextStreamIfStale()
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1153,8 +1166,67 @@ class PlayerController @Inject constructor(
         resetPlaybackErrorState()
         _playbackState.value = _playbackState.value.copy(isUnavailable = false, unavailableMessage = null)
         val mediaController = ensureConnectedOrReportError() ?: return
+        refreshCurrentStream(mediaController)
         mediaController.prepare()
         mediaController.play()
+    }
+
+    /** Resolves the current item's stream again and swaps it in at the same position.
+     * Local files and the PC live stream are left alone. */
+    private suspend fun refreshCurrentStream(mediaController: MediaController) {
+        val track = currentTrack?.takeUnless { it.source == PC_LIVE_SOURCE } ?: return
+        val index = mediaController.currentMediaItemIndex
+        val item = mediaController.currentMediaItem ?: return
+        if (!isRemoteItem(item) || item.mediaId != "${track.source}:${track.sourceId}") return
+        val fresh = resolveWithRetry(track).getOrNull() ?: return
+        // same link again: nothing to swap (and no transition would consume the flag below)
+        if (fresh.url == item.localConfiguration?.uri?.toString()) return
+        if (currentTrack !== track || mediaController.currentMediaItemIndex != index ||
+            mediaController.currentMediaItem?.mediaId != item.mediaId
+        ) {
+            return
+        }
+        val positionMs = currentPositionMs()
+        suppressNextTransitionEvent = true
+        mediaController.replaceMediaItem(index, buildMediaItem(track, fresh))
+        mediaController.seekTo(index, positionMs)
+    }
+
+    /** The next item's stream address was resolved when it was queued; if it will have
+     * expired by the time it starts, a fresh one is put in now, while the current track
+     * still plays. */
+    private fun refreshNextStreamIfStale() {
+        val mediaController = controller ?: return
+        val nextExo = mediaController.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET } ?: return
+        val item = mediaController.getMediaItemAt(nextExo)
+        if (!isRemoteItem(item)) return
+        val uri = item.localConfiguration?.uri ?: return
+        val startsInMs = ((currentTrack?.durationSec ?: 0) * 1000L) + STREAM_EXPIRY_MARGIN_MS
+        if (!streamStale(uri, startsInMs)) return
+        val logical = exoIndexForLogical.indexOf(nextExo).takeIf { it >= 0 } ?: return
+        val track = currentQueue.getOrNull(logical) ?: return
+        if (item.mediaId != "${track.source}:${track.sourceId}") return
+        scope.launch {
+            val fresh = resolveWithRetry(track).getOrNull() ?: return@launch
+            val now = controller ?: return@launch
+            if (nextExo >= now.mediaItemCount || now.getMediaItemAt(nextExo).mediaId != item.mediaId) return@launch
+            if (now.currentMediaItemIndex == nextExo) return@launch // already playing: the error path handles it
+            now.replaceMediaItem(nextExo, buildMediaItem(track, fresh))
+        }
+    }
+
+    private fun isRemoteItem(item: MediaItem): Boolean {
+        val scheme = item.localConfiguration?.uri?.scheme
+        return scheme == "http" || scheme == "https"
+    }
+
+    /** True when [uri] will no longer work [withinMs] from now: by the link's own
+     * `expire` stamp (YouTube) or, without one, by when it was resolved. */
+    private fun streamStale(uri: Uri, withinMs: Long): Boolean {
+        val now = System.currentTimeMillis()
+        uri.getQueryParameter("expire")?.toLongOrNull()?.let { return it * 1000L < now + withinMs }
+        val resolvedAt = synchronized(resolvedAtMs) { resolvedAtMs[uri.toString()] } ?: return false
+        return now + withinMs - resolvedAt > STREAM_MAX_AGE_MS
     }
 
     /** Wraps [ensureConnected] for every command entry point below - without this, a
@@ -1774,7 +1846,19 @@ class PlayerController @Inject constructor(
         else -> null
     }
 
-    private fun buildMediaItem(track: TrackResultDto, resolved: ResolvedStream): MediaItem =
+    // When each remote stream address was resolved (see [streamStale]); bounded.
+    private val resolvedAtMs = object : LinkedHashMap<String, Long>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 500
+    }
+
+    private fun buildMediaItem(track: TrackResultDto, resolved: ResolvedStream): MediaItem {
+        if (resolved.url.startsWith("http")) {
+            synchronized(resolvedAtMs) { resolvedAtMs[resolved.url] = System.currentTimeMillis() }
+        }
+        return buildMediaItemOnly(track, resolved)
+    }
+
+    private fun buildMediaItemOnly(track: TrackResultDto, resolved: ResolvedStream): MediaItem =
         MediaItem.Builder()
             .setUri(resolved.url)
             .setMediaId("${track.source}:${track.sourceId}")
@@ -1782,7 +1866,7 @@ class PlayerController @Inject constructor(
                 MediaMetadata.Builder()
                     .setTitle(track.title)
                     .setArtist(track.artist)
-                    .setArtworkUri(track.thumbnailUrl?.let(Uri::parse))
+                    .setArtworkUri(dev.schlubbe.musicagent.data.artwork.ArtworkUrls.safe(track.thumbnailUrl)?.let(Uri::parse))
                     .build(),
             )
             .build()

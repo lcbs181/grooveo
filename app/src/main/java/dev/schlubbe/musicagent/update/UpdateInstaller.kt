@@ -51,7 +51,9 @@ object UpdateInstaller {
                     session.fsync(out)
                 }
             }
-            val status = Intent(ACTION_STATUS).setPackage(context.packageName)
+            // explicit component: the PendingIntent has to be mutable (the installer
+            // fills in the result), so it must not be able to reach anything else
+            val status = Intent(ACTION_STATUS).setClass(context, UpdateInstallReceiver::class.java)
                 .putExtra(EXTRA_INTERACTIVE, interactive)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0

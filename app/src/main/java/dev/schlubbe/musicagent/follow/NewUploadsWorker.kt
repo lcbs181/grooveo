@@ -13,7 +13,6 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.google.gson.Gson
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.schlubbe.musicagent.MainActivity
@@ -75,7 +74,7 @@ class NewUploadsWorker @AssistedInject constructor(
             applicationContext, "${track.source}:${track.sourceId}".hashCode(),
             Intent(applicationContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra(MainActivity.EXTRA_PLAY_TRACK, Gson().toJson(track)),
+                .putExtra(MainActivity.EXTRA_PLAY_TRACK, NotificationTracks.ticketFor(applicationContext, track)),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)

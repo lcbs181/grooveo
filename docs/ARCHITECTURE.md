@@ -104,7 +104,7 @@ across the whole app and the widget without manual synchronization.
 
 The queue always fills itself (there is no setting for it any more):
 `PlayerController.topUpQueue()` runs after every queue start, track change,
-queue edit and repeat/shuffle change, and once fewer than `RADIO_AHEAD` (3)
+queue edit and repeat/shuffle change, and once fewer than `RADIO_AHEAD` (10)
 tracks are left in play order it calls `continueWithRadio()`, which appends a
 batch from `FeedRepository.predictNext` (downloads as offline fallback). Repeat
 modes loop the queue themselves and are left alone. The old `autoplay_radio`

@@ -107,15 +107,13 @@ class MainActivity : ComponentActivity() {
         handlePlayTrackIntent(intent)
     }
 
-    /** A tapped "Neu von …" notification (NewUploadsWorker) carries its track: open
+    /** A tapped "Neu von …" notification (NewUploadsWorker) carries its track's ticket: open
      * the player and play it. The extra is removed so a later recreate of the
      * activity doesn't start the song again. */
     private fun handlePlayTrackIntent(intent: Intent?) {
-        val json = intent?.getStringExtra(EXTRA_PLAY_TRACK) ?: return
+        val ticket = intent?.getStringExtra(EXTRA_PLAY_TRACK) ?: return
         intent.removeExtra(EXTRA_PLAY_TRACK)
-        val track = runCatching {
-            com.google.gson.Gson().fromJson(json, dev.schlubbe.musicagent.data.remote.dto.TrackResultDto::class.java)
-        }.getOrNull() ?: return
+        val track = dev.schlubbe.musicagent.follow.NotificationTracks.redeem(this, ticket) ?: return
         lifecycleScope.launch {
             sharedLinkNavHolder.pendingRoute.value = Routes.PLAYER
             playerController.playTrack(track)
@@ -178,7 +176,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        /** JSON of a TrackResultDto to play on launch (new-upload notifications). */
+        /** Ticket of a track to play on launch (new-upload notifications), see NotificationTracks. */
         const val EXTRA_PLAY_TRACK = "dev.schlubbe.musicagent.PLAY_TRACK"
     }
 }

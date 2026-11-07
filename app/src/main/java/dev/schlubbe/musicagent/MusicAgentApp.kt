@@ -54,7 +54,10 @@ class MusicAgentApp : Application(), Configuration.Provider, ImageLoaderFactory 
 
     /** Saved covers of offline tracks load from their files ([OfflineCovers]). */
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
-        .components { add(offlineCovers.mapper) }
+        .components {
+            add(dev.schlubbe.musicagent.data.artwork.ArtworkUrls.CoilInterceptor(offlineCovers::has))
+            add(offlineCovers.mapper)
+        }
         .build()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

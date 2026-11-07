@@ -177,15 +177,29 @@ class PlaybackService : MediaLibraryService() {
          * controller. Only [isTrustedController]s - System UI, the notification,
          * Android Auto, the Assistant and this app's own PlayerController - get full
          * player control, the like/download commands and the browse tree (likes,
-         * playlists, downloads, search). Anyone else gets what Media3 itself grants an
-         * untrusted controller (read-only player state, which is also what this
-         * returned for them before), minus the read-only library commands Media3 would
-         * add on top for a MediaLibrarySession - otherwise any app could read the
-         * user's likes and playlists through the browse tree. */
+         * playlists, downloads, search). Anyone else gets transport controls only
+         * (play/pause, skip, seek): no library commands - otherwise any app could
+         * read the user's likes and playlists through the browse tree - and no
+         * commands that replace or edit the queue. */
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
             if (!isTrustedController(session, controller)) {
+                // Transport (play/pause/skip/seek) stays open for watches, launchers and
+                // other remote controls; replacing or editing the queue does not, or
+                // any app could start whatever it likes in the user's player.
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
                     .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_COMMANDS)
+                    .setAvailablePlayerCommands(
+                        MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                            .removeAll(
+                                Player.COMMAND_SET_MEDIA_ITEM,
+                                Player.COMMAND_CHANGE_MEDIA_ITEMS,
+                                Player.COMMAND_SET_PLAYLIST_METADATA,
+                                Player.COMMAND_SET_VOLUME,
+                                Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
+                                Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
+                            )
+                            .build(),
+                    )
                     .build()
             }
             val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()

@@ -176,7 +176,7 @@ fun SearchScreen(
                             )
                         }
                     }
-                    BuildConfig.DAWN && uiState.query.isBlank() -> BrowseAll(
+                    uiState.query.isBlank() -> BrowseAll(
                         history = uiState.searchHistory,
                         covers = viewModel.browseCovers.collectAsState().value,
                         onShown = { viewModel.loadBrowseCovers(BROWSE_TILES.map { it.query }) },
@@ -248,7 +248,7 @@ private val BROWSE_TILES = listOf(
     BrowseTile("Schlager", "Schlager", Color(0xFF8A5A00)),
 )
 
-/** Dawn Music's empty search: recent searches as chips, then Spotify's
+/** The empty search (both apps): recent searches as chips, then Spotify's
  * "Alle durchsuchen" grid of colour tiles that each start a search. */
 @Composable
 private fun BrowseAll(
@@ -450,7 +450,7 @@ private fun SearchHeader(
             }
         }
         // ...and the result tabs only once there is something to sort
-        if (BuildConfig.DAWN && query.isBlank()) return@Column
+        if (query.isBlank()) return@Column
 
         // Underline tabs: active gets full-strength text plus a 2dp accent rule,
         // inactive is neutral-500 with no rule.

@@ -111,10 +111,12 @@
         </provider>
 
         <!-- Update APK finished downloading in the system DownloadManager (sent by the
-             system's download provider, hence exported). -->
+             system's download provider, hence exported; the permission is one only
+             that provider holds, so no other app can fake the broadcast). -->
         <receiver
             android:name=".update.UpdateDownloadReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.SEND_DOWNLOAD_COMPLETED_INTENTS">
             <intent-filter>
                 <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
             </intent-filter>

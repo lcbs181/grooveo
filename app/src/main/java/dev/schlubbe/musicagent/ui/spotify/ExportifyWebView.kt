@@ -5,7 +5,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -59,10 +58,18 @@ fun ExportifyWebView(onExport: (fileName: String, bytes: ByteArray) -> Unit, mod
                 settings.domStorageEnabled = true
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                addJavascriptInterface(
-                    ExportBridge { name, bytes -> main.post { currentOnExport(name, bytes) } },
-                    "DawnExport",
-                )
+                // A web message listener instead of addJavascriptInterface: the latter is
+                // callable from every page and frame the WebView ever shows (Spotify's
+                // login, links out of Exportify, ads), so any site could have fed the
+                // import a fake library or an endless stream of chunks. This object only
+                // exists in frames from EXPORTIFY_ORIGIN. Without the feature (WebView
+                // older than 2020) there is no bridge; the export file can still be opened.
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                    val bridge = ExportBridge { name, bytes -> main.post { currentOnExport(name, bytes) } }
+                    WebViewCompat.addWebMessageListener(this, "DawnExport", setOf(EXPORTIFY_ORIGIN)) { _, message, _, isMainFrame, _ ->
+                        if (isMainFrame) message.data?.let(bridge::onMessage)
+                    }
+                }
                 if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                     WebViewCompat.addDocumentStartJavaScript(this, DOWNLOAD_HOOK, setOf(EXPORTIFY_ORIGIN))
                 }
@@ -81,42 +88,44 @@ fun ExportifyWebView(onExport: (fileName: String, bytes: ByteArray) -> Unit, mod
         },
         onRelease = { webView ->
             webView.stopLoading()
-            webView.removeJavascriptInterface("DawnExport")
             webView.destroy()
         },
     )
 }
 
-/** Receives the export from [DOWNLOAD_HOOK] in base64 chunks (one huge string
- * through the bridge is slow and can run out of memory). */
+/** Receives the export from [DOWNLOAD_HOOK] as web messages: "B<size>|<name>",
+ * then base64 chunks "C<data>", then "E". The base64 text is capped at what
+ * MAX_EXPORT_BYTES encodes to, so a page cannot grow it without bound. */
 private class ExportBridge(private val deliver: (String, ByteArray) -> Unit) {
     private var name: String? = null
     private val data = StringBuilder()
 
-    @JavascriptInterface
-    fun begin(fileName: String?, size: Int) {
-        synchronized(this) {
-            data.clear()
-            name = if (size in 1..MAX_EXPORT_BYTES) fileName?.take(120) ?: "export.zip" else null
+    fun onMessage(message: String) {
+        when (message.firstOrNull()) {
+            'B' -> synchronized(this) {
+                data.clear()
+                val size = message.substring(1).substringBefore('|').toIntOrNull() ?: 0
+                name = if (size in 1..MAX_EXPORT_BYTES) message.substringAfter('|', "").take(120).ifEmpty { "export.zip" } else null
+            }
+            'C' -> synchronized(this) {
+                if (name == null) return
+                if (data.length + message.length - 1 > MAX_BASE64_CHARS) { name = null; data.clear(); return }
+                data.append(message, 1, message.length)
+            }
+            'E' -> {
+                val (fileName, encoded) = synchronized(this) {
+                    val n = name ?: return
+                    name = null
+                    n to data.toString().also { data.clear() }
+                }
+                val bytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull() ?: return
+                deliver(fileName, bytes)
+            }
         }
-    }
-
-    @JavascriptInterface
-    fun chunk(part: String?) {
-        synchronized(this) { if (name != null && part != null) data.append(part) }
-    }
-
-    @JavascriptInterface
-    fun end() {
-        val (fileName, encoded) = synchronized(this) {
-            val n = name ?: return
-            name = null
-            n to data.toString().also { data.clear() }
-        }
-        val bytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull() ?: return
-        deliver(fileName, bytes)
     }
 }
+
+private const val MAX_BASE64_CHARS = (MAX_EXPORT_BYTES / 3 + 1) * 4
 
 /** Catches Exportify's downloads: remembers every Blob turned into an object URL,
  * and when a download link pointing at one is clicked (FileSaver uses
@@ -140,9 +149,10 @@ private val DOWNLOAD_HOOK = """
       var r = new FileReader();
       r.onload = function(){
         var s = String(r.result); s = s.substring(s.indexOf(',') + 1);
-        DawnExport.begin(name, b.size);
-        for (var i = 0; i < s.length; i += 524288) DawnExport.chunk(s.substring(i, i + 524288));
-        DawnExport.end();
+        if (typeof DawnExport === 'undefined') return;
+        DawnExport.postMessage('B' + b.size + '|' + name);
+        for (var i = 0; i < s.length; i += 524288) DawnExport.postMessage('C' + s.substring(i, i + 524288));
+        DawnExport.postMessage('E');
       };
       r.readAsDataURL(b);
       return true;

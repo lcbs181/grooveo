@@ -43,6 +43,8 @@ data class SpotifyLibrary(
 object SpotifyExport {
 
     private const val MAX_ENTRY_BYTES = 40L * 1024 * 1024
+    private const val MAX_TOTAL_CHARS = 120L * 1024 * 1024
+    private const val MAX_ENTRIES = 5_000
     // Spotify (Exportify, TuneMyMusic) and Amazon Music (via TuneMyMusic) names for the liked songs
     private val LIKED_NAMES = setOf(
         "liked", "liked songs", "lieblingssongs", "favorites", "favourites", "favorite songs", "saved tracks",
@@ -54,12 +56,19 @@ object SpotifyExport {
         val builder = Builder()
         if (bytes.size >= 2 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
             ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+                // a crafted ZIP (many entries, each just under the limit) would
+                // otherwise unpack far more than any real export holds
+                var total = 0L
+                var entries = 0
                 while (true) {
                     val entry = zip.nextEntry ?: break
+                    if (++entries > MAX_ENTRIES) break
                     if (entry.isDirectory) continue
                     val name = entry.name.substringAfterLast('/')
                     if (!wanted(name)) continue
                     val text = readLimited(zip) ?: continue
+                    total += text.length
+                    if (total > MAX_TOTAL_CHARS) break
                     builder.addFile(name, text)
                 }
             }

@@ -71,6 +71,7 @@ class SearchViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val eventReporter: EventReporter,
     private val searchHistoryRepository: SearchHistoryRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -109,9 +110,19 @@ class SearchViewModel @Inject constructor(
      * their plain colour until (or if never) a cover arrives. */
     fun loadBrowseCovers(queries: List<String>) {
         if (browseCoversJob != null) return
+        // Cached across launches: the tiles show their covers straight away (the
+        // images themselves sit in Coil's disk cache) and the lookups - 18 searches -
+        // only run again once a week, or for tiles that have no cover yet.
+        val prefs = context.getSharedPreferences("browse_covers", android.content.Context.MODE_PRIVATE)
+        val cached = queries.mapNotNull { q -> prefs.getString(q, null)?.let { q to it } }.toMap()
+        _browseCovers.value = cached
+        val fresh = System.currentTimeMillis() - prefs.getLong(KEY_COVERS_AT, 0) < COVERS_MAX_AGE_MS
+        val todo = if (fresh) queries.filter { it !in cached } else queries
+        if (todo.isEmpty()) return
         val permits = Semaphore(4)
         browseCoversJob = viewModelScope.launch {
-            queries.forEach { q ->
+            if (!fresh) prefs.edit().putLong(KEY_COVERS_AT, System.currentTimeMillis()).apply()
+            todo.forEach { q ->
                 launch {
                     val url = permits.withPermit {
                         runCatching {
@@ -119,7 +130,10 @@ class SearchViewModel @Inject constructor(
                                 ?: searchRepository.search(q, source = "ytmusic", limit = 1).firstOrNull()?.thumbnailUrl
                         }.getOrNull()
                     }
-                    if (url != null) _browseCovers.value = _browseCovers.value + (q to url)
+                    if (url != null) {
+                        _browseCovers.value = _browseCovers.value + (q to url)
+                        prefs.edit().putString(q, url).apply()
+                    }
                 }
             }
         }
@@ -341,5 +355,10 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { searchHistoryRepository.deleteQuery(query) }
         }
+    }
+
+    private companion object {
+        const val KEY_COVERS_AT = "_fetched_at"
+        const val COVERS_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
     }
 }

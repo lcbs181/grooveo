@@ -288,7 +288,7 @@ class BrowseTree(
                 MediaMetadata.Builder()
                     .setTitle(track.title)
                     .setArtist(track.artist)
-                    .setArtworkUri(track.thumbnailUrl?.let(Uri::parse))
+                    .setArtworkUri(dev.schlubbe.musicagent.data.artwork.ArtworkUrls.safe(track.thumbnailUrl)?.let(Uri::parse))
                     .setIsBrowsable(false)
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)

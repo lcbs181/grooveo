@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -18,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.google.gson.JsonParser
 import dev.schlubbe.musicagent.data.spotify.SpotifyTrack
 
@@ -78,16 +79,17 @@ fun AmazonMusicWebView(
                 settings.displayZoomControls = false
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                addJavascriptInterface(
-                    object {
-                        @JavascriptInterface
-                        fun playlist(json: String?) {
-                            val parsed = json?.let { runCatching { parse(it) }.getOrNull() }
-                            main.post { currentOnPlaylist(parsed) }
-                        }
-                    },
-                    "DawnAmazon",
-                )
+                // Only Amazon Music's own pages get the bridge (a web message listener
+                // bound to AMAZON_MUSIC_ORIGINS); addJavascriptInterface would hand it to
+                // every page and frame, so any site could slip in a made-up playlist.
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                    WebViewCompat.addWebMessageListener(this, "DawnAmazon", AMAZON_MUSIC_ORIGINS) { _, message, _, isMainFrame, _ ->
+                        if (!isMainFrame) return@addWebMessageListener
+                        val json = message.data?.takeIf { it.length <= MAX_JSON_CHARS }
+                        val parsed = json?.let { runCatching { parse(it) }.getOrNull() }
+                        main.post { currentOnPlaylist(parsed) }
+                    }
+                }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                         request.url.scheme != "https"
@@ -99,13 +101,17 @@ fun AmazonMusicWebView(
         onRelease = { view ->
             webView.value = null
             view.stopLoading()
-            view.removeJavascriptInterface("DawnAmazon")
             view.destroy()
         },
     )
 }
 
 private const val MAX_TRACKS = 10_000
+private const val MAX_JSON_CHARS = 8 * 1024 * 1024
+private val AMAZON_MUSIC_ORIGINS = setOf(
+    "https://music.amazon.de", "https://music.amazon.com", "https://music.amazon.co.uk",
+    "https://music.amazon.fr", "https://music.amazon.it", "https://music.amazon.es",
+)
 
 private fun parse(json: String): AmazonPlaylist? {
     val root = JsonParser.parseString(json).asJsonObject
@@ -159,6 +165,7 @@ private val SCRAPE_SCRIPT = """
   if (!name && header && header.shadowRoot) name = text(header.shadowRoot.querySelector('[title]'));
   if (!name) name = document.title.replace(/\s*[|–-]\s*Amazon Music.*$/i, '');
   window.scrollTo(0, 0);
-  DawnAmazon.playlist(JSON.stringify({name: name, tracks: Array.from(seen.values())}));
+  if (typeof DawnAmazon === 'undefined') return;
+  DawnAmazon.postMessage(JSON.stringify({name: name, tracks: Array.from(seen.values())}));
 })();
 """
