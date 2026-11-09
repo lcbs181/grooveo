@@ -362,6 +362,7 @@ fun MusicAgentNavGraph(
                         navController.navigate(Routes.remotePlaylistDetail(source, sourceId))
                     },
                     onPodcastSelected = { navController.navigate(Routes.podcastDetail(it)) },
+                    onOpenPodcasts = { navController.navigate(Routes.PODCASTS) },
                 )
             }
             composable(Routes.PLAYER) {
@@ -475,6 +476,7 @@ fun MusicAgentNavGraph(
                     onArtistSelected = { otherSource, otherId ->
                         navController.navigate(Routes.artistDetail(otherSource, otherId))
                     },
+                    onShowSelected = { navController.navigate(Routes.podcastDetail(it)) },
                 )
             }
             composable(

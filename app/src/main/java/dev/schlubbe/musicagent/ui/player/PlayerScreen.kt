@@ -868,7 +868,7 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CanopyChip(
-                    label = "Songtext",
+                    label = if (playbackState.currentTrackId?.substringBefore(':')?.let { dev.schlubbe.musicagent.podcast.isPodcastSource(it) } == true) "Text" else "Songtext",
                     active = false,
                     onClick = { showLyricsSheet = true },
                 )
@@ -958,6 +958,7 @@ fun PlayerScreen(
     if (showLyricsSheet) {
         LyricsSheet(
             title = playbackState.title,
+            spoken = playbackState.currentTrackId?.substringBefore(':')?.let { dev.schlubbe.musicagent.podcast.isPodcastSource(it) } == true,
             artist = playbackState.artist,
             state = lyricsState,
             positionMs = positionMs,

@@ -170,6 +170,22 @@ class SearchRepository @Inject constructor(
         return results.firstOrNull { stripTopicSuffix(it.name).trim().lowercase() == target } ?: results.first()
     }
 
+    /**
+     * The artist page behind a track. A YouTube video heard as audio (a `podcast`
+     * track) knows its channel ("yt:UC…" in [TrackResultDto.album]), which opens as a
+     * YouTube artist page directly instead of a name search that could hit someone
+     * else; other episodes (RSS, ARD) have no artist page. Everything else is looked
+     * up by name on its own source.
+     */
+    suspend fun artistOf(track: TrackResultDto): ArtistResultDto? {
+        val name = track.artist?.takeIf { it.isNotBlank() } ?: return null
+        if (dev.schlubbe.musicagent.podcast.isPodcastSource(track.source)) {
+            val channel = track.album?.removePrefix("yt:")?.takeIf { it.startsWith("UC") } ?: return null
+            return youTubeChannelArtist(channel, name)
+        }
+        return findArtistByName(name, source = track.source)
+    }
+
     private fun stripTopicSuffix(name: String): String =
         Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE).replace(name, "")
 
@@ -185,11 +201,18 @@ class SearchRepository @Inject constructor(
         artistCache["$source:$sourceId"]?.takeIf { System.currentTimeMillis() - it.first < ARTIST_TTL_MS }?.second
     }
 
-    suspend fun getArtist(source: String, sourceId: String, refresh: Boolean = false): ArtistDetailDto {
+    /** [onFirst]: a YouTube Music page that can already be shown while its full
+     * top-songs list still loads. */
+    suspend fun getArtist(
+        source: String,
+        sourceId: String,
+        refresh: Boolean = false,
+        onFirst: ((ArtistDetailDto) -> Unit)? = null,
+    ): ArtistDetailDto {
         if (!refresh) cachedArtist(source, sourceId)?.let { return it }
         val artist = when (source) {
             "soundcloud" -> soundCloud.getArtist(sourceId)
-            "ytmusic" -> youTube.getArtist(sourceId)
+            "ytmusic" -> youTube.getArtist(sourceId, onFirst)
             else -> error("unknown source: $source")
         }
         synchronized(artistCache) { artistCache["$source:$sourceId"] = System.currentTimeMillis() to artist }
@@ -218,3 +241,15 @@ class SearchRepository @Inject constructor(
         const val ARTIST_TTL_MS = 30 * 60 * 1000L
     }
 }
+
+/** A YouTube channel as an artist: the YouTube Music artist page when it has one,
+ * else the channel's videos and playlists (see YouTubeMusicSearchClient.getArtist). */
+fun youTubeChannelArtist(channelId: String, name: String, thumbnailUrl: String? = null): ArtistResultDto =
+    ArtistResultDto(
+        source = "ytmusic",
+        sourceId = "https://www.youtube.com/channel/$channelId",
+        name = name,
+        thumbnailUrl = thumbnailUrl,
+        subscriberCount = null,
+        webpageUrl = "https://www.youtube.com/channel/$channelId",
+    )

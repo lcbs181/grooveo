@@ -46,10 +46,10 @@ class AudioEngine(
     /** Stored loudness per track id; measurements are written back when a deck loads the next track. */
     @Volatile var loudnessCache: LoudnessCache? = null
     /**
-     * What each deck's normaliser measured so far, as (track id, LUFS). The meter belongs to
+     * What each deck's normaliser measured so far, as (track id, LUFS, peak dBFS). The meter belongs to
      * the mixer thread; it refreshes this once a second for the control thread and [close].
      */
-    private val measured = java.util.concurrent.atomic.AtomicReferenceArray<Pair<String, Double?>>(2)
+    private val measured = java.util.concurrent.atomic.AtomicReferenceArray<Triple<String, Double?, Double?>>(2)
     private val measuredFrames = IntArray(2)
     /** Turns loudness normalisation on or off (glides, no jump). */
     var normalize: Boolean
@@ -310,8 +310,8 @@ class AudioEngine(
     /** Stores what deck [i] measured for its previous track and primes it for [source]. */
     private fun startLoudness(i: Int, source: AudioSource) {
         val cache = loudnessCache
-        measured.get(i)?.let { (id, lufs) -> lufs?.let { cache?.put(id, it) } }
-        norms[i].startTrack(source.id, cache?.get(source.id))
+        measured.get(i)?.let { (id, lufs, peak) -> lufs?.let { cache?.put(id, it, peak) } }
+        norms[i].startTrack(source.id, cache?.get(source.id), cache?.peak(source.id))
         cache?.let { synchronized(it) { it.save() } } // close() saves from another thread
     }
 
@@ -322,7 +322,7 @@ class AudioEngine(
         measuredFrames[i] += frames
         if (measuredFrames[i] >= SAMPLE_RATE) {
             measuredFrames[i] = 0
-            n.trackId?.let { measured.set(i, it to n.measuredLufs()) }
+            n.trackId?.let { measured.set(i, Triple(it, n.measuredLufs(), n.measuredPeakDb())) }
         }
     }
 
@@ -644,7 +644,7 @@ class AudioEngine(
 
     fun close() {
         loudnessCache?.let { cache ->
-            for (i in 0 until 2) measured.get(i)?.let { (id, lufs) -> lufs?.let { cache.put(id, it) } }
+            for (i in 0 until 2) measured.get(i)?.let { (id, lufs, peak) -> lufs?.let { cache.put(id, it, peak) } }
             synchronized(cache) { cache.save() }
         }
         running = false

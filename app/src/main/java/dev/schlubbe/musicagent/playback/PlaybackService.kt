@@ -429,8 +429,8 @@ class PlaybackService : MediaLibraryService() {
                     DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(tailEqAudioProcessor)).build()
             },
             onTailStarted = { id ->
-                val known = loudnessCache[id] ?: eqAudioProcessor.measured()?.takeIf { it.first == id }?.second
-                tailEqAudioProcessor.startTrack(id, known)
+                val measured = eqAudioProcessor.measured()?.takeIf { it.first == id }
+                tailEqAudioProcessor.startTrack(id, loudnessCache[id] ?: measured?.second, loudnessCache.peak(id) ?: measured?.third)
             },
             scope = serviceScope,
             trackAnalysisDao = trackAnalysisDao,
@@ -662,14 +662,14 @@ class PlaybackService : MediaLibraryService() {
     /** Stores the loudness measured for the track that just ended and tells the
      * normaliser which track plays now (with its stored loudness, if heard before). */
     private fun onTrackChangedForLoudness(mediaItem: MediaItem?) {
-        eqAudioProcessor.measured()?.let { (id, lufs) -> loudnessCache.put(id, lufs) }
+        eqAudioProcessor.measured()?.let { (id, lufs, peak) -> loudnessCache.put(id, lufs, peak) }
         val id = mediaItem?.mediaId?.takeIf { it.isNotEmpty() } ?: return
-        eqAudioProcessor.startTrack(id, loudnessCache[id])
+        eqAudioProcessor.startTrack(id, loudnessCache[id], loudnessCache.peak(id))
         serviceScope.launch(Dispatchers.IO) { loudnessCache.save() }
     }
 
     override fun onDestroy() {
-        eqAudioProcessor.measured()?.let { (id, lufs) -> loudnessCache.put(id, lufs) }
+        eqAudioProcessor.measured()?.let { (id, lufs, peak) -> loudnessCache.put(id, lufs, peak) }
         loudnessCache.save()
         // Releases the secondary player (if a fade happened to be running) before the
         // main player and scope go away, rather than leaking it.

@@ -62,6 +62,9 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
         val SEEN_UPLOADS = stringSetPreferencesKey("seen_uploads")
         val NOTIFY_NEWS = booleanPreferencesKey("notify_news")
         val PODCAST_APPLE = booleanPreferencesKey("podcast_apple_fallback")
+        val PODCAST_SIMILAR = booleanPreferencesKey("podcast_similar")
+        val YOUTUBE_AUDIO = booleanPreferencesKey("youtube_audio")
+        val YOUTUBE_OFFICIAL = booleanPreferencesKey("youtube_official_only")
         val PODCAST_CHECK = booleanPreferencesKey("podcast_check_new")
         val PODCAST_CHECK_WIFI = booleanPreferencesKey("podcast_check_wifi_only")
         val SEEN_NEWS = stringSetPreferencesKey("seen_news")
@@ -155,6 +158,18 @@ class SettingsRepository @Inject constructor(@ApplicationContext context: Contex
     val podcastAppleFallback: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_APPLE] ?: true }
     val podcastCheckNew: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_CHECK] ?: true }
     val podcastCheckWifiOnly: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_CHECK_WIFI] ?: true }
+
+    /** "Für dich" may ask fyyd for podcasts similar to the subscribed ones. */
+    val podcastSimilar: Flow<Boolean> = dataStore.data.map { it[Keys.PODCAST_SIMILAR] ?: true }
+    suspend fun setPodcastSimilar(enabled: Boolean) = dataStore.edit { it[Keys.PODCAST_SIMILAR] = enabled }
+
+    /** YouTube as an audio source (Hörspiele, Hörbücher, any video as audio); off by default. */
+    val youtubeAudio: Flow<Boolean> = dataStore.data.map { it[Keys.YOUTUBE_AUDIO] ?: false }
+    suspend fun setYoutubeAudio(enabled: Boolean) = dataStore.edit { it[Keys.YOUTUBE_AUDIO] = enabled }
+
+    /** Hörspiele/Hörbücher from YouTube only from checked rights holders. */
+    val youtubeOfficialOnly: Flow<Boolean> = dataStore.data.map { it[Keys.YOUTUBE_OFFICIAL] ?: true }
+    suspend fun setYoutubeOfficialOnly(enabled: Boolean) = dataStore.edit { it[Keys.YOUTUBE_OFFICIAL] = enabled }
 
     suspend fun setPodcastAppleFallback(enabled: Boolean) = dataStore.edit { it[Keys.PODCAST_APPLE] = enabled }
     suspend fun setPodcastCheckNew(enabled: Boolean) = dataStore.edit { it[Keys.PODCAST_CHECK] = enabled }

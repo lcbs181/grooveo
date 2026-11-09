@@ -80,6 +80,7 @@ class PlayerViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val workManager: WorkManager,
     private val lyricsRepository: LyricsRepository,
+    private val spokenText: dev.schlubbe.musicagent.podcast.SpokenText,
     private val syncClient: SyncClient,
     private val pcLivePlayer: PcLivePlayer,
 ) : ViewModel() {
@@ -142,15 +143,23 @@ class PlayerViewModel @Inject constructor(
      * the previous track rather than letting a slow, stale response land after
      * the user has already moved on. */
     val lyricsState: StateFlow<LyricsUiState> = playbackState
-        .map { Triple(it.title, it.artist, it.durationMs) }
+        .map { Triple(it.title, it.artist, it.durationMs) to it.currentTrackId }
         .distinctUntilChanged()
-        .flatMapLatest { (title, artist, durationMs) ->
+        .flatMapLatest { (meta, _) ->
+            val (title, artist, durationMs) = meta
             flow {
                 if (title.isNullOrBlank()) {
                     emit(LyricsUiState.NotFound)
                     return@flow
                 }
                 emit(LyricsUiState.Loading)
+                // an episode: subtitles or the book's text instead of song lyrics
+                val track = playerController.nowPlayingTrack()
+                if (track != null && dev.schlubbe.musicagent.podcast.isPodcastSource(track.source)) {
+                    val text = runCatching { spokenText.textFor(track) }.getOrNull()
+                    emit(if (text != null) LyricsUiState.Found(text) else LyricsUiState.NotFound)
+                    return@flow
+                }
                 val durationSec = durationMs.takeIf { it > 0 }?.let { (it / 1000L).toInt() }
                 while (true) {
                     try {
@@ -204,7 +213,7 @@ class PlayerViewModel @Inject constructor(
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+            runCatching { searchRepository.artistOf(track) }
                 .getOrNull()
                 ?.let { artist ->
                     followRepository.toggle(artist.source, artist.sourceId, artist.name, artist.thumbnailUrl)
@@ -320,7 +329,7 @@ class PlayerViewModel @Inject constructor(
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+            runCatching { searchRepository.artistOf(track) }
                 .onSuccess { artist ->
                     _artistNavState.value = if (artist != null) {
                         _artistNavState.value.copy(artistNavTarget = artist.source to artist.sourceId)

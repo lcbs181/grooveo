@@ -100,6 +100,8 @@ class StreamResolverRegistry @Inject constructor(
     }
 
     private suspend fun resolveOnce(source: String, sourceId: String, preferProgressive: Boolean): ResolvedStream = when {
+        dev.schlubbe.musicagent.podcast.isPodcastSource(source) && dev.schlubbe.musicagent.podcast.youTubeVideoId(sourceId) != null ->
+            youTube.resolve(dev.schlubbe.musicagent.podcast.youTubeVideoId(sourceId)!!, preferProgressive)
         dev.schlubbe.musicagent.podcast.isPodcastSource(source) ->
             ResolvedStream(url = sourceId.takeIf { dev.schlubbe.musicagent.podcast.isWebUrl(it) } ?: error("not a web URL"), isHls = false)
         soundCloud.supports(source) -> soundCloud.resolve(sourceId, preferProgressive)

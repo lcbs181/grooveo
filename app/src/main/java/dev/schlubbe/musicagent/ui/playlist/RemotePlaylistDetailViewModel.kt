@@ -205,7 +205,7 @@ class RemotePlaylistDetailViewModel @Inject constructor(
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+            runCatching { searchRepository.artistOf(track) }
                 .onSuccess { artist ->
                     _uiState.value = if (artist != null) {
                         _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)

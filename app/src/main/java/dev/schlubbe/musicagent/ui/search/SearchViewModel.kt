@@ -42,6 +42,15 @@ data class SearchUiState(
     val albumResults: List<AlbumResultDto> = emptyList(),
     val podcastResults: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
     val hoerspielResults: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
+    val hoerbuchResults: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
+    /** YouTube videos as audio (podcast-like episodes); the tab exists only when switched on. */
+    val youtubeResults: List<TrackResultDto> = emptyList(),
+    /** Playlists and channels on the "Hörspiele & Hörbücher" tab: series that open as shows. */
+    val youtubeShows: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
+    val youtubeAlbums: List<dev.schlubbe.musicagent.podcast.PodcastShow> = emptyList(),
+    val youtubeEnabled: Boolean = false,
+    /** Sources of the "Hörspiele & Hörbücher" tab still searching. */
+    val spokenPending: Int = 0,
     val isLoading: Boolean = false,
     val error: String? = null,
     val likedTrackIds: Set<String> = emptySet(),
@@ -56,6 +65,8 @@ data class SearchUiState(
     // then calls onArtistNavigated() to clear it back to null.
     val artistNavTarget: Pair<String, String>? = null,
     val artistLookupError: String? = null,
+    /** A pasted link started playback: the screen opens the player once. */
+    val openPlayer: Boolean = false,
     val searchHistory: List<String> = emptyList(), // Recent query strings
     // Live search-as-you-type suggestions, shown under the field until a search runs.
     val suggestions: List<String> = emptyList(),
@@ -76,6 +87,7 @@ class SearchViewModel @Inject constructor(
     private val eventReporter: EventReporter,
     private val searchHistoryRepository: SearchHistoryRepository,
     private val podcastRepository: dev.schlubbe.musicagent.podcast.PodcastRepository,
+    private val sharedLinkResolver: dev.schlubbe.musicagent.data.extract.SharedLinkResolver,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
 ) : ViewModel() {
 
@@ -83,6 +95,9 @@ class SearchViewModel @Inject constructor(
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            podcastRepository.youtubeEnabled.collect { on -> _uiState.value = _uiState.value.copy(youtubeEnabled = on) }
+        }
         viewModelScope.launch {
             likesRepository.likedTrackIds.collect { ids ->
                 _uiState.value = _uiState.value.copy(likedTrackIds = ids)
@@ -119,7 +134,7 @@ class SearchViewModel @Inject constructor(
         // images themselves sit in Coil's disk cache) and the lookups - 18 searches -
         // only run again once a week, or for tiles that have no cover yet.
         val prefs = context.getSharedPreferences("browse_covers", android.content.Context.MODE_PRIVATE)
-        val cached = queries.mapNotNull { q -> prefs.getString(q, null)?.let { q to it } }.toMap()
+        val cached = queries.mapNotNull { q -> prefs.getString(q, null)?.takeIf { it.startsWith("http") }?.let { q to it } }.toMap()
         _browseCovers.value = cached
         val fresh = System.currentTimeMillis() - prefs.getLong(KEY_COVERS_AT, 0) < COVERS_MAX_AGE_MS
         val todo = if (fresh) queries.filter { it !in cached } else queries
@@ -129,12 +144,7 @@ class SearchViewModel @Inject constructor(
             if (!fresh) prefs.edit().putLong(KEY_COVERS_AT, System.currentTimeMillis()).apply()
             todo.forEach { q ->
                 launch {
-                    val url = permits.withPermit {
-                        runCatching {
-                            searchRepository.searchPlaylists(q, source = "ytmusic", limit = 1).firstOrNull()?.thumbnailUrl
-                                ?: searchRepository.search(q, source = "ytmusic", limit = 1).firstOrNull()?.thumbnailUrl
-                        }.getOrNull()
-                    }
+                    val url = permits.withPermit { lookupCover(q, avoid = emptySet()) }
                     if (url != null) {
                         _browseCovers.value = _browseCovers.value + (q to url)
                         prefs.edit().putString(q, url).apply()
@@ -144,12 +154,38 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    private val coverRetried = HashSet<String>()
+
+    /** A tile's cover did not load (an expired or dead thumbnail URL from the cache):
+     * looks the tile up again once per screen, skipping that URL. */
+    fun onBrowseCoverFailed(query: String) {
+        val dead = _browseCovers.value[query] ?: return
+        if (!coverRetried.add(query)) return
+        val prefs = context.getSharedPreferences("browse_covers", android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(query).apply()
+        _browseCovers.value = _browseCovers.value - query
+        viewModelScope.launch {
+            val url = lookupCover(query, avoid = setOf(dead)) ?: return@launch
+            _browseCovers.value = _browseCovers.value + (query to url)
+            prefs.edit().putString(query, url).apply()
+        }
+    }
+
+    /** The first usable cover for a tile: a matching playlist's, else a track's. */
+    private suspend fun lookupCover(query: String, avoid: Set<String>): String? = runCatching {
+        fun String?.usable() = this?.takeIf { it.startsWith("http") && it !in avoid }
+        searchRepository.searchPlaylists(query, source = "ytmusic", limit = 3).firstNotNullOfOrNull { it.thumbnailUrl.usable() }
+            ?: searchRepository.search(query, source = "ytmusic", limit = 3).firstNotNullOfOrNull { it.thumbnailUrl.usable() }
+    }.getOrNull()
+
     private var suggestionJob: Job? = null
+    /** The search under way; a new one cancels it, so late results never cover newer ones. */
+    private var searchJob: Job? = null
 
     fun onQueryChanged(query: String) {
         _uiState.value = _uiState.value.copy(query = query)
         suggestionJob?.cancel()
-        if (query.isBlank()) {
+        if (query.isBlank() || LINK.matches(query.trim())) {
             _uiState.value = _uiState.value.copy(suggestions = emptyList())
             return
         }
@@ -184,8 +220,13 @@ class SearchViewModel @Inject constructor(
         // Without this the in-flight debounce from the last keystroke lands after the
         // search and re-covers the results with a suggestion list.
         suggestionJob?.cancel()
+        searchJob?.cancel()
         _uiState.value = _uiState.value.copy(isLoading = true, error = null, suggestions = emptyList())
-        return viewModelScope.launch {
+        if (LINK.matches(query.trim())) {
+            searchJob = viewModelScope.launch { openLink(query.trim()) }
+            return searchJob
+        }
+        searchJob = viewModelScope.launch {
             // Record search query into history
             runCatching { searchHistoryRepository.addQuery(query) }
 
@@ -209,9 +250,7 @@ class SearchViewModel @Inject constructor(
                 "podcasts" -> runCatching { podcastRepository.searchPodcasts(query) }
                     .onSuccess { shows -> _uiState.value = _uiState.value.copy(podcastResults = shows, isLoading = false) }
                     .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e)) }
-                "hoerspiele" -> runCatching { podcastRepository.searchHoerspiele(query) }
-                    .onSuccess { shows -> _uiState.value = _uiState.value.copy(hoerspielResults = shows, isLoading = false) }
-                    .onFailure { e -> _uiState.value = _uiState.value.copy(isLoading = false, error = friendlyError(e)) }
+                "spoken" -> searchSpoken(query)
                 "all" -> searchAll(query, source)
                 "albums" -> runCatching { searchRepository.searchAlbums(query, source) }
                     .onSuccess { albums ->
@@ -231,27 +270,101 @@ class SearchViewModel @Inject constructor(
                     }
             }
         }
+        return searchJob
+    }
+
+    /** A pasted YouTube or SoundCloud link opens what it points at, as if shared into
+     * the app: a video or track plays, a playlist or channel opens its page. */
+    private suspend fun openLink(url: String) {
+        val target = sharedLinkResolver.resolveUrl(url)
+        _uiState.value = _uiState.value.copy(isLoading = false)
+        when (target) {
+            is dev.schlubbe.musicagent.data.extract.SharedLinkTarget.Track -> {
+                cacheTrack(target.track)
+                playerController.playTrack(target.track)
+                _uiState.value = _uiState.value.copy(openPlayer = true)
+            }
+            is dev.schlubbe.musicagent.data.extract.SharedLinkTarget.Playlist ->
+                _uiState.value = _uiState.value.copy(remotePlaylistNavTarget = target.source to target.sourceId)
+            is dev.schlubbe.musicagent.data.extract.SharedLinkTarget.Artist ->
+                _uiState.value = _uiState.value.copy(artistNavTarget = target.source to target.sourceId)
+            null -> _uiState.value = _uiState.value.copy(error = "Mit diesem Link kann die App nichts anfangen")
+        }
+    }
+
+    /** "Hörspiele & Hörbücher": ARD, LibriVox and (if switched on) YouTube at once,
+     * each section shown as soon as its source answers. */
+    private suspend fun searchSpoken(query: String) = kotlinx.coroutines.coroutineScope {
+        val youtube = _uiState.value.youtubeEnabled
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            hoerspielResults = emptyList(), hoerbuchResults = emptyList(),
+            youtubeShows = emptyList(), youtubeAlbums = emptyList(), youtubeResults = emptyList(),
+            spokenPending = if (youtube) 5 else 2,
+        )
+        fun <T> part(load: suspend () -> List<T>, apply: (SearchUiState, List<T>) -> SearchUiState) = launch {
+            val found = runCatching { load() }.getOrDefault(emptyList())
+            _uiState.value = apply(_uiState.value, found).let { it.copy(spokenPending = (it.spokenPending - 1).coerceAtLeast(0)) }
+        }
+        part({ podcastRepository.searchHoerspiele(query) }) { st, l -> st.copy(hoerspielResults = l) }
+        part({ podcastRepository.searchHoerbuecher(query) }) { st, l -> st.copy(hoerbuchResults = l) }
+        if (youtube) {
+            part({ podcastRepository.searchYouTubeSeries(query) }) { st, l -> st.copy(youtubeShows = l) }
+            part({ podcastRepository.searchYouTubeAlbums(query) }) { st, l -> st.copy(youtubeAlbums = l) }
+            part({ podcastRepository.searchYouTubeAudio(query).map { it.toTrack() } }) { st, l -> st.copy(youtubeResults = l) }
+        }
+    }
+
+    /** Switches YouTube on from the hint on the "Hörspiele & Hörbücher" tab and searches again. */
+    fun enableYouTube() {
+        viewModelScope.launch {
+            podcastRepository.setYouTubeEnabled(true)
+            _uiState.value = _uiState.value.copy(youtubeEnabled = true)
+            runSearch()
+        }
+    }
+
+    fun onPlayerOpened() {
+        _uiState.value = _uiState.value.copy(openPlayer = false)
     }
 
     /** "Alle": every kind at once, each one allowed to fail on its own. Only when the
      * tracks fail as well is it an error. */
     private suspend fun searchAll(query: String, source: String) = kotlinx.coroutines.coroutineScope {
+        _uiState.value = _uiState.value.copy(
+            podcastResults = emptyList(), hoerspielResults = emptyList(), hoerbuchResults = emptyList(),
+            playlistResults = emptyList(), albumResults = emptyList(),
+        )
         val tracks = async { runCatching { searchRepository.search(query, source) } }
         val artists = async { runCatching { searchRepository.searchArtists(query, source) }.getOrDefault(emptyList()) }
-        val playlists = async { runCatching { searchRepository.searchPlaylists(query, source) }.getOrDefault(emptyList()) }
-        val albums = async { runCatching { searchRepository.searchAlbums(query, source) }.getOrDefault(emptyList()) }
-        val podcasts = async { runCatching { podcastRepository.searchPodcasts(query) }.getOrDefault(emptyList()) }
-        val hoerspiele = async { runCatching { podcastRepository.searchHoerspiele(query) }.getOrDefault(emptyList()) }
+        // playlists and albums take about twice as long as tracks; their sections fill in later
+        launch {
+            val found = runCatching { searchRepository.searchPlaylists(query, source) }.getOrDefault(emptyList())
+            _uiState.value = _uiState.value.copy(playlistResults = found)
+        }
+        launch {
+            val found = runCatching { searchRepository.searchAlbums(query, source) }.getOrDefault(emptyList())
+            _uiState.value = _uiState.value.copy(albumResults = found)
+        }
+        // spoken-word sections fill in as they arrive; the music results never wait for them
+        launch {
+            val shows = runCatching { podcastRepository.searchPodcasts(query) }.getOrDefault(emptyList())
+            _uiState.value = _uiState.value.copy(podcastResults = shows)
+        }
+        launch {
+            val shows = runCatching { podcastRepository.searchHoerspiele(query) }.getOrDefault(emptyList())
+            _uiState.value = _uiState.value.copy(hoerspielResults = shows)
+        }
+        launch {
+            val shows = runCatching { podcastRepository.searchHoerbuecher(query) }.getOrDefault(emptyList())
+            _uiState.value = _uiState.value.copy(hoerbuchResults = shows)
+        }
         val trackResult = tracks.await()
         val artistList = artists.await()
         val error = trackResult.exceptionOrNull()
         _uiState.value = _uiState.value.copy(
             results = trackResult.getOrDefault(emptyList()),
             artistResults = artistList,
-            playlistResults = playlists.await(),
-            albumResults = albums.await(),
-            podcastResults = podcasts.await(),
-            hoerspielResults = hoerspiele.await(),
             isLoading = false,
             error = error?.takeIf { artistList.isEmpty() }?.let(::friendlyError),
         )
@@ -283,7 +396,7 @@ class SearchViewModel @Inject constructor(
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+            runCatching { searchRepository.artistOf(track) }
                 .onSuccess { artist ->
                     _uiState.value = if (artist != null) {
                         _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)
@@ -328,7 +441,9 @@ class SearchViewModel @Inject constructor(
     fun onTrackClicked(track: TrackResultDto) {
         viewModelScope.launch {
             cacheTrack(track)
-            val results = _uiState.value.results
+            // the YouTube videos queue up the same way as the music results
+            val results = _uiState.value.results.takeIf { list -> list.any { it.sourceId == track.sourceId } }
+                ?: _uiState.value.youtubeResults
             val index = results.indexOfFirst { it.source == track.source && it.sourceId == track.sourceId }
             if (index >= 0) playerController.playQueue(results, index) else playerController.playTrack(track)
         }
@@ -388,6 +503,12 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    /** A tile of the empty search's "Hörspiele & Hörbücher" row: searches that tab. */
+    fun onSpokenTileTapped(query: String) {
+        _uiState.value = _uiState.value.copy(query = query, resultType = "spoken")
+        runSearch()
+    }
+
     fun onHistoryQueryDeleted(query: String) {
         viewModelScope.launch {
             runCatching { searchHistoryRepository.deleteQuery(query) }
@@ -399,3 +520,6 @@ class SearchViewModel @Inject constructor(
         const val COVERS_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
     }
 }
+
+/** A pasted web link instead of search words. */
+private val LINK = Regex("""(?i)^https?://\S+$""")

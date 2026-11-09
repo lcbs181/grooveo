@@ -1217,7 +1217,8 @@ class PlayerController @Inject constructor(
         if (!streamStale(uri, startsInMs)) return
         val logical = exoIndexForLogical.indexOf(nextExo).takeIf { it >= 0 } ?: return
         val track = currentQueue.getOrNull(logical) ?: return
-        if (isPodcastSource(track.source)) return // episode files do not expire
+        // episode files do not expire, YouTube episodes do
+        if (isPodcastSource(track.source) && !dev.schlubbe.musicagent.podcast.isYouTubeEpisode(track.source, track.sourceId)) return
         if (item.mediaId != "${track.source}:${track.sourceId}") return
         scope.launch {
             val fresh = resolveWithRetry(track).getOrNull() ?: return@launch

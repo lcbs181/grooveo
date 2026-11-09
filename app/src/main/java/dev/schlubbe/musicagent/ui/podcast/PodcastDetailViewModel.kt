@@ -69,14 +69,14 @@ class PodcastDetailViewModel @Inject constructor(
         }
     }
 
-    /** Plays [episode], then the episodes published after it (a series in order). */
+    /** Plays [episode], then the ones after it in listening order (a series in order). */
     fun play(episode: PodcastEpisode) {
-        val episodes = _uiState.value.data?.episodes ?: return
-        val index = episodes.indexOf(episode).takeIf { it >= 0 } ?: return
+        val data = _uiState.value.data ?: return
+        val index = data.episodes.indexOf(episode).takeIf { it >= 0 } ?: return
         val heard = progress.value.filterValues { it.completed }.keys
-        // the tapped one always, then the newer ones not heard yet
+        // the tapped one always, then the next parts not heard yet
         val following = listOf(episode.toTrack()) +
-            (index - 1 downTo 0).map { episodes[it] }.filter { it.audioUrl !in heard }.take(MAX_FOLLOWING).map { it.toTrack() }
+            data.following(index).filter { it.audioUrl !in heard }.take(MAX_FOLLOWING).map { it.toTrack() }
         viewModelScope.launch { playerController.playQueue(following, 0) }
     }
 
@@ -102,7 +102,7 @@ class PodcastDetailViewModel @Inject constructor(
             if (isSubscribed.value) {
                 repository.unsubscribe(showId)
             } else {
-                repository.subscribe(data.show, data.episodes.firstOrNull()?.publishedAt)
+                repository.subscribe(data.show, data.latestPublishedAt)
             }
         }
     }

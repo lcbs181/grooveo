@@ -39,6 +39,7 @@ object RssParser {
         var item: RawItem? = null
         var inImage = false
         var sawChannel = false
+        var serial = false
 
         while (true) {
             val event = parser.next()
@@ -67,6 +68,7 @@ object RssParser {
                     ns.isEmpty() && name == "description" -> description = description ?: parser.text()
                     ns == ITUNES && name == "author" -> author = author ?: parser.text()
                     ns == ITUNES && name == "summary" -> description = description ?: parser.text()
+                    ns == ITUNES && name == "type" -> serial = parser.text()?.trim().equals("serial", ignoreCase = true)
                     ns == ITUNES && name == "image" -> parser.getAttributeValue(null, "href")?.let { image = it }
                 }
             } else {
@@ -78,6 +80,7 @@ object RssParser {
                     ns.isEmpty() && name == "description" -> current.description = current.description ?: parser.text()
                     ns == ITUNES && name == "summary" -> current.description = current.description ?: parser.text()
                     ns == ITUNES && name == "duration" -> current.duration = parser.text()
+                    ns == ITUNES && name == "episode" -> current.number = parser.text()?.trim()?.toIntOrNull()
                     ns == ITUNES && name == "image" -> current.image = parser.getAttributeValue(null, "href")
                     ns.isEmpty() && name == "enclosure" -> {
                         val type = parser.getAttributeValue(null, "type").orEmpty()
@@ -93,9 +96,9 @@ object RssParser {
 
         val showTitle = title?.trim().takeUnless { it.isNullOrEmpty() } ?: "Podcast"
         val showImage = image?.trim()?.takeIf(::isWebUrl)?.let(::secureUrl)
-        val episodes = items.mapNotNull { raw ->
+        val kept = items.mapNotNull { raw ->
             val url = raw.audioUrl?.takeIf(::isWebUrl)?.let { TrackingPrefixes.strip(secureUrl(it)) } ?: return@mapNotNull null
-            PodcastEpisode(
+            raw.number to PodcastEpisode(
                 showId = showId,
                 showTitle = showTitle,
                 title = raw.title?.trim().takeUnless { it.isNullOrEmpty() } ?: "Folge",
@@ -106,9 +109,11 @@ object RssParser {
                 publishedAt = raw.pubDate?.let(::parseDate),
                 link = raw.link?.trim()?.takeIf(::isWebUrl),
             )
-        }.distinctBy { it.audioUrl }.sortedByDescending { it.publishedAt ?: 0L }
+        }.distinctBy { it.second.audioUrl }
+        // serial feeds list part 1 first, all others the newest first
+        val episodes = EpisodeOrder.chronological(kept.map { it.second }, sourceNewestFirst = !serial, numbers = kept.map { it.first })
 
-        return ShowWithEpisodes(
+        return ShowWithEpisodes.of(
             PodcastShow(
                 id = showId,
                 title = showTitle,
@@ -119,6 +124,7 @@ object RssParser {
                 episodeCount = episodes.size,
             ),
             episodes,
+            serial = EpisodeOrder.isSerial(kind, serial, episodes),
         )
     }
 
@@ -165,5 +171,6 @@ object RssParser {
         var duration: String? = null
         var image: String? = null
         var audioUrl: String? = null
+        var number: Int? = null
     }
 }

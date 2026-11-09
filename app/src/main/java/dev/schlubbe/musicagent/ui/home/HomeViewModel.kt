@@ -949,6 +949,17 @@ class HomeViewModel @Inject constructor(
 
     fun onTrackArtistClicked(track: TrackResultDto) {
         val name = track.artist ?: return
+        if (dev.schlubbe.musicagent.podcast.isPodcastSource(track.source)) {
+            viewModelScope.launch {
+                val artist = runCatching { searchRepository.artistOf(track) }.getOrNull()
+                _uiState.value = if (artist != null) {
+                    _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)
+                } else {
+                    _uiState.value.copy(artistLookupError = "Künstler \"$name\" nicht gefunden")
+                }
+            }
+            return
+        }
         resolveArtistByName(name, track.source)
     }
 

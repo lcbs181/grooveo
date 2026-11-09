@@ -5,6 +5,7 @@ import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.tan
@@ -103,9 +104,14 @@ class LoudnessMeter(private val fs: Double) {
  * track so every track plays at [targetLufs]: the stored loudness of a track
  * that was played before (exact from the first sample), otherwise the running
  * BS.1770 measurement of the current track, starting from the previous track's
- * gain and gliding slowly so the change is not heard. Boost is capped at
- * [maxBoostDb]; the limiter after the EQ catches any peaks the boost causes. With the
- * limiter switched off ([allowBoost] false) nothing is boosted: tracks are only turned down.
+ * gain and gliding slowly so the change is not heard.
+ *
+ * Like Spotify's and YouTube's normalisation, a quiet track is only raised as far as its
+ * own peaks allow: the boost never lifts a peak above [PEAK_CEILING_DB] (the track's stored
+ * peak, or the highest sample heard so far), and at most [maxBoostDb]. So the limiter after
+ * the EQ has nothing to do for normalisation; raising a quiet but dynamic track into it made
+ * it compress all the time. With the limiter switched off ([allowBoost] false) nothing is
+ * boosted at all: tracks are only turned down.
  *
  * [startTrack] may be called from any thread; it takes effect with the next block.
  */
@@ -117,8 +123,11 @@ class LoudnessNormalizer(fs: Double) {
     @Volatile var allowBoost = true
 
     private val meter = LoudnessMeter(fs)
-    private val pending = AtomicReference<Pair<String, Double?>?>(null)
+    private val pending = AtomicReference<Triple<String, Double?, Double?>?>(null)
     private var known: Double? = null
+    /** Highest sample of the current track, linear: the stored peak, raised by what is heard. */
+    private var peak = 0.0
+    private var boostCapDb = Double.POSITIVE_INFINITY
     private var latched: Double? = null // measurement frozen once the track was heard long enough: no drifting level mid-song
     private var gainDb = 0.0
     private var linDb = 0.0
@@ -130,18 +139,28 @@ class LoudnessNormalizer(fs: Double) {
     var trackId: String? = null
         private set
 
-    /** A new track starts; [knownLufs] is its stored loudness, if any. */
-    fun startTrack(id: String, knownLufs: Double?) = pending.set(id to knownLufs)
+    /** A new track starts; [knownLufs] is its stored loudness and [knownPeakDb] its sample peak (dBFS), if any. */
+    fun startTrack(id: String, knownLufs: Double?, knownPeakDb: Double? = null) = pending.set(Triple(id, knownLufs, knownPeakDb))
 
     /** Loudness measured for the current track so far, once enough was heard to trust it. */
     fun measuredLufs(): Double? = if (meter.seconds >= MIN_SECONDS_TO_STORE) meter.integrated() else null
+
+    /** Highest sample of the current track so far in dBFS (before the gain), once enough was heard to store it. */
+    fun measuredPeakDb(): Double? = if (meter.seconds >= MIN_SECONDS_TO_STORE && peak > 0) 20 * log10(peak) else null
+
+    private fun raisePeak(p: Double) {
+        peak = p
+        boostCapDb = maxOf(0.0, PEAK_CEILING_DB - 20 * log10(p))
+    }
 
     /** Current applied gain in dB (for tests, display and the limiter). */
     val currentGainDb: Double get() = gainDb
 
     fun process(buf: FloatArray, frames: Int) {
-        pending.getAndSet(null)?.let { (id, k) ->
+        pending.getAndSet(null)?.let { (id, k, kp) ->
             trackId = id; known = k; latched = null; meter.reset()
+            peak = 0.0; boostCapDb = Double.POSITIVE_INFINITY
+            kp?.takeIf { it.isFinite() }?.let { raisePeak(10.0.pow(it / 20)) }
             // a new track starts at a boundary: drop a leftover boost right there, not over seconds into it
             if (k == null) gainDb = minOf(gainDb, 0.0)
         }
@@ -153,7 +172,7 @@ class LoudnessNormalizer(fs: Double) {
             // until measured: the previous track's cut, but never its boost (a quiet track's
             // +6 dB on a loud intro would blast)
             loudness == null -> minOf(gainDb, 0.0)
-            else -> (targetLufs - loudness).coerceIn(-MAX_CUT_DB, if (allowBoost) maxBoostDb else 0.0)
+            else -> (targetLufs - loudness).coerceIn(-MAX_CUT_DB, if (allowBoost) maxBoostDb else 0.0).coerceAtMost(maxOf(0.0, boostCapDb))
         }
         // a known value is reached at once; while a new track is still being measured it may move faster
         val step = when {
@@ -162,7 +181,14 @@ class LoudnessNormalizer(fs: Double) {
             else -> slewPerSample
         }
         for (i in 0 until frames) {
-            if (gainDb != target) gainDb = if (gainDb < target) minOf(target, gainDb + step) else maxOf(target, gainDb - step)
+            val a = maxOf(abs(buf[2 * i]), abs(buf[2 * i + 1])).toDouble()
+            if (a > peak) {
+                raisePeak(a)
+                // a louder peak than known so far: take back at once the part of the boost it no longer allows
+                if (gainDb > boostCapDb) gainDb = boostCapDb
+            }
+            val capped = minOf(target, if (target > 0.0) boostCapDb else target)
+            if (gainDb != capped) gainDb = if (gainDb < capped) minOf(capped, gainDb + step) else maxOf(capped, gainDb - step)
             val db = gainDb
             if (db == 0.0) continue
             if (db != linDb) { linDb = db; lin = 10.0.pow(db / 20).toFloat() }
@@ -171,9 +197,10 @@ class LoudnessNormalizer(fs: Double) {
     }
 
     companion object {
-        // -12 LUFS: most current masters are turned down to it, quieter ones raised a little;
-        // -10 with +8 dB drove the limiter on nearly every track (pumping bass)
-        const val DEFAULT_TARGET_LUFS = -12.0
+        // -14 LUFS as on Spotify and YouTube; -12 and -10 raised quiet tracks into the limiter
+        const val DEFAULT_TARGET_LUFS = -14.0
+        /** A boost never lifts the track's peak above this (dBFS), leaving room for decoder overshoot. */
+        const val PEAK_CEILING_DB = -1.0
         const val DEFAULT_MAX_BOOST_DB = 6.0
         const val MAX_CUT_DB = 15.0
         const val SLEW_DB_PER_S = 2.0
@@ -204,9 +231,15 @@ class LoudnessCache(private val file: File) {
 
     operator fun get(id: String): Double? = synchronized(map) { map[id]?.toDouble() }
 
-    fun put(id: String, lufs: Double) {
+    /** The track's sample peak in dBFS, if stored (kept under its own key, so older files still read). */
+    fun peak(id: String): Double? = synchronized(map) { map[PEAK + id]?.toDouble() }
+
+    fun put(id: String, lufs: Double, peakDb: Double? = null) {
         if (!lufs.isFinite()) return
-        synchronized(map) { map[id] = lufs.toFloat() }
+        synchronized(map) {
+            map[id] = lufs.toFloat()
+            if (peakDb != null && peakDb.isFinite()) map[PEAK + id] = peakDb.toFloat()
+        }
         dirty = true
     }
 
@@ -223,6 +256,7 @@ class LoudnessCache(private val file: File) {
     }
 
     private companion object {
-        const val MAX_ENTRIES = 5000
+        const val MAX_ENTRIES = 10000 // loudness and peak: two per track
+        const val PEAK = "peak:"
     }
 }

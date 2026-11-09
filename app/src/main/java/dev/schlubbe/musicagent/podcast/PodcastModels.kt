@@ -2,15 +2,10 @@ package dev.schlubbe.musicagent.podcast
 
 import dev.schlubbe.musicagent.data.remote.dto.TrackResultDto
 
-/** Track source for podcast and Hörspiel episodes; the track's sourceId is the audio URL. */
-const val PODCAST_SOURCE = "podcast"
-
-/** Spoken-word sources: no radio continuation, no recommendations, no YouTube fallback. */
-fun isPodcastSource(source: String?): Boolean = source == PODCAST_SOURCE
-
 enum class ShowKind(val key: String) {
     PODCAST("podcast"),
     HOERSPIEL("hoerspiel"),
+    HOERBUCH("hoerbuch"),
     ;
 
     companion object {
@@ -30,10 +25,16 @@ sealed class ShowId {
         override fun toString(): String = "ard:$programSetId"
     }
 
+    /** A YouTube channel ("UC…") or playlist. */
+    data class YouTube(val listId: String) : ShowId() {
+        override fun toString(): String = "yt:$listId"
+    }
+
     companion object {
         fun parse(value: String): ShowId? = when {
             value.startsWith("rss:") -> value.removePrefix("rss:").takeIf(::isWebUrl)?.let(::Rss)
             value.startsWith("ard:") -> value.removePrefix("ard:").takeIf { it.isNotBlank() && it.all(Char::isLetterOrDigit) }?.let(::Ard)
+            value.startsWith("yt:") -> value.removePrefix("yt:").takeIf { it.length in 10..64 && it.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' } }?.let(::YouTube)
             else -> null
         }
     }
@@ -44,13 +45,6 @@ sealed class ShowId {
 fun secureUrl(url: String): String {
     val trimmed = url.trim()
     return if (trimmed.startsWith("http://", ignoreCase = true)) "https://" + trimmed.substring(7) else trimmed
-}
-
-/** http(s) only; lenient like a browser (feeds do write spaces and umlauts into links). */
-fun isWebUrl(url: String): Boolean {
-    val trimmed = url.trim()
-    if (!trimmed.startsWith("https://", ignoreCase = true) && !trimmed.startsWith("http://", ignoreCase = true)) return false
-    return okhttp3.HttpUrl.Companion.run { trimmed.toHttpUrlOrNull() } != null
 }
 
 data class PodcastShow(
@@ -86,4 +80,25 @@ data class PodcastEpisode(
     )
 }
 
-data class ShowWithEpisodes(val show: PodcastShow, val episodes: List<PodcastEpisode>)
+/**
+ * [episodes] in display order: newest first, or for a [serial] show (an audiobook, a
+ * series meant to be heard from the start) part 1 first. Either way the episodes heard
+ * after one are the ones published after it, see [following].
+ */
+data class ShowWithEpisodes(
+    val show: PodcastShow,
+    val episodes: List<PodcastEpisode>,
+    val serial: Boolean = false,
+) {
+    val latestPublishedAt: Long? get() = episodes.mapNotNull { it.publishedAt }.maxOrNull()
+
+    /** What comes after [index] in listening order, nearest first. */
+    fun following(index: Int): List<PodcastEpisode> =
+        if (serial) episodes.drop(index + 1) else episodes.take(index).asReversed()
+
+    companion object {
+        /** From episodes sorted oldest first. */
+        fun of(show: PodcastShow, chronological: List<PodcastEpisode>, serial: Boolean) =
+            ShowWithEpisodes(show, if (serial) chronological else chronological.asReversed(), serial)
+    }
+}

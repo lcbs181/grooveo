@@ -94,7 +94,7 @@ fun PodcastsScreen(
                 ) {
                     CanopyIconButton(icon = phosphorIcon("caret-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                     Text(
-                        "Podcasts & Hörspiele",
+                        "Podcasts & Hörbücher",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f).padding(start = 4.dp),
@@ -115,6 +115,7 @@ fun PodcastsScreen(
                 ) {
                     CanopyChip("Podcasts", active = state.kind == ShowKind.PODCAST, onClick = { viewModel.setKind(ShowKind.PODCAST) })
                     CanopyChip("Hörspiele", active = state.kind == ShowKind.HOERSPIEL, onClick = { viewModel.setKind(ShowKind.HOERSPIEL) })
+                    CanopyChip("Hörbücher", active = state.kind == ShowKind.HOERBUCH, onClick = { viewModel.setKind(ShowKind.HOERBUCH) })
                 }
             }
 
@@ -129,7 +130,7 @@ fun PodcastsScreen(
                 if (inProgress.isNotEmpty()) {
                     item { Section("Weiterhören") }
                     items(inProgress, key = { "p:${it.audioUrl}" }) { progress ->
-                        ResumeRow(progress) {
+                        ResumeRow(progress, onMarkHeard = { viewModel.markHeard(progress) }, onForget = { viewModel.forget(progress) }) {
                             viewModel.resume(progress)
                             onEpisodePlayed()
                         }
@@ -164,6 +165,18 @@ fun PodcastsScreen(
                         item { if (state.browseLoading) Loading() else Hint("Gerade nicht erreichbar") }
                     }
                     items(state.topPodcasts, key = { "t:${it.id}" }) { show -> ShowRow(show) { onShowSelected(show.id) } }
+                } else if (state.kind == ShowKind.HOERBUCH) {
+                    if (state.hoerbuecher.isEmpty() && state.klassiker.isEmpty()) {
+                        item { if (state.browseLoading) Loading() else Hint("Gerade nicht erreichbar") }
+                    }
+                    if (state.hoerbuecher.isNotEmpty()) {
+                        item { Section("Neu in der ARD Audiothek") }
+                        items(state.hoerbuecher, key = { "b:${it.id}" }) { show -> ShowRow(show) { onShowSelected(show.id) } }
+                    }
+                    if (state.klassiker.isNotEmpty()) {
+                        item { Section("Klassiker, frei vorgelesen (LibriVox)") }
+                        items(state.klassiker, key = { "l:${it.id}" }) { show -> ShowRow(show) { onShowSelected(show.id) } }
+                    }
                 } else {
                     if (state.hoerspiele.isEmpty() && state.kinder.isEmpty()) {
                         item { if (state.browseLoading) Loading() else Hint("Gerade nicht erreichbar") }
@@ -222,7 +235,11 @@ private fun SearchRow(query: String, kind: ShowKind, onChange: (String) -> Unit,
             )
             if (query.isEmpty()) {
                 Text(
-                    if (kind == ShowKind.PODCAST) "Podcasts suchen" else "Hörspiele suchen",
+                    when (kind) {
+                        ShowKind.PODCAST -> "Podcasts suchen"
+                        ShowKind.HOERSPIEL -> "Hörspiele suchen"
+                        ShowKind.HOERBUCH -> "Hörbücher, Autoren suchen"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Canopy.neutral500,
                 )
@@ -270,7 +287,7 @@ internal fun ShowRow(show: PodcastShow, onClick: () -> Unit) {
         TrackThumbnail(show.imageUrl, size = 56.dp, seed = show.title)
         Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
             Text(show.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val subtitle = listOfNotNull(show.author, show.episodeCount?.takeIf { it > 0 }?.let { "$it Folgen" }).joinToString(" · ")
+            val subtitle = listOfNotNull(show.author, show.episodeCount?.takeIf { it > 0 }?.let { if (it == 1) "1 Folge" else "$it Folgen" }).joinToString(" · ")
             if (subtitle.isNotEmpty()) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Canopy.neutral500, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -279,7 +296,8 @@ internal fun ShowRow(show: PodcastShow, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ResumeRow(progress: PodcastProgressEntity, onClick: () -> Unit) {
+private fun ResumeRow(progress: PodcastProgressEntity, onMarkHeard: () -> Unit, onForget: () -> Unit, onClick: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -305,6 +323,28 @@ private fun ResumeRow(progress: PodcastProgressEntity, onClick: () -> Unit) {
             }
         }
         Icon(phosphorIcon("play", filled = true), contentDescription = "Weiterhören", tint = Canopy.accent, modifier = Modifier.padding(start = 12.dp).size(22.dp))
+        Box {
+            CanopyIconButton(icon = phosphorIcon("dots-three"), onClick = { menu = true }, contentDescription = "Weitere Optionen")
+            ResumeMenu(menu, onDismiss = { menu = false }, onMarkHeard = onMarkHeard, onForget = onForget)
+        }
+    }
+}
+
+/** "Weiterhören" entries the person does not want to see: counted as heard (the next
+ * part moves up), or forgotten together with the position. */
+@Composable
+internal fun ResumeMenu(expanded: Boolean, onDismiss: () -> Unit, onMarkHeard: () -> Unit, onForget: () -> Unit) {
+    androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text("Als gehört markieren") },
+            leadingIcon = { Icon(phosphorIcon("check-circle"), contentDescription = null, tint = Canopy.accent) },
+            onClick = { onDismiss(); onMarkHeard() },
+        )
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text("Aus Weiterhören entfernen") },
+            leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
+            onClick = { onDismiss(); onForget() },
+        )
     }
 }
 

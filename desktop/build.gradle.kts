@@ -208,6 +208,7 @@ val sharedFiles = listOf(
     "playback/eq/MatchedBiquad.kt",
     "playback/eq/EqProcessor.kt",
     "playback/eq/Loudness.kt",
+    "podcast/PodcastSource.kt",
 )
 val syncShared by tasks.registering(Sync::class) {
     from(sharedRoot) { sharedFiles.forEach { include(it) } }

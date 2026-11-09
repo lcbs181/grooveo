@@ -34,11 +34,17 @@ interface PodcastDao {
     @Query("SELECT * FROM podcast_progress WHERE showId = :showId")
     fun observeProgressForShow(showId: String): Flow<List<PodcastProgressEntity>>
 
+    @Query("SELECT * FROM podcast_progress WHERE updatedAt > :since ORDER BY updatedAt DESC")
+    suspend fun progressSince(since: Long): List<PodcastProgressEntity>
+
     @Query("SELECT * FROM podcast_progress WHERE completed = 0 ORDER BY updatedAt DESC LIMIT :limit")
     fun observeInProgress(limit: Int): Flow<List<PodcastProgressEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProgress(progress: PodcastProgressEntity)
+
+    @Query("DELETE FROM podcast_progress")
+    suspend fun deleteAllProgress()
 
     @Query("DELETE FROM podcast_progress WHERE audioUrl = :audioUrl")
     suspend fun deleteProgress(audioUrl: String)

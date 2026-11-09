@@ -171,6 +171,7 @@ fun LibraryScreen(
                         onRecentlyPlayedAddToPlaylist = { viewModel.onAddToPlaylistClicked(it.toTrackResultDto()) },
                         onRecentlyPlayedAddToQueue = { viewModel.onAddToQueueClicked(it.toTrackResultDto()) },
                         onRecentlyPlayedArtistClick = { viewModel.onTrackArtistClicked(it.toTrackResultDto()) },
+                        onRecentlyPlayedRemove = { viewModel.forgetPlayed(it) },
                     )
                     LibraryTab.LIKES -> Column(modifier = Modifier.fillMaxSize()) {
                         LibrarySubViewHeader(title = "Favoriten", onBack = viewModel::backToHome)
@@ -257,6 +258,7 @@ private fun LibraryHomeContent(
     onRecentlyPlayedAddToPlaylist: (TrackEntity) -> Unit,
     onRecentlyPlayedAddToQueue: (TrackEntity) -> Unit,
     onRecentlyPlayedArtistClick: (TrackEntity) -> Unit,
+    onRecentlyPlayedRemove: (TrackEntity) -> Unit,
 ) {
     val dimens = rememberResponsiveDimens()
 
@@ -310,7 +312,7 @@ private fun LibraryHomeContent(
                 )
                 QuickAccessRow(
                     icon = phosphorIcon("microphone"),
-                    label = "Podcasts & Hörspiele",
+                    label = "Podcasts & Hörbücher",
                     subtitle = "Abonnieren, weiterhören, RSS-Feeds",
                     onClick = onOpenPodcasts,
                 )
@@ -371,6 +373,7 @@ private fun LibraryHomeContent(
                     onAddToPlaylistClick = { onRecentlyPlayedAddToPlaylist(track) },
                     onAddToQueueClick = { onRecentlyPlayedAddToQueue(track) },
                     onArtistClick = { onRecentlyPlayedArtistClick(track) },
+                    onRemove = { onRecentlyPlayedRemove(track) },
                 )
             }
         }
@@ -773,6 +776,7 @@ private fun HistoryRow(
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
     onArtistClick: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     val context = LocalContext.current
     val dimens = rememberResponsiveDimens()
@@ -809,6 +813,11 @@ private fun HistoryRow(
                         text = { Text("Teilen") },
                         leadingIcon = { Icon(phosphorIcon("share-network"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; context.shareText(track.webpageUrl) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Aus Verlauf entfernen") },
+                        leadingIcon = { Icon(phosphorIcon("trash"), contentDescription = null, tint = Canopy.accent) },
+                        onClick = { menuExpanded = false; onRemove() },
                     )
                 }
             }
@@ -1091,19 +1100,7 @@ private fun LikeRow(
         state = dismissState,
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
-        backgroundContent = {
-            // only while swiping: rows are transparent in Dawn Music, so a
-            // permanent backdrop would show through every row
-            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Canopy.accent800)
-                    .padding(start = 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Canopy.accent100)
-            }
-        },
+        backgroundContent = { dev.schlubbe.musicagent.ui.components.QueueSwipeBackdrop(dismissState) },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         ListItem(

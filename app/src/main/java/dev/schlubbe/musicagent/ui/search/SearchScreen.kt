@@ -103,10 +103,11 @@ private val RESULT_TABS = listOf(
     "all" to "Alle",
     "tracks" to "Titel",
     "artists" to "Künstler",
-    "playlists" to "Playlists",
-    "albums" to "Alben",
+    // ARD, LibriVox and YouTube in one place: people look for a story, not a source
+    "spoken" to "Hörspiele & Hörbücher",
     "podcasts" to "Podcasts",
-    "hoerspiele" to "Hörspiele",
+    "albums" to "Alben",
+    "playlists" to "Playlists",
 )
 
 private const val CONTENT_BOTTOM_PADDING = 150
@@ -117,6 +118,7 @@ fun SearchScreen(
     onArtistSelected: (source: String, sourceId: String) -> Unit,
     onPlaylistSelected: (source: String, sourceId: String) -> Unit,
     onPodcastSelected: (showId: String) -> Unit = {},
+    onOpenPodcasts: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -124,6 +126,13 @@ fun SearchScreen(
     val analyzer = LocalTrackAnalyzer.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
+    LaunchedEffect(uiState.openPlayer) {
+        if (uiState.openPlayer) {
+            focusManager.clearFocus()
+            viewModel.onPlayerOpened()
+            onTrackSelected()
+        }
+    }
     LaunchedEffect(uiState.artistNavTarget) {
         uiState.artistNavTarget?.let { (source, sourceId) ->
             onArtistSelected(source, sourceId)
@@ -190,6 +199,12 @@ fun SearchScreen(
                             focusManager.clearFocus()
                             viewModel.onHistoryQueryTapped(query)
                         },
+                        onSpokenSearch = { query ->
+                            focusManager.clearFocus()
+                            viewModel.onSpokenTileTapped(query)
+                        },
+                        onOpenPodcasts = onOpenPodcasts,
+                        onCoverFailed = viewModel::onBrowseCoverFailed,
                     )
                     uiState.suggestions.isNotEmpty() -> SuggestionsList(
                         suggestions = uiState.suggestions,
@@ -212,6 +227,7 @@ fun SearchScreen(
                         onShowAll = viewModel::onResultTypeChanged,
                         onHistoryTapped = viewModel::onHistoryQueryTapped,
                         onHistoryDeleted = viewModel::onHistoryQueryDeleted,
+                        onEnableYouTube = viewModel::enableYouTube,
                         trackActions = TrackActions(
                             onAnalyze = { track -> analyzer.analyzeTracks(listOf(track)) },
                             onLikeToggle = viewModel::onLikeToggled,
@@ -259,6 +275,16 @@ private val BROWSE_TILES = listOf(
     BrowseTile("Schlager", "Schlager", Color(0xFF8A5A00)),
 )
 
+// searched on the "Hörspiele & Hörbücher" tab
+private val SPOKEN_TILES = listOf(
+    BrowseTile("Krimi", "Krimi", Color(0xFF263447)),
+    BrowseTile("Fantasy", "Fantasy", Color(0xFF5A4FB0)),
+    BrowseTile("Science-Fiction", "Science Fiction", Color(0xFF1F5F8C)),
+    BrowseTile("Kinder", "Kinder", Color(0xFFC2410C)),
+    BrowseTile("Klassiker", "Klassiker", Color(0xFF8A5A00)),
+    BrowseTile("Märchen", "Märchen", Color(0xFF2E6E4E)),
+)
+
 /** The empty search (both apps): recent searches as chips, then Spotify's
  * "Alle durchsuchen" grid of colour tiles that each start a search. */
 @Composable
@@ -267,6 +293,9 @@ private fun BrowseAll(
     covers: Map<String, String>,
     onShown: () -> Unit,
     onSearch: (String) -> Unit,
+    onSpokenSearch: (String) -> Unit,
+    onOpenPodcasts: () -> Unit,
+    onCoverFailed: (String) -> Unit,
 ) {
     LaunchedEffect(Unit) { onShown() }
     val holiday = dev.schlubbe.musicagent.ui.theme.LocalHoliday.current
@@ -319,6 +348,53 @@ private fun BrowseAll(
                 }
             }
         }
+        // Hörspiele and Hörbücher get their own row, so nobody has to guess that the
+        // music search finds them too
+        item(span = { GridItemSpan(2) }) {
+            Text(
+                "Hörspiele & Hörbücher",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Canopy.text,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        item(span = { GridItemSpan(2) }) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(CanopyShapes.small)
+                    .background(Canopy.surface)
+                    .border(1.dp, Canopy.divider, CanopyShapes.small)
+                    .clickable(onClick = onOpenPodcasts)
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(phosphorIcon("headphones"), contentDescription = null, tint = Canopy.accent, modifier = Modifier.size(26.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Stöbern", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Canopy.text)
+                    Text(
+                        "Neue Hörspiele, Hörbücher und Podcasts, deine Abos und Weiterhören",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Canopy.neutral500,
+                    )
+                }
+                Icon(phosphorIcon("caret-right"), contentDescription = null, tint = Canopy.neutral500, modifier = Modifier.size(18.dp))
+            }
+        }
+        items(SPOKEN_TILES, key = { "spoken:" + it.label }) { tile ->
+            Box(
+                modifier = Modifier
+                    .height(64.dp)
+                    .clip(CanopyShapes.small)
+                    .background(tile.color)
+                    .clickable { onSpokenSearch(tile.query) }
+                    .padding(12.dp),
+            ) {
+                Text(tile.label, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+        }
         item(span = { GridItemSpan(2) }) {
             Text(
                 "Alle durchsuchen",
@@ -358,9 +434,12 @@ private fun BrowseAll(
                 ) {
                     if (cover != null) {
                         AsyncImage(
-                            model = cover,
+                            // category cards keep the full-size cover (ArtworkUrls.FULL)
+                            model = coil.request.ImageRequest.Builder(LocalContext.current).data(cover)
+                                .setParameter(dev.schlubbe.musicagent.data.artwork.ArtworkUrls.FULL, true).build(),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
+                            onError = { onCoverFailed(tile.query) },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -424,7 +503,7 @@ private fun SearchHeader(
                 )
                 if (query.isEmpty()) {
                     Text(
-                        "Titel, Künstler, Playlists",
+                        "Songs, Künstler, Hörspiele, Hörbücher",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Canopy.neutral500,
                     )
@@ -467,8 +546,9 @@ private fun SearchHeader(
         // inactive is neutral-500 with no rule. Scrolls to the active one, which
         // "Alle anzeigen" may pick off-screen.
         val tabsState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val tabs = RESULT_TABS
         LaunchedEffect(resultType) {
-            val index = RESULT_TABS.indexOfFirst { it.first == resultType }
+            val index = tabs.indexOfFirst { it.first == resultType }
             if (index >= 0) tabsState.animateScrollToItem(maxOf(0, index - 1))
         }
         LazyRow(
@@ -476,7 +556,7 @@ private fun SearchHeader(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            items(RESULT_TABS, key = { it.first }) { (key, label) ->
+            items(tabs, key = { it.first }) { (key, label) ->
                 val selected = resultType == key
                 Column(
                     modifier = Modifier.clickable { onResultTypeChanged(key) },
@@ -541,9 +621,23 @@ private fun ResultsList(
     onShowAll: (String) -> Unit,
     onHistoryTapped: (String) -> Unit,
     onHistoryDeleted: (String) -> Unit,
+    onEnableYouTube: () -> Unit,
     trackActions: TrackActions,
 ) {
+    // Sections that arrive later land above the ones already shown; until the list is
+    // scrolled by hand it stays at the top instead of following the old first row.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var scrolledByHand by remember(uiState.query, uiState.resultType) { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect {
+            if (it is androidx.compose.foundation.interaction.DragInteraction.Start) scrolledByHand = true
+        }
+    }
+    LaunchedEffect(uiState.spokenPending, uiState.podcastResults, uiState.hoerspielResults, uiState.hoerbuchResults, uiState.albumResults, uiState.playlistResults) {
+        if (!scrolledByHand) listState.scrollToItem(0)
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = maxOf(CONTENT_BOTTOM_PADDING.dp, LocalChromeInset.current + 16.dp)),
     ) {
@@ -552,7 +646,7 @@ private fun ResultsList(
             "artists" -> items(uiState.artistResults, key = { it.source + it.sourceId }) { ArtistResult(it, onArtistClick) }
             "playlists" -> items(uiState.playlistResults, key = { it.source + it.sourceId }) { PlaylistResult(it, onPlaylistClick) }
             "podcasts" -> items(uiState.podcastResults, key = { it.id }) { ShowResult(it, "Podcast", onShowClick) }
-            "hoerspiele" -> items(uiState.hoerspielResults, key = { it.id }) { ShowResult(it, "Hörspiel", onShowClick) }
+            "spoken" -> spokenSections(uiState, onTrackClick, onArtistClick, onShowClick, onEnableYouTube, trackActions)
             "albums" -> items(uiState.albumResults, key = { it.source + it.sourceId }) { AlbumResult(it, onPlaylistClick) }
             else -> items(uiState.results, key = { it.source + it.sourceId }) { track ->
                 TrackResult(track, uiState, onTrackClick, trackActions)
@@ -600,7 +694,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.allSections(
     val tracks = uiState.results.drop(1).take(ALL_TRACKS)
     val more = uiState.results.drop(1 + ALL_TRACKS)
     val nothing = topTrack == null && uiState.artistResults.isEmpty() && uiState.podcastResults.isEmpty() &&
-        uiState.hoerspielResults.isEmpty() && uiState.albumResults.isEmpty() && uiState.playlistResults.isEmpty()
+        uiState.hoerspielResults.isEmpty() && uiState.hoerbuchResults.isEmpty() && uiState.albumResults.isEmpty() && uiState.playlistResults.isEmpty()
     if (nothing) {
         item { Text("Nichts gefunden", color = Canopy.neutral500, modifier = Modifier.padding(vertical = 24.dp)) }
         return
@@ -611,9 +705,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.allSections(
         topArtist?.let { item(key = "best:artist") { ArtistResult(it, onArtistClick) } }
         topTrack?.let { item(key = "best:track") { TrackResult(it, uiState, onTrackClick, trackActions) } }
     }
-    fun <T> section(title: String, tab: String, list: List<T>, key: (T) -> String, row: @Composable (T) -> Unit) {
+    fun <T> section(title: String, tab: String, list: List<T>, key: (T) -> String, target: String = tab, row: @Composable (T) -> Unit) {
         if (list.isEmpty()) return
-        item(key = "h:$tab") { AllHeader(title) { onShowAll(tab) } }
+        item(key = "h:$tab") { AllHeader(title) { onShowAll(target) } }
         items(list.take(ALL_SECTION_SIZE), key = { "$tab:${key(it)}" }) { row(it) }
     }
     section("Künstler", "artists", artists, { it.source + it.sourceId }) { ArtistResult(it, onArtistClick) }
@@ -621,13 +715,99 @@ private fun androidx.compose.foundation.lazy.LazyListScope.allSections(
         item(key = "h:tracks") { AllHeader("Titel") { onShowAll("tracks") } }
         items(tracks, key = { "tracks:${it.source}${it.sourceId}" }) { TrackResult(it, uiState, onTrackClick, trackActions) }
     }
+    section("Hörspiele", "spoken", uiState.hoerspielResults, { it.id }) { ShowResult(it, "Hörspiel", onShowClick) }
+    section("Hörbücher", "books", uiState.hoerbuchResults, { it.id }, target = "spoken") { ShowResult(it, "Hörbuch", onShowClick) }
     section("Podcasts", "podcasts", uiState.podcastResults, { it.id }) { ShowResult(it, "Podcast", onShowClick) }
-    section("Hörspiele", "hoerspiele", uiState.hoerspielResults, { it.id }) { ShowResult(it, "Hörspiel", onShowClick) }
     section("Alben", "albums", uiState.albumResults, { it.source + it.sourceId }) { AlbumResult(it, onPlaylistClick) }
     section("Playlists", "playlists", uiState.playlistResults, { it.source + it.sourceId }) { PlaylistResult(it, onPlaylistClick) }
     if (more.isNotEmpty()) {
         item(key = "h:more") { AllHeader("Weitere Ergebnisse") }
         items(more, key = { "more:${it.source}${it.sourceId}" }) { TrackResult(it, uiState, onTrackClick, trackActions) }
+    }
+}
+
+/** "Hörspiele & Hörbücher": ARD and LibriVox first, then YouTube's series, albums and
+ * single videos. Each section appears as its source answers. */
+private fun androidx.compose.foundation.lazy.LazyListScope.spokenSections(
+    uiState: SearchUiState,
+    onTrackClick: (TrackResultDto) -> Unit,
+    onArtistClick: (ArtistResultDto) -> Unit,
+    onShowClick: (String) -> Unit,
+    onEnableYouTube: () -> Unit,
+    trackActions: TrackActions,
+) {
+    if (uiState.hoerspielResults.isNotEmpty()) {
+        item(key = "h:hs") { AllHeader("Hörspiele") }
+        items(uiState.hoerspielResults, key = { "hs:" + it.id }) { ShowResult(it, "Hörspiel", onShowClick) }
+    }
+    if (uiState.hoerbuchResults.isNotEmpty()) {
+        item(key = "h:hb") { AllHeader("Hörbücher") }
+        items(uiState.hoerbuchResults, key = { "hb:" + it.id }) { ShowResult(it, "Hörbuch", onShowClick) }
+    }
+    // official YouTube channels already come with the Hörspiel/Hörbuch results
+    val shown = (uiState.hoerspielResults + uiState.hoerbuchResults).map { it.id }.toSet()
+    val youtubeShows = uiState.youtubeShows.filter { it.id !in shown }
+    if (youtubeShows.isNotEmpty()) {
+        item(key = "h:yts") { AllHeader("Reihen & Kanäle auf YouTube") }
+        items(youtubeShows, key = { "yts:" + it.id }) { show ->
+            val channel = show.id.removePrefix("yt:").takeIf { it.startsWith("UC") }
+            if (channel != null) {
+                // a channel opens as an artist page: videos, playlists, albums
+                ShowResult(show, "Kanal") {
+                    onArtistClick(dev.schlubbe.musicagent.data.repository.youTubeChannelArtist(channel, show.title, show.imageUrl))
+                }
+            } else {
+                ShowResult(show, "Reihe", onShowClick)
+            }
+        }
+    }
+    if (uiState.youtubeAlbums.isNotEmpty()) {
+        item(key = "h:yta") { AllHeader("Alben auf YouTube") }
+        items(uiState.youtubeAlbums, key = { "yta:" + it.id }) { ShowResult(it, "Album", onShowClick) }
+    }
+    if (uiState.youtubeResults.isNotEmpty()) {
+        item(key = "h:ytv") { AllHeader("Einzelne Videos") }
+        items(uiState.youtubeResults, key = { "ytv:" + it.sourceId }) { TrackResult(it, uiState, onTrackClick, trackActions) }
+    }
+    val empty = uiState.hoerspielResults.isEmpty() && uiState.hoerbuchResults.isEmpty() &&
+        uiState.youtubeShows.isEmpty() && uiState.youtubeAlbums.isEmpty() && uiState.youtubeResults.isEmpty()
+    if (uiState.spokenPending > 0) {
+        item(key = "spoken:loading") {
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Canopy.accent, modifier = Modifier.size(28.dp))
+            }
+        }
+    } else if (empty) {
+        item(key = "spoken:none") {
+            Text(
+                "Nichts gefunden. Viele bekannte Hörbücher und Hörspiele gibt es nur zu kaufen " +
+                    "(Audible, Spotify, Hörverlag) und deshalb nicht hier.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Canopy.neutral500,
+                modifier = Modifier.padding(vertical = 24.dp),
+            )
+        }
+    }
+    if (!uiState.youtubeEnabled && uiState.spokenPending == 0) {
+        item(key = "spoken:yt") {
+            Column(
+                modifier = Modifier
+                    .padding(top = 18.dp)
+                    .fillMaxWidth()
+                    .clip(CanopyShapes.small)
+                    .background(Canopy.surface)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Auch auf YouTube suchen?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Canopy.text)
+                Text(
+                    "Dort gibt es viele ganze Hörspiele und Hörbücher. Die App lädt dann Daten von YouTube; ausschalten geht in den Einstellungen unter Audio-Quellen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Canopy.neutral500,
+                )
+                CanopyButton(text = "YouTube einschalten", onClick = onEnableYouTube, variant = CanopyButtonVariant.Secondary)
+            }
+        }
     }
 }
 
@@ -712,7 +892,7 @@ private fun AlbumResult(album: AlbumResultDto, onClick: (source: String, sourceI
 private fun ShowResult(show: dev.schlubbe.musicagent.podcast.PodcastShow, kind: String, onClick: (String) -> Unit) {
     ResultRow(
         title = show.title,
-        subtitle = listOfNotNull(kind, show.author, show.episodeCount?.takeIf { it > 0 }?.let { "$it Folgen" }).joinToString(" · "),
+        subtitle = listOfNotNull(kind, show.author, show.episodeCount?.takeIf { it > 0 }?.let { if (it == 1) "1 Folge" else "$it Folgen" }).joinToString(" · "),
         thumbnailUrl = show.imageUrl,
         seed = show.title,
         onClick = { onClick(show.id) },
@@ -734,7 +914,9 @@ private fun TrackResult(
         subtitle = listOfNotNull(
             track.artist,
             sourceLabel(track.source),
-            track.durationSec?.takeIf { it > 0 }?.let { "%d:%02d".format(it / 60, it % 60) },
+            track.durationSec?.takeIf { it > 0 }?.let {
+                if (it >= 3600) "%d:%02d:%02d".format(it / 3600, it / 60 % 60, it % 60) else "%d:%02d".format(it / 60, it % 60)
+            },
         ).joinToString(" · "),
         thumbnailUrl = track.thumbnailUrl,
         seed = track.title,
@@ -957,4 +1139,9 @@ private fun CenteredMessage(content: @Composable () -> Unit) {
 }
 
 /** Where a result comes from - not shown in Dawn Music, where a song is just a song. */
-private fun sourceLabel(source: String): String? = if (BuildConfig.DAWN) null else if (source == "soundcloud") "SoundCloud" else "YT Music"
+private fun sourceLabel(source: String): String? = when {
+    source == "podcast" -> "YouTube" // only YouTube videos as audio show up as tracks here
+    BuildConfig.DAWN -> null
+    source == "soundcloud" -> "SoundCloud"
+    else -> "YT Music"
+}

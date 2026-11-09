@@ -34,6 +34,8 @@ data class PodcastsUiState(
     val topPodcasts: List<PodcastShow> = emptyList(),
     val hoerspiele: List<PodcastShow> = emptyList(),
     val kinder: List<PodcastShow> = emptyList(),
+    val hoerbuecher: List<PodcastShow> = emptyList(),
+    val klassiker: List<PodcastShow> = emptyList(),
     val browseLoading: Boolean = false,
     val addingFeed: Boolean = false,
     val feedError: String? = null,
@@ -68,7 +70,10 @@ class PodcastsViewModel @Inject constructor(
             val top = runCatching { repository.topPodcasts() }.getOrDefault(emptyList())
             val hoer = runCatching { repository.ardCategory(PodcastRepository.ARD_HOERSPIEL) }.getOrDefault(emptyList())
             val kids = runCatching { repository.ardCategory(PodcastRepository.ARD_KINDER) }.getOrDefault(emptyList())
-            _uiState.update { it.copy(topPodcasts = top, hoerspiele = hoer, kinder = kids, browseLoading = false) }
+            _uiState.update { it.copy(topPodcasts = top, hoerspiele = hoer, kinder = kids) }
+            val books = runCatching { repository.ardRecentShows(PodcastRepository.ARD_HOERBUCH, ShowKind.HOERBUCH) }.getOrDefault(emptyList())
+            val classics = runCatching { repository.libriVoxClassics() }.getOrDefault(emptyList())
+            _uiState.update { it.copy(hoerbuecher = books, klassiker = classics, browseLoading = false) }
         }
     }
 
@@ -95,7 +100,11 @@ class PodcastsViewModel @Inject constructor(
             _uiState.update { it.copy(searching = true, error = null) }
             val kind = _uiState.value.kind
             try {
-                val results = if (kind == ShowKind.PODCAST) repository.searchPodcasts(query) else repository.searchHoerspiele(query)
+                val results = when (kind) {
+                    ShowKind.PODCAST -> repository.searchPodcasts(query)
+                    ShowKind.HOERSPIEL -> repository.searchHoerspiele(query)
+                    ShowKind.HOERBUCH -> repository.searchHoerbuecher(query)
+                }
                 _uiState.update { it.copy(results = results, searching = false) }
             } catch (e: CancellationException) {
                 throw e
@@ -118,7 +127,7 @@ class PodcastsViewModel @Inject constructor(
             try {
                 val id = ShowId.Rss(url).toString()
                 val loaded = repository.loadShow(id, forceRefresh = true)
-                repository.subscribe(loaded.show, loaded.episodes.firstOrNull()?.publishedAt)
+                repository.subscribe(loaded.show, loaded.latestPublishedAt)
                 _uiState.update { it.copy(addingFeed = false, openShowId = id) }
             } catch (e: CancellationException) {
                 throw e
@@ -131,6 +140,14 @@ class PodcastsViewModel @Inject constructor(
     fun clearFeedError() = _uiState.update { it.copy(feedError = null) }
 
     fun onShowOpened() = _uiState.update { it.copy(openShowId = null) }
+
+    fun markHeard(progress: PodcastProgressEntity) {
+        viewModelScope.launch { repository.markHeard(progress) }
+    }
+
+    fun forget(progress: PodcastProgressEntity) {
+        viewModelScope.launch { repository.forgetProgress(progress.audioUrl) }
+    }
 
     fun resume(progress: PodcastProgressEntity) {
         val track = TrackResultDto(

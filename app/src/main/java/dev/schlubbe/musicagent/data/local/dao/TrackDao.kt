@@ -27,6 +27,15 @@ interface TrackDao {
     @Query("SELECT tracks.* FROM tracks INNER JOIN downloads ON downloads.trackId = tracks.id")
     fun observeWithDownload(): Flow<List<TrackEntity>>
 
-    @Query("SELECT * FROM tracks ORDER BY lastAccessedAt DESC LIMIT :limit")
+    /** 0 means "never played" (cached for a download, like or playlist only). */
+    @Query("SELECT * FROM tracks WHERE lastAccessedAt > 0 ORDER BY lastAccessedAt DESC LIMIT :limit")
     fun observeRecentlyPlayed(limit: Int = 50): Flow<List<TrackEntity>>
+
+    /** Clears the listening history; the rows stay, likes and playlists still need them. */
+    @Query("UPDATE tracks SET lastAccessedAt = 0")
+    suspend fun forgetPlayed()
+
+    /** Takes one track out of the listening history. */
+    @Query("UPDATE tracks SET lastAccessedAt = 0 WHERE id = :id")
+    suspend fun forgetPlayed(id: String)
 }

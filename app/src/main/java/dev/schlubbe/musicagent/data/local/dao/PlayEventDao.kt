@@ -13,6 +13,9 @@ interface PlayEventDao {
     @Query("SELECT * FROM play_events WHERE startedAt >= :since ORDER BY startedAt DESC")
     suspend fun since(since: Long): List<PlayEventEntity>
 
+    @Query("DELETE FROM play_events")
+    suspend fun deleteAll()
+
     @Query("DELETE FROM play_events WHERE startedAt < :before")
     suspend fun prune(before: Long)
 }

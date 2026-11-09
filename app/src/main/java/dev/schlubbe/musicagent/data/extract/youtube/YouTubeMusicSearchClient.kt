@@ -200,8 +200,10 @@ class YouTubeMusicSearchClient @Inject constructor(
      * the profile. Now the page degrades gracefully — profile info loads as long as
      * [ChannelInfo.getInfo] itself succeeds, and song shelves are simply empty if
      * their tab can't be fetched. */
-    suspend fun getArtist(channelUrl: String): ArtistDetailDto = withContext(Dispatchers.IO) {
-        fromMusicPage(channelUrl) ?: getArtistFromChannel(channelUrl)
+    /** [onFirst] gets the page as soon as it can be shown, before the full top-songs
+     * list (another second or so) is filled in. */
+    suspend fun getArtist(channelUrl: String, onFirst: ((ArtistDetailDto) -> Unit)? = null): ArtistDetailDto = withContext(Dispatchers.IO) {
+        fromMusicPage(channelUrl, onFirst) ?: getArtistFromChannel(channelUrl)
     }
 
     /** The artist as YouTube Music's own artist page shows it (see
@@ -209,13 +211,14 @@ class YouTubeMusicSearchClient @Inject constructor(
      * playlist (the page itself lists five). Null when the channel has no music
      * page or YouTube Music does not answer - the caller then builds the page from
      * the plain channel. */
-    private suspend fun fromMusicPage(channelUrl: String): ArtistDetailDto? {
+    private suspend fun fromMusicPage(channelUrl: String, onFirst: ((ArtistDetailDto) -> Unit)?): ArtistDetailDto? {
         val channelId = Regex("UC[\\w-]{22}").find(channelUrl)?.value ?: return null
         val page = runCatching { browse.artist(channelId, channelUrl) }
             .onFailure { Log.w(TAG, "YouTube Music artist page failed for $channelId", it) }
             .getOrNull() ?: return null
         val detail = page.detail
         if (detail.topTracks.isEmpty() && detail.albums.isEmpty() && detail.singles.isEmpty()) return null
+        if (page.topSongsPlaylistId != null) onFirst?.invoke(detail)
         val full = page.topSongsPlaylistId?.let { id ->
             runCatching { getPlaylistTracks("https://www.youtube.com/playlist?list=$id") }.getOrNull()
         }.orEmpty()
@@ -347,7 +350,8 @@ class YouTubeMusicSearchClient @Inject constructor(
             latestTracks = latestTracks,
             albums = albums,
             playlists = playlistItems.map { it.toPlaylistResultDto() }.take(20),
-            webpageUrl = channelUrl,
+            // the channel id even when opened from an "@handle" link
+            webpageUrl = info.id?.takeIf { it.startsWith("UC") }?.let { "https://www.youtube.com/channel/$it" } ?: channelUrl,
         )
     }
 

@@ -137,9 +137,11 @@ psychoacoustic bass enhancer, loudness compensation and a look-ahead limiter
 (details in [DESKTOP.md](DESKTOP.md#audio-engine)), plus the dynamic stages
 "Dynamischer Bass" and "Schärfe zähmen" and loudness normalisation
 ("Lautstärke angleichen", BS.1770, on by default, independent of the EQ
-switch). PlaybackService tells the processor which track plays
-(`onMediaItemTransition`) and keeps measured track loudness in
-`filesDir/loudness.json`.
+switch). Normalisation aims at -14 LUFS like Spotify and YouTube and raises a
+quiet track only as far as its own peaks allow (never above -1 dBFS, at most
++6 dB), so it never drives the limiter. PlaybackService tells the processor which
+track plays (`onMediaItemTransition`) and keeps measured loudness and sample peak
+per track in `filesDir/loudness.json`.
 `ParametricEqAudioProcessor` handles 16-bit and float PCM (the hi-res path),
 mono or stereo, at the device's sample rate. It replaces the old
 `android.media.audiofx.Equalizer`, whose band count and frequencies varied by
@@ -255,6 +257,50 @@ auto-advance seeks there. Constant-bitrate seeking is on in the extractor
 factory, since many podcast MP3s have no seek table. `NewEpisodesWorker` checks
 subscriptions every 6 h (switchable, Wi-Fi only by default) and notifies once
 per show.
+
+Hörbücher come from LibriVox (public-domain readings; each book is an RSS feed)
+and the ARD Audiothek's Hörbuch category. `EpisodeOrder` sorts episodes into
+listening order: by date, then by part number (from the title, `itunes:episode`
+or ARD's `episodeNumber`), then by source position. Serial shows (`itunes:type`
+serial, LibriVox, or every title "(n/M)" with one M) are shown part 1 first.
+
+`YouTubeSpoken` adds YouTube as an audio source, off until switched on under
+Einstellungen > Audio-Quellen. Hörspiel/Hörbuch searches then also return
+channels and playlists (show ids `yt:UC…` and `yt:PL…`); by default only from a
+list of publishers and broadcasters that hold the rights (`OFFICIAL_CHANNELS`),
+because a sample of 200 "hörspiel" search results was only about half official
+(the rest: third-party uploads, fan mixes, AI-voiced and misleading videos). A
+channel is read through its uploads playlist (`UU…`), keeping only full-length
+videos (20 min or more, no trailers, previews or fan mixes); a publisher playlist
+is taken as a series in listening order. The search also gets a "YouTube" tab
+where any video plays as audio (ASMR, talks, stories), with resume like a podcast
+episode. Above the videos the tab lists series and channels (the channels behind the
+matching videos first, without auto-generated "- Topic" channels) and YouTube Music
+albums (`yt:OLAK5uy_…`, every track kept, in track order), each opening as a show.
+A channel in the tab opens as a YouTube artist page (`ytmusic` with the channel
+URL), and `SearchRepository.artistOf` sends "Zum Künstler" on a YouTube episode to
+the same page through the channel id kept in the track's `album`. On a channel
+without a YouTube Music page the artist screen offers "Als Folgen" (`yt:UC…`) and
+opens its playlists as shows instead of music playlists.
+YouTube sometimes answers a harmless query with a content notice, which NewPipe
+reports as nothing found; the search then retries with " audio" or " deutsch"
+appended. A YouTube episode is a `podcast` track whose `sourceId` is the watch URL;
+`StreamResolverRegistry` resolves it through the YouTube extractor on each play,
+because the stream URLs expire. Searches force German localisation per extractor,
+so YouTube does not machine-translate the titles.
+
+`SpokenText` gives an episode a text in the player's lyrics sheet ("Text"): a YouTube
+video's subtitles (German first, the uploader's own before automatic ones, fetched as
+"srv1" timed text whatever format NewPipe lists), or for a LibriVox audiobook the book
+LibriVox links as its source (Project Gutenberg, Projekt Gutenberg-DE, de.wikisource).
+A book has no timestamps: each section's slice of the text is its share of the total
+running time, cut at paragraph starts, and the lines inside are timed by position after
+a 12 s LibriVox intro. Other episodes (ARD, podcasts) get none.
+
+`ForYouFeed` builds the start page's "Hörtipps für dich" on the device: an affinity per show
+from subscriptions and heard episodes (30-day half-life), the next part of serial
+shows, fresh unheard episodes (7-day half-life), and discoveries (fyyd's similar
+podcasts, new ARD Hörspiele/Hörbücher), at most two episodes per show.
 
 `TrackingPrefixes` strips measurement redirects (Podtrac, Chartable, OP3,
 Podscribe and others) from episode URLs, so audio is fetched from the host

@@ -105,6 +105,24 @@ class LoudnessNormalizerTest {
         assertEquals(0.0, n.currentGainDb, 1e-9)
     }
 
+    @Test fun `a quiet track is only raised as far as its peaks allow`() {
+        val n = LoudnessNormalizer(FS).apply { enabled = true }
+        // 6 dB below the target, but its stored peak is at -3 dBFS: only 2 dB of room
+        n.startTrack("dynamic", LoudnessNormalizer.DEFAULT_TARGET_LUFS - 6.0, -3.0)
+        run(n, 0.2, 0.1)
+        assertEquals(2.0, n.currentGainDb, 1e-9)
+    }
+
+    @Test fun `a louder peak than known takes the boost back at once`() {
+        val n = LoudnessNormalizer(FS).apply { enabled = true }
+        n.startTrack("a", LoudnessNormalizer.DEFAULT_TARGET_LUFS - 6.0)
+        run(n, 0.2, 0.1) // peak -20 dBFS: the full boost fits
+        assertEquals(6.0, n.currentGainDb, 1e-9)
+        val out = run(n, 0.2, 0.7) // peak -3.1 dBFS
+        assertEquals(-1.0 - 20 * kotlin.math.log10(0.7), n.currentGainDb, 1e-6)
+        assert(out.maxOf { kotlin.math.abs(it) } <= 10.0.pow(-1.0 / 20) + 1e-4) { "no sample above -1 dBFS" }
+    }
+
     @Test fun `gain stays fixed once the measurement is latched`() {
         val n = LoudnessNormalizer(FS).apply { enabled = true }
         n.startTrack("a", null)

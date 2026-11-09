@@ -144,14 +144,6 @@ fun HomeScreen(
                     }
                 }
 
-                item {
-                    dev.schlubbe.musicagent.ui.podcast.HomePodcastShelves(
-                        onOpenPodcasts = onOpenPodcasts,
-                        onShowSelected = onPodcastShowClick,
-                        onEpisodePlayed = onTrackSelected,
-                    )
-                }
-
                 if (uiState.onRepeat.isNotEmpty()) {
                     item {
                         TrackShelf("Dauerschleife", "Was du gerade immer wieder hörst", uiState.onRepeat) {
@@ -195,6 +187,15 @@ fun HomeScreen(
                             },
                         )
                     }
+                }
+
+                // spoken word after the music's own shelves: podcasts, Hörspiele, Hörbücher
+                item {
+                    dev.schlubbe.musicagent.ui.podcast.HomePodcastShelves(
+                        onOpenPodcasts = onOpenPodcasts,
+                        onShowSelected = onPodcastShowClick,
+                        onEpisodePlayed = onTrackSelected,
+                    )
                 }
 
                 item {

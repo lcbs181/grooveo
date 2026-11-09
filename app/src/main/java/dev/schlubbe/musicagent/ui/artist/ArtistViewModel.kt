@@ -91,7 +91,13 @@ class ArtistViewModel @Inject constructor(
         }
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         viewModelScope.launch {
-            runCatching { searchRepository.getArtist(source, sourceId) }
+            val following = { "$source:$sourceId" in followRepository.followedIds.value }
+            runCatching {
+                searchRepository.getArtist(source, sourceId) { first ->
+                    // shown at once; the full top-songs list replaces it a moment later
+                    _uiState.value = _uiState.value.copy(artist = first, isLoading = false, isFollowing = following())
+                }
+            }
                 .onSuccess { artist ->
                     _uiState.value = _uiState.value.copy(
                         artist = artist,

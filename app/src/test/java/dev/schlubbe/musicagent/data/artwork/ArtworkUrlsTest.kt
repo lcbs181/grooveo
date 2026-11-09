@@ -40,4 +40,20 @@ class ArtworkUrlsTest {
         assertEquals(listOf(sc), ArtworkUrls.candidates(sc))
         assertEquals(sc, ArtworkUrls.safe(sc))
     }
+
+    @Test
+    fun smallThumbnailsAskForSmallRenditions() {
+        assertEquals(
+            listOf("https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg", "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"),
+            ArtworkUrls.small("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", 150),
+        )
+        assertEquals(
+            "https://i1.sndcdn.com/artworks-abc-t300x300.jpg",
+            ArtworkUrls.small("https://i1.sndcdn.com/artworks-abc-t500x500.jpg", 150).first(),
+        )
+        assertEquals(
+            "https://lh3.googleusercontent.com/x=w150-h150-l90-rj",
+            ArtworkUrls.small("https://lh3.googleusercontent.com/x=w544-h544-l90-rj", 150).first(),
+        )
+    }
 }

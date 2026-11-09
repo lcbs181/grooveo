@@ -3,6 +3,7 @@ package dev.schlubbe.musicagent.data.artwork
 import coil.intercept.Interceptor
 import coil.request.ErrorResult
 import coil.request.ImageResult
+import coil.size.Dimension
 
 /**
  * YouTube Music hands out small covers: search results come as Google image URLs
@@ -11,10 +12,39 @@ import coil.request.ImageResult
  * and in the widget. Both hosts serve bigger renditions of the same image, so
  * [candidates] lists them, best first. SoundCloud is already asked for 500x500 at
  * mapping time (SoundCloudMappers.upsizeImage).
+ *
+ * Small places (search rows, list thumbnails) go the other way: a 48 dp cover needs
+ * about 150 px, not a 1280x720 still, so [small] picks a rendition near the displayed size
+ * and lists load fast. Large places (category cards, shelves, the player) stay large.
  */
 object ArtworkUrls {
     private val googleSize = Regex("""=(?:[swh]\d+[^/?#]*)$""")
     private val ytimg = Regex("""^https://i\d?\.ytimg\.com/vi(?:_webp)?/([A-Za-z0-9_-]{6,})/[^/]+$""")
+
+    /** Coil request parameter: always load the large rendition, however small the image is shown. */
+    const val FULL = "artwork_full"
+
+    /** Displayed at or below this many pixels, a small rendition is enough. */
+    const val SMALL_PX = 320
+
+    private val sndcdnSize = Regex("""-(?:t\d+x\d+|large|crop|original|t500x500)(\.\w+)$""")
+
+    /** Renditions of [url] near [px] pixels, smallest sufficient first, ending with [url] itself. */
+    fun small(url: String, px: Int): List<String> {
+        val clean = url.substringBefore('?')
+        if (("googleusercontent.com" in url || "ggpht.com" in url) && googleSize.containsMatchIn(url)) {
+            val side = px.coerceIn(120, SMALL_PX)
+            return listOf(url.replace(googleSize, "=w$side-h$side-l90-rj"), url).distinct()
+        }
+        ytimg.matchEntire(clean)?.let { m ->
+            // mqdefault is 320x180, enough for any thumbnail; it exists for every video
+            return listOf("https://i.ytimg.com/vi/${m.groupValues[1]}/mqdefault.jpg", url).distinct()
+        }
+        if ("sndcdn.com" in url && sndcdnSize.containsMatchIn(clean)) {
+            return listOf(clean.replace(sndcdnSize, "-t300x300$1"), url).distinct()
+        }
+        return listOf(url)
+    }
 
     /** Larger versions of [url] to try in order, ending with [url] itself. */
     fun candidates(url: String): List<String> {
@@ -52,7 +82,12 @@ object ArtworkUrls {
         override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
             val data = chain.request.data as? String ?: return chain.proceed(chain.request)
             if (isOffline(data)) return chain.proceed(chain.request)
-            val list = candidates(data)
+            val size = chain.size
+            val w = (size.width as? Dimension.Pixels)?.px
+            val h = (size.height as? Dimension.Pixels)?.px
+            val px = if (w != null && h != null) maxOf(w, h) else null
+            val full = chain.request.parameters.value<Boolean>(FULL) == true
+            val list = if (!full && px != null && px <= SMALL_PX) small(data, px) else candidates(data)
             if (list.size == 1) return chain.proceed(chain.request)
             var last: ImageResult? = null
             for (candidate in list) {

@@ -40,12 +40,13 @@ Search, stream, download, like, and organize — all resolved and stored directl
 
 | | |
 |---|---|
-| **Search** | Across SoundCloud and YouTube Music — tracks, artists, playlists, and albums, per-source or combined. |
+| **Search** | Across SoundCloud and YouTube Music — tracks, artists, playlists, and albums, per-source or combined. One *Hörspiele & Hörbücher* tab gathers ARD, LibriVox and (if switched on) YouTube series, albums and videos; the empty search offers genre tiles for it and a way into the podcast browser. A pasted YouTube or SoundCloud link opens directly: a video or track plays, a playlist, channel or profile opens its page. |
 | **Streaming** | Fully on-device. SoundCloud resolves its own signed CDN URLs (native HLS via Media3); YouTube Music resolves through NewPipeExtractor. No server-side proxy, ever. |
 | **Downloads** | Offline playback for both sources — progressive download for YouTube, segment-fetch-and-concatenate for SoundCloud's HLS streams (see [Known limitations](#known-limitations) for the DRM-only exception) — plus a *Datensparmodus* (data-saver) setting that restricts playback to downloaded tracks only. |
 | **Likes & playlists** | Stored locally in Room, with reordering, rename, and bulk-download-a-playlist. |
 | **Home** | A *Charts* shelf (global SoundCloud/YouTube trending) and a *Für dich* feed computed entirely on-device from local play history and likes — no server-side aggregation. |
-| **Artist pages** | Collapsible bio, top/latest track shelves, and a paginated follower list (SoundCloud). |
+| **Artist pages** | Collapsible bio, top/latest track shelves, and a paginated follower list (SoundCloud). Any YouTube channel opens as one (from the *Hörspiele & Hörbücher* tab, or "Zum Künstler" on a YouTube video); a plain channel also offers *Als Folgen* (its uploads as a show) and opens its playlists as shows. |
+| **Text for spoken episodes** | The lyrics sheet shows a YouTube video's subtitles in time, and for a LibriVox audiobook the book's text (Project Gutenberg, Projekt Gutenberg-DE, Wikisource) with estimated timing. |
 | **Player** | Waveform-style seek bar, shuffle/repeat, a sleep timer (15–90 min presets), a parametric equalizer (up to 16 bands, presets, bass enhancer, limiter, AutoEQ import), and a stream/download switch per track. |
 | **Endless queue** | Whatever you start — one track, an album, a playlist, a download — matching tracks from the on-device recommender are appended while the last ones still play, so the queue never runs out (repeat modes excepted). |
 | **Gapless** | Tracks run straight into each other; dead air at the end of an upload is detected in the decoded audio and skipped. |
@@ -201,6 +202,18 @@ What the app does to keep that small (Einstellungen > Datenschutz):
   similar) are removed from episode URLs, so the audio is fetched from the host
   directly and the measurement service is skipped.
 - **New-episode checks** can be switched off or limited to Wi-Fi.
+- **"Hörtipps für dich"** (the personal podcast/Hörspiel/Hörbuch feed) is computed on the
+  device from subscriptions and listening history. To suggest similar podcasts it
+  asks fyyd about your two favourite feeds; that can be switched off.
+- **History:** search history, music listening history and podcast progress stay on
+  the device and can be deleted there (Einstellungen > Datenschutz > Verlauf löschen).
+  Single entries can be removed too: "Aus Verlauf entfernen" in the library's
+  history, and "Als gehört markieren" or "Aus Weiterhören entfernen" on a
+  "Weiterhören" episode (long press on the start page).
+- **YouTube as an audio source** is off by default (Einstellungen > Audio-Quellen).
+  When switched on, Hörspiel/Hörbuch searches also ask YouTube, by default only
+  for publishers' own channels, and the search's *Hörspiele & Hörbücher* tab adds
+  series, channels and YouTube Music albums (each opens as a show, in order) and videos.
 - **Proxy:** all app traffic can go through Tor (via Orbot) or your own SOCKS5
   proxy, with DNS resolved by the proxy. If the proxy is down, requests fail
   rather than falling back to a direct connection. The Spotify/Amazon import

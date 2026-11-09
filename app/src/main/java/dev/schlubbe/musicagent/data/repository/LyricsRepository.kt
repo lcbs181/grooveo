@@ -29,7 +29,12 @@ data class LyricLine(val timeMs: Long, val text: String)
  * blob with at least one timed line; [plain] is the plain-text fallback. Both can
  * be non-null (LRCLIB usually returns both together) - callers should prefer
  * [synced] when it's there. */
-data class Lyrics(val synced: List<LyricLine>?, val plain: String?)
+data class Lyrics(
+    val synced: List<LyricLine>?,
+    val plain: String?,
+    /** Where a spoken episode's text comes from (see podcast.SpokenText); null for LRCLIB. */
+    val credit: String? = null,
+)
 
 /** LRCLIB could not answer right now (rate limit, server error, no network), so whether the
  * track has lyrics is still unknown. Worth asking again after [retryAfterMs]. */

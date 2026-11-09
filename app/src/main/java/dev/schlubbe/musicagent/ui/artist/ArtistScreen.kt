@@ -6,6 +6,9 @@ import dev.schlubbe.musicagent.ui.components.LocalTrackAnalyzer
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +83,9 @@ import dev.schlubbe.musicagent.ui.components.LocalCanopyOverlay
 import dev.schlubbe.musicagent.ui.components.PullRefresh
 import dev.schlubbe.musicagent.ui.components.TrackThumbnail
 import dev.schlubbe.musicagent.ui.components.WaveSweep
+import dev.schlubbe.musicagent.ui.components.skeleton
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.RoundedCornerShape
 import dev.schlubbe.musicagent.ui.components.rememberFadeUp
 import dev.schlubbe.musicagent.ui.components.rememberHeartPopScale
 import dev.schlubbe.musicagent.ui.icons.phosphorIcon
@@ -108,6 +114,7 @@ fun ArtistScreen(
     onPlaylistSelected: (source: String, sourceId: String) -> Unit,
     onNavigateBack: () -> Unit,
     onArtistSelected: (source: String, sourceId: String) -> Unit = { _, _ -> },
+    onShowSelected: (showId: String) -> Unit = {},
     viewModel: ArtistViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -146,8 +153,10 @@ fun ArtistScreen(
                     CanopyIconButton(icon = phosphorIcon("arrow-left"), onClick = onNavigateBack, iconSize = 20.dp, contentDescription = "Zurück")
                 }
             }
+            // Skeleton fades out into the real page once data arrives
+            Crossfade(targetState = uiState.isLoading, animationSpec = tween(400), modifier = Modifier.weight(1f), label = "artistLoad") { loading ->
             when {
-                uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp), color = Canopy.accent)
+                loading -> ArtistSkeleton()
                 uiState.error != null -> Column(modifier = Modifier.padding(16.dp)) {
                     Text(uiState.error!!, color = MaterialTheme.colorScheme.error)
                     CanopyButton(
@@ -189,6 +198,11 @@ fun ArtistScreen(
                                             onTrackSelected()
                                         }
                                     },
+                                    // a plain YouTube channel (no music page): its uploads as a
+                                    // show, to subscribe and resume like a podcast
+                                    onListenAsShow = Regex("UC[\\w-]{22}").find(artist.sourceId + " " + artist.webpageUrl)?.value
+                                        ?.takeIf { artist.source == "ytmusic" && artist.monthlyListeners == null }
+                                        ?.let { channel -> { onShowSelected("yt:$channel") } },
                                     onPlayFirst = {
                                         val queue = artist.topTracks.ifEmpty { artist.latestTracks }
                                         queue.firstOrNull()?.let { track ->
@@ -261,7 +275,13 @@ fun ArtistScreen(
                                 )
                             }
 
-                            val openList = { item: ArtistShelfItem -> onPlaylistSelected(item.source, item.sourceId) }
+                            // A plain YouTube channel's playlists are mostly series (Hörspiele,
+                            // talks): they open as a show, in order and with resume.
+                            val plainChannel = artist.source == "ytmusic" && artist.monthlyListeners == null
+                            val openList = { item: ArtistShelfItem ->
+                                val list = Regex("[?&]list=((?:PL|OLAK5uy_)[\\w-]+)").find(item.sourceId)?.groupValues?.get(1)
+                                if (plainChannel && list != null) onShowSelected("yt:$list") else onPlaylistSelected(item.source, item.sourceId)
+                            }
                             if (artist.albums.isNotEmpty()) {
                                 item {
                                     ArtistPlaylistShelf(
@@ -340,6 +360,7 @@ fun ArtistScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -490,6 +511,7 @@ private fun ArtistHeader(
     onFollowToggle: () -> Unit,
     onShuffle: () -> Unit,
     onPlayFirst: () -> Unit,
+    onListenAsShow: (() -> Unit)? = null,
 ) {
     val hasTracks = artist.topTracks.isNotEmpty() || artist.latestTracks.isNotEmpty()
     // YouTube Music's header image is a real artist photo: shown big with the
@@ -647,6 +669,14 @@ private fun ArtistHeader(
                     onClick = onFollowToggle,
                     variant = if (isFollowing) CanopyButtonVariant.Secondary else CanopyButtonVariant.Primary,
                 )
+                if (onListenAsShow != null) {
+                    CanopyButton(
+                        text = "Als Folgen",
+                        onClick = onListenAsShow,
+                        variant = CanopyButtonVariant.Secondary,
+                        leadingIcon = phosphorIcon("microphone"),
+                    )
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 CanopyIconButton(
                     icon = phosphorIcon("shuffle"),
@@ -799,19 +829,7 @@ private fun ArtistTrackRow(
         state = dismissState,
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
-        backgroundContent = {
-            // only while swiping: rows are transparent in Dawn Music, so a
-            // permanent backdrop would show through every row
-            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Canopy.accent800)
-                    .padding(start = 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Canopy.accent100)
-            }
-        },
+        backgroundContent = { dev.schlubbe.musicagent.ui.components.QueueSwipeBackdrop(dismissState) },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         Box(
@@ -922,4 +940,51 @@ private fun ArtistTrackRow(
 private fun formatTrackDuration(sec: Int?): String? {
     if (sec == null || sec <= 0) return null
     return "%d:%02d".format(sec / 60, sec % 60)
+}
+
+/** Blank page that builds itself up block by block while the artist loads. */
+@Composable
+private fun ArtistSkeleton() {
+    Column(modifier = Modifier.fillMaxSize()) {
+        var i = 0
+        SkeletonBlock(i++, Modifier.fillMaxWidth().height(220.dp))
+        Column(modifier = Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(4.dp))
+            SkeletonBlock(i++, Modifier.fillMaxWidth(0.55f).height(28.dp), RoundedCornerShape(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SkeletonBlock(i++, Modifier.width(120.dp).height(44.dp), CircleShape)
+                SkeletonBlock(i++, Modifier.width(120.dp).height(44.dp), CircleShape)
+                SkeletonBlock(i++, Modifier.size(44.dp), CircleShape)
+            }
+            SkeletonBlock(i++, Modifier.fillMaxWidth(0.35f).height(20.dp), RoundedCornerShape(6.dp))
+            repeat(5) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SkeletonBlock(i++, Modifier.size(52.dp), RoundedCornerShape(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SkeletonBlock(i++, Modifier.fillMaxWidth(0.6f).height(14.dp), RoundedCornerShape(6.dp))
+                        SkeletonBlock(i++, Modifier.fillMaxWidth(0.35f).height(12.dp), RoundedCornerShape(6.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One shimmering placeholder that fades and slides in after index * 70 ms. */
+@Composable
+private fun SkeletonBlock(index: Int, modifier: Modifier, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(0.dp)) {
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(index * 70L)
+        progress.animateTo(1f, tween(300))
+    }
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                alpha = progress.value
+                translationY = (1f - progress.value) * 16.dp.toPx()
+            }
+            .clip(shape)
+            .skeleton(),
+    )
 }

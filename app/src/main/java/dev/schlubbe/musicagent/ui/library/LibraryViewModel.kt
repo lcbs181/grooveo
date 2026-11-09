@@ -213,6 +213,10 @@ class LibraryViewModel @Inject constructor(
     /** Same play-the-full-list-as-queue behavior as
      * [dev.schlubbe.musicagent.ui.home.HomeViewModel.onRecentlyPlayedClicked] - both the
      * circular rail and the "Wiedergabeverlauf" row list call this for a tapped track. */
+    fun forgetPlayed(track: TrackEntity) {
+        viewModelScope.launch { trackDao.forgetPlayed(track.id) }
+    }
+
     fun onRecentlyPlayedClicked(track: TrackEntity) {
         viewModelScope.launch {
             val queue = recentlyPlayed.value.map { it.toTrackResultDto() }
@@ -487,7 +491,7 @@ class LibraryViewModel @Inject constructor(
         val name = track.artist
         if (name.isNullOrBlank()) return
         viewModelScope.launch {
-            runCatching { searchRepository.findArtistByName(name, source = track.source) }
+            runCatching { searchRepository.artistOf(track) }
                 .onSuccess { artist ->
                     _uiState.value = if (artist != null) {
                         _uiState.value.copy(artistNavTarget = artist.source to artist.sourceId)

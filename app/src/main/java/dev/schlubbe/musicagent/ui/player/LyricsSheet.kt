@@ -52,6 +52,8 @@ private fun currentLineIndex(lines: List<LyricLine>, positionMs: Long): Int {
 @Composable
 fun LyricsSheet(
     title: String?,
+    /** An episode: "Text" instead of "Songtext", and no LRCLIB credit. */
+    spoken: Boolean = false,
     artist: String?,
     state: LyricsUiState,
     positionMs: Long,
@@ -60,7 +62,7 @@ fun LyricsSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Canopy.surface) {
         Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 4.dp)) {
-            Text("Songtext", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(if (spoken) "Text" else "Songtext", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             if (!title.isNullOrBlank()) {
                 Text(
                     if (!artist.isNullOrBlank()) "$title · $artist" else title,
@@ -99,7 +101,9 @@ fun LyricsSheet(
                         modifier = Modifier.align(Alignment.Center),
                         color = Canopy.accent,
                     )
-                    is LyricsUiState.NotFound -> NotFoundText()
+                    is LyricsUiState.NotFound -> NotFoundText(
+                        if (spoken) "Für diese Folge gibt es keinen Text. Texte gibt es zu YouTube-Videos und LibriVox-Hörbüchern." else "Kein Songtext gefunden",
+                    )
                     is LyricsUiState.Unavailable -> NotFoundText("LRCLIB ist gerade nicht erreichbar. Neuer Versuch folgt automatisch.")
                     is LyricsUiState.Found -> {
                         val synced = state.lyrics.synced
@@ -121,7 +125,7 @@ fun LyricsSheet(
             }
 
             Text(
-                "Songtexte von LRCLIB",
+                (state as? LyricsUiState.Found)?.lyrics?.credit ?: if (spoken) "" else "Songtexte von LRCLIB",
                 style = MaterialTheme.typography.labelSmall,
                 color = Canopy.neutral500,
                 textAlign = TextAlign.Center,

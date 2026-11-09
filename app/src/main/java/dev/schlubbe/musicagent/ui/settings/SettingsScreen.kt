@@ -293,6 +293,8 @@ fun SettingsScreen(
                     }
                 }
 
+                AudioSourcesSection()
+
                 PrivacySection()
 
                 // — Weitere Einstellungen — (existing features the mockup doesn't depict)

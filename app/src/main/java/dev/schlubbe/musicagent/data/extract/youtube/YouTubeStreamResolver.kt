@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.MediaFormat
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,11 +46,21 @@ class YouTubeStreamResolver @Inject constructor() : StreamResolver {
         ResolvedStream(url = best.content, isHls = false)
     }
 
+    /** The original sound first: many videos now also carry YouTube's AI dubs ("DUBBED",
+     * often German for a German client) and audio descriptions, which used to win on
+     * bitrate. A stream without a track type is a video with only one track. */
     private fun pickBestAudioStream(streams: List<AudioStream>): AudioStream? =
         streams
             .sortedWith(
-                compareByDescending<AudioStream> { it.format == MediaFormat.M4A }
+                compareBy<AudioStream> { trackRank(it.audioTrackType) }
+                    .thenByDescending { it.format == MediaFormat.M4A }
                     .thenByDescending { it.averageBitrate },
             )
             .firstOrNull()
+
+    private fun trackRank(type: AudioTrackType?): Int = when (type) {
+        AudioTrackType.ORIGINAL, null -> 0
+        AudioTrackType.DUBBED -> 1
+        else -> 2 // descriptive, secondary
+    }
 }

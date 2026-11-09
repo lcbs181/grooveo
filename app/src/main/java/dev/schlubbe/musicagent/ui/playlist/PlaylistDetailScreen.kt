@@ -445,19 +445,7 @@ private fun PlaylistTrackRow(
         state = dismissState,
         enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
-        backgroundContent = {
-            // only while swiping: rows are transparent in Dawn Music, so a
-            // permanent backdrop would show through every row
-            if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Canopy.accent800)
-                    .padding(start = 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(phosphorIcon("list-plus"), contentDescription = "Zur Warteschlange hinzufügen", tint = Canopy.accent100)
-            }
-        },
+        backgroundContent = { dev.schlubbe.musicagent.ui.components.QueueSwipeBackdrop(dismissState) },
     ) {
         var menuExpanded by remember { mutableStateOf(false) }
         Column(modifier = Modifier.fillMaxWidth()) {

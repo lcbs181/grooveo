@@ -28,7 +28,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
     private var eq: EqProcessor? = null
     @Volatile private var normalize = false
     @Volatile private var boostDb = 0.0
-    @Volatile private var track: Pair<String, Double?>? = null
+    @Volatile private var track: Triple<String, Double?, Double?>? = null
     // kept across flushes (seeks) of the same sample rate, so a seek neither
     // restarts the measurement nor jumps the gain
     private var normalizer: LoudnessNormalizer? = null
@@ -59,17 +59,17 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
         normalizer?.enabled = enabled
     }
 
-    /** A new track starts playing: [id] is "source:sourceId", [knownLufs] its stored loudness. */
-    fun startTrack(id: String, knownLufs: Double?) {
-        track = id to knownLufs
-        normalizer?.startTrack(id, knownLufs)
+    /** A new track starts playing: [id] is "source:sourceId", [knownLufs] its stored loudness, [knownPeakDb] its peak. */
+    fun startTrack(id: String, knownLufs: Double?, knownPeakDb: Double? = null) {
+        track = Triple(id, knownLufs, knownPeakDb)
+        normalizer?.startTrack(id, knownLufs, knownPeakDb)
     }
 
-    /** The current track's measured loudness, once enough of it was heard to store it. */
-    fun measured(): Pair<String, Double>? {
+    /** The current track's measured loudness and peak, once enough of it was heard to store it. */
+    fun measured(): Triple<String, Double, Double?>? {
         val n = normalizer ?: return null
         val id = n.trackId ?: return null
-        return n.measuredLufs()?.let { id to it }
+        return n.measuredLufs()?.let { Triple(id, it, n.measuredPeakDb()) }
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -96,7 +96,7 @@ class ParametricEqAudioProcessor : BaseAudioProcessor() {
             normalizerRate = rate
             normalizer = LoudnessNormalizer(rate.toDouble()).also { n ->
                 n.enabled = normalize
-                track?.let { (id, k) -> n.startTrack(id, k) }
+                track?.let { (id, k, p) -> n.startTrack(id, k, p) }
             }
         }
     }
