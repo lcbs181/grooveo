@@ -373,9 +373,9 @@ private fun BrowseAll(
             ) {
                 Icon(phosphorIcon("headphones"), contentDescription = null, tint = Canopy.accent, modifier = Modifier.size(26.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Stöbern", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Canopy.text)
+                    Text("Entdecken", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Canopy.text)
                     Text(
-                        "Neue Hörspiele, Hörbücher und Podcasts, deine Abos und Weiterhören",
+                        "Bibliothek mit Tipps, Genres, neuen Hörspielen, Hörbüchern und Podcasts",
                         style = MaterialTheme.typography.bodySmall,
                         color = Canopy.neutral500,
                     )

@@ -88,6 +88,7 @@ fun HomeScreen(
     onWhatsNewClick: () -> Unit = {},
     onOpenPodcasts: () -> Unit = {},
     onPodcastShowClick: (String) -> Unit = {},
+    onOpenAdvent: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -118,6 +119,12 @@ fun HomeScreen(
                 contentPadding = PaddingValues(bottom = maxOf(CONTENT_BOTTOM_PADDING.dp, LocalChromeInset.current + 16.dp)),
             ) {
                 item { HomeAppBar(uiState, onSettingsClick) }
+
+                if (dev.schlubbe.musicagent.ui.advent.adventSeason()) {
+                    item {
+                        dev.schlubbe.musicagent.ui.advent.AdventBanner(onOpenAdvent, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
+                }
 
                 if (uiState.showWhatsNewBanner) {
                     item {

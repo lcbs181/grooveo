@@ -113,6 +113,7 @@ object Routes {
     const val ARTIST_FOLLOWERS = "artist/{source}/{sourceId}/followers"
     const val REMOTE_PLAYLIST_DETAIL = "remote_playlist/{source}/{sourceId}"
     const val PODCASTS = "podcasts"
+    const val ADVENT = "advent"
     const val PODCAST_DETAIL = "podcast/{showId}"
 
     fun playlistDetail(playlistId: String) = "playlist/$playlistId"
@@ -345,6 +346,7 @@ fun MusicAgentNavGraph(
                     onSeeAllArtistsClick = { navController.navigate(Routes.LIBRARY) },
                     onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                     onWhatsNewClick = { navController.navigate(Routes.WHATS_NEW) },
+                    onOpenAdvent = { navController.navigate(Routes.ADVENT) },
                     onOpenPodcasts = { navController.navigate(Routes.PODCASTS) },
                     onPodcastShowClick = { navController.navigate(Routes.podcastDetail(it)) },
                     onArtistClick = { source, sourceId ->
@@ -424,9 +426,18 @@ fun MusicAgentNavGraph(
                     onOpenPodcasts = { navController.navigate(Routes.PODCASTS) },
                 )
             }
+            composable(Routes.ADVENT) {
+                dev.schlubbe.musicagent.ui.advent.AdventScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onShowSelected = { navController.navigate(Routes.podcastDetail(it)) },
+                    onPlaylistSelected = { source, sourceId -> navController.navigate(Routes.remotePlaylistDetail(source, sourceId)) },
+                    onPlaying = { navController.navigate(Routes.PLAYER) },
+                )
+            }
             composable(Routes.PODCASTS) {
                 dev.schlubbe.musicagent.ui.podcast.PodcastsScreen(
                     onNavigateBack = { navController.popBackStack() },
+                    onOpenAdvent = { navController.navigate(Routes.ADVENT) },
                     onShowSelected = { navController.navigate(Routes.podcastDetail(it)) },
                     onEpisodePlayed = { navController.navigate(Routes.PLAYER) },
                 )

@@ -317,13 +317,15 @@ class PodcastRepository @Inject constructor(
     private fun loadArd(id: ShowId.Ard, kind: ShowKind?): ShowWithEpisodes {
         val data = ardQuery(
             "query(\$id: ID!) { programSet(id: \$id) { $ARD_SET_FIELDS items(first: 200, orderBy: PUBLISH_DATE_DESC) { " +
-                "nodes { title summary duration publishDate episodeNumber image { url } audios { url } sharingUrl } } } }",
+                "nodes { title summary duration publishDate episodeNumber isPublished image { url } audios { url } sharingUrl } } } }",
             JsonObject().apply { addProperty("id", id.programSetId) },
         )
         val set = data.getAsJsonObject("programSet") ?: throw IOException("Sendung nicht gefunden")
         val show = ardSet(set)?.let { if (kind != null) it.copy(kind = kind) else it } ?: throw IOException("Sendung nicht gefunden")
         val episodes = set.getAsJsonObject("items")?.getAsJsonArray("nodes")?.mapNotNull { element ->
             val o = element as? JsonObject ?: return@mapNotNull null
+            // taken down: still listed, but its audio answers 404
+            if (o.get("isPublished")?.takeIf { it.isJsonPrimitive }?.asBoolean == false) return@mapNotNull null
             val audio = o.getAsJsonArray("audios")?.firstOrNull()?.let { (it as? JsonObject)?.str("url") }
                 ?.takeIf(::isWebUrl)?.let { TrackingPrefixes.strip(secureUrl(it)) } ?: return@mapNotNull null // announced, not out yet
             o.get("episodeNumber")?.takeIf { it.isJsonPrimitive }?.asInt to PodcastEpisode(
@@ -345,6 +347,33 @@ class PodcastRepository @Inject constructor(
         val numberByUrl = episodes.associate { it.second.audioUrl to it.first }
         val numbers = ordered.map { numberByUrl[it.audioUrl] }
         return ShowWithEpisodes.of(show.copy(episodeCount = ordered.size), ordered, EpisodeOrder.isSerial(show.kind, false, ordered, numbers))
+    }
+
+    /** One ARD Audiothek episode by its item id, or null when it is gone (depublished)
+     * or not out yet. */
+    suspend fun ardEpisode(itemId: String): PodcastEpisode? = withContext(Dispatchers.IO) {
+        val data = ardQuery(
+            "query(\$id: ID!) { item(id: \$id) { title summary duration publishDate isPublished image { url } audios { url } sharingUrl programSet { $ARD_SET_FIELDS } } }",
+            JsonObject().apply { addProperty("id", itemId) },
+        )
+        val o = data.getAsJsonObject("item") ?: return@withContext null
+        if (o.get("isPublished")?.takeIf { it.isJsonPrimitive }?.asBoolean == false) return@withContext null
+        val set = o.getAsJsonObject("programSet")?.let(::ardSet) ?: return@withContext null
+        val audio = o.getAsJsonArray("audios")?.firstOrNull()?.let { (it as? JsonObject)?.str("url") }
+            ?.takeIf(::isWebUrl)?.let { TrackingPrefixes.strip(secureUrl(it)) } ?: return@withContext null
+        val published = o.str("publishDate")?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
+        if ((published ?: 0L) > System.currentTimeMillis()) return@withContext null
+        PodcastEpisode(
+            showId = set.id,
+            showTitle = set.title,
+            title = o.str("title") ?: "Folge",
+            description = o.str("summary"),
+            audioUrl = audio,
+            imageUrl = ardImage(o) ?: set.imageUrl,
+            durationSec = o.get("duration")?.takeIf { it.isJsonPrimitive }?.asInt,
+            publishedAt = published,
+            link = o.str("sharingUrl"),
+        )
     }
 
     // ---- subscriptions and progress ----
@@ -466,9 +495,9 @@ class PodcastRepository @Inject constructor(
         const val ARD_HOERBUCH = "42914713"
         const val YOUTUBE_TIMEOUT_MS = 12_000L
         const val LIBRIVOX_TIMEOUT_MS = 8_000L
-        private const val ARD_WISSEN = "42914742"
-        private const val ARD_COMEDY = "42914694"
-        private const val ARD_DOKU = "42914710"
+        const val ARD_WISSEN = "42914742"
+        const val ARD_COMEDY = "42914694"
+        const val ARD_DOKU = "42914710"
         private const val ARD_GRAPHQL = "https://api.ardaudiothek.de/graphql"
         private const val ARD_SET_FIELDS = "id title synopsis numberOfElements image { url } publicationService { title }"
         private const val MAX_FEED_BYTES = 20L * 1024 * 1024

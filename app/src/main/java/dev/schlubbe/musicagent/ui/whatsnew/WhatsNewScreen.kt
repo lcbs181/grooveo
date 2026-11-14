@@ -34,7 +34,18 @@ private data class WhatsNewItem(val iconName: String, val title: String, val des
 
 // Only what is new in the current release - cleared on every version bump instead of
 // growing into a changelog (the full history lives in the GitHub release notes).
-private val ITEMS = emptyList<WhatsNewItem>()
+private val ITEMS = listOf(
+    WhatsNewItem(
+        "books",
+        "Entdecken",
+        "Neue Bibliothek für Hörspiele, Hörbücher und Podcasts mit Tipps, Genres und neuen Folgen",
+    ),
+    WhatsNewItem(
+        "sparkle",
+        "Adventskalender",
+        "Ab dem 1. Advent jeden Tag im Dezember ein Türchen mit Hörspiel, Hörbuch oder Musik",
+    ),
+)
 
 /** False while [ITEMS] is empty: the Home banner then has nothing to point at. */
 val hasWhatsNewItems: Boolean get() = ITEMS.isNotEmpty()
