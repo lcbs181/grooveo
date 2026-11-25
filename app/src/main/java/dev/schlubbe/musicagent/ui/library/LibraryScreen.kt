@@ -799,6 +799,7 @@ private fun HistoryRow(
                         leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                         onClick = { menuExpanded = false; onAddToPlaylistClick() },
                     )
+                    dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(track.toTrackResultDto(), onDismissMenu = { menuExpanded = false })
                     DropdownMenuItem(
                         text = { Text("Zur Warteschlange hinzufügen") },
                         leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
@@ -1032,6 +1033,7 @@ private fun DownloadRow(
                                 leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
+                            item.track?.let { dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(it.toTrackResultDto(), onDismissMenu = { menuExpanded = false }) }
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
                                 leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
@@ -1150,6 +1152,7 @@ private fun LikeRow(
                                 leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                 onClick = { menuExpanded = false; onAddToPlaylistClick() },
                             )
+                            dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(like.track.toTrackResultDto(), onDismissMenu = { menuExpanded = false })
                             DropdownMenuItem(
                                 text = { Text("Zur Warteschlange hinzufügen") },
                                 leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },

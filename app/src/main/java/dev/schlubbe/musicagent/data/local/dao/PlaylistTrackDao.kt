@@ -31,6 +31,9 @@ interface PlaylistTrackDao {
         insert(entryFactory(getMaxPosition(playlistId) + 1))
     }
 
+    @Query("SELECT DISTINCT playlistId FROM playlist_tracks WHERE trackId = :trackId")
+    suspend fun playlistIdsContaining(trackId: String): List<String>
+
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId AND trackId = :trackId")
     suspend fun delete(playlistId: String, trackId: String)
 

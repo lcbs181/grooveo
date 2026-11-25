@@ -324,6 +324,7 @@ fun PlayerScreen(
                         onClick = { showMoreMenu = false; viewModel.onAddToPlaylistClicked() },
                         enabled = playbackState.currentTrackId != null,
                     )
+                    viewModel.currentTrack()?.let { dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(it, onDismissMenu = { showMoreMenu = false }) }
                     if (playbackState.hasLocalDownload) {
                         DropdownMenuItem(
                             text = { Text(ANALYZE_LABEL) },

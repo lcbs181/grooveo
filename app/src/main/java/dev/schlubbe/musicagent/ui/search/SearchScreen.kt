@@ -1019,6 +1019,7 @@ private fun TrackActionsMenu(
         item(if (isLiked) "Nicht mehr gefällt mir" else "Gefällt mir", "heart", filled = isLiked) { actions.onLikeToggle(track) }
         item("Zur Warteschlange hinzufügen", "list-plus") { actions.onAddToQueue(track) }
         item("Zu Playlist hinzufügen", "plus-circle") { actions.onAddToPlaylist(track) }
+        dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(track, onDismissMenu = onDismiss)
         when {
             download == DownloadState.COMPLETED -> {
                 item("Offline verfügbar", "check-circle", enabled = false) {}

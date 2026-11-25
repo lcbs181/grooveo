@@ -127,8 +127,20 @@ class PlaylistRepository @Inject constructor(
         return get(playlistId)
     }
 
+    /** The playlists [track] is in, for "Aus Playlist entfernen" in song menus. */
+    suspend fun playlistsContaining(track: TrackResultDto): List<PlaylistOutDto> {
+        val ids = playlistTrackDao.playlistIdsContaining("${track.source}:${track.sourceId}").toSet()
+        if (ids.isEmpty()) return emptyList()
+        return list().filter { it.id in ids }
+    }
+
+    private val _trackRemoved = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /** Ids of playlists a track was just removed from, so open screens can reload. */
+    val trackRemoved: kotlinx.coroutines.flow.SharedFlow<String> = _trackRemoved
+
     suspend fun removeTrack(playlistId: String, track: TrackResultDto, record: Boolean = true): PlaylistDetailOutDto {
         playlistTrackDao.delete(playlistId, "${track.source}:${track.sourceId}")
+        _trackRemoved.tryEmit(playlistId)
         if (record) {
             tombstones.add(SyncTombstone.PLAYLIST_TRACK, SyncTombstone.playlistTrack(tombstones.playlistKey(playlistId), track.source, track.sourceId))
         }

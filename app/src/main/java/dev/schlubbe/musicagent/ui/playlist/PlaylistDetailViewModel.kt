@@ -52,6 +52,10 @@ class PlaylistDetailViewModel @Inject constructor(
 
     init {
         load()
+        // removed from a song menu elsewhere (player, search, ...) while this is open
+        viewModelScope.launch {
+            playlistRepository.trackRemoved.collect { if (it == playlistId) load() }
+        }
         viewModelScope.launch {
             likesRepository.likedTrackIds.collect { ids ->
                 _uiState.value = _uiState.value.copy(likedTrackIds = ids)

@@ -11,8 +11,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewCompat
@@ -32,9 +36,29 @@ private const val MAX_EXPORT_BYTES = 60 * 1024 * 1024
  * Spotify nor the Exportify session lingers in the app. */
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
-fun ExportifyWebView(onExport: (fileName: String, bytes: ByteArray) -> Unit, modifier: Modifier = Modifier) {
+fun ExportifyWebView(
+    onExport: (fileName: String, bytes: ByteArray) -> Unit,
+    modifier: Modifier = Modifier,
+    sendRequest: Int = 0,
+    /** What "Import starten" did: "ok" (export sent), "started"/"busy" (Exportify
+     * is exporting now), "none" (not logged in / no playlist list yet). */
+    onSendResult: (String) -> Unit = {},
+) {
     val currentOnExport by rememberUpdatedState(onExport)
+    val currentOnResult by rememberUpdatedState(onSendResult)
     val main = Handler(Looper.getMainLooper())
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
+    // "Import starten" below the page: hand over the newest export the page made,
+    // for when catching the download itself did not work.
+    LaunchedEffect(sendRequest) {
+        if (sendRequest == 0) return@LaunchedEffect
+        val view = webView ?: return@LaunchedEffect
+        view.evaluateJavascript("window.__dawnExportAll ? window.__dawnExportAll() : 'none'") { result ->
+            val r = result.orEmpty().trim('"')
+            currentOnResult(if (r in setOf("ok", "started", "busy")) r else "none")
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -84,11 +108,12 @@ fun ExportifyWebView(onExport: (fileName: String, bytes: ByteArray) -> Unit, mod
                     }
                 }
                 loadUrl(EXPORTIFY_URL)
-            }
+            }.also { webView = it }
         },
-        onRelease = { webView ->
-            webView.stopLoading()
-            webView.destroy()
+        onRelease = { view ->
+            webView = null
+            view.stopLoading()
+            view.destroy()
         },
     )
 }
@@ -130,32 +155,74 @@ private const val MAX_BASE64_CHARS = (MAX_EXPORT_BYTES / 3 + 1) * 4
 /** Catches Exportify's downloads: remembers every Blob turned into an object URL,
  * and when a download link pointing at one is clicked (FileSaver uses
  * `dispatchEvent(new MouseEvent('click'))`, others `a.click()`), reads the blob
- * and sends it to [ExportBridge] instead of letting the WebView ignore it. */
+ * and sends it to [ExportBridge] instead of letting the WebView ignore it.
+ * `__dawnSendLast()` sends the newest ZIP/CSV blob again - the "Import starten"
+ * button's way in when the click was not caught. */
 private val DOWNLOAD_HOOK = """
 (function(){
   if (window.__dawnExportHook) return; window.__dawnExportHook = true;
   var blobs = {};
+  var last = null;
+  var isExport = function(b){
+    var t = String(b.type || '').toLowerCase();
+    return b.size > 0 && (t.indexOf('zip') >= 0 || t.indexOf('csv') >= 0);
+  };
   var create = URL.createObjectURL;
   URL.createObjectURL = function(b){
     var u = create.apply(URL, arguments);
-    try { if (b instanceof Blob) blobs[u] = b; } catch(e){}
+    try {
+      if (b instanceof Blob) {
+        blobs[u] = b;
+        if (isExport(b)) last = { blob: b, name: (String(b.type).indexOf('zip') >= 0 ? 'spotify_playlists.zip' : 'export.csv') };
+      }
+    } catch(e){}
     return u;
+  };
+  var send = function(b, name){
+    if (typeof DawnExport === 'undefined') return false;
+    var r = new FileReader();
+    r.onload = function(){
+      var s = String(r.result); s = s.substring(s.indexOf(',') + 1);
+      DawnExport.postMessage('B' + b.size + '|' + name);
+      for (var i = 0; i < s.length; i += 262144) DawnExport.postMessage('C' + s.substring(i, i + 262144));
+      DawnExport.postMessage('E');
+    };
+    r.readAsDataURL(b);
+    return true;
+  };
+  // Phones: Exportify's table is wider than the screen and pushes the export
+  // column off to the right - drop the owner column, wrap long names.
+  var addStyle = function(){
+    if (document.getElementById('dawn-fit')) return;
+    var st = document.createElement('style'); st.id = 'dawn-fit';
+    st.textContent = '@media (max-width: 767px){' +
+      'html,body{overflow-x:hidden}' +
+      'table{width:100%!important;table-layout:fixed}' +
+      'table th.icon,table tr>td:nth-child(1){width:36px}' +
+      'table th.owner,table tr>td:nth-child(3){display:none!important}' +
+      'table th.export,table tr>td:last-child{width:170px;text-align:right}' +
+      'table td,table th{white-space:normal!important;overflow-wrap:anywhere}' +
+      '}';
+    (document.head || document.documentElement).appendChild(st);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addStyle); else addStyle();
+  window.__dawnSendLast = function(){ return !!(last && send(last.blob, last.name)); };
+  // "Import starten" before anything was exported: press Exportify's own
+  // "Export all" button (in the table header), the hook then catches the ZIP.
+  window.__dawnExportAll = function(){
+    if (last && send(last.blob, last.name)) return 'ok';
+    var b = document.querySelector('th.export button');
+    if (!b) return 'none';
+    if (b.disabled) return 'busy';
+    b.click();
+    return 'started';
   };
   var grab = function(a){
     try {
       if (!a || String(a.tagName).toUpperCase() !== 'A' || !a.download) return false;
       var b = blobs[a.href]; if (!b) return false;
-      var name = a.download;
-      var r = new FileReader();
-      r.onload = function(){
-        var s = String(r.result); s = s.substring(s.indexOf(',') + 1);
-        if (typeof DawnExport === 'undefined') return;
-        DawnExport.postMessage('B' + b.size + '|' + name);
-        for (var i = 0; i < s.length; i += 524288) DawnExport.postMessage('C' + s.substring(i, i + 524288));
-        DawnExport.postMessage('E');
-      };
-      r.readAsDataURL(b);
-      return true;
+      last = { blob: b, name: a.download };
+      return send(b, a.download);
     } catch(e){ return false; }
   };
   var click = HTMLAnchorElement.prototype.click;

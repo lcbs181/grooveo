@@ -184,6 +184,8 @@ class LibraryViewModel @Inject constructor(
         refreshLikes()
         refreshPlaylists()
         viewModelScope.launch { runCatching { followRepository.refresh() } }
+        // song counts change when a song menu removes a track from a playlist
+        viewModelScope.launch { playlistRepository.trackRemoved.collect { refreshPlaylists() } }
     }
 
     /** Opens one of the three chevron-row sub-views from the landing menu, triggering

@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
             }
             GrooveoTheme(darkTheme = dark) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MusicAgentNavGraph()
+                    dev.schlubbe.musicagent.ui.playlist.PlaylistRemoverHost { MusicAgentNavGraph() }
                 }
             }
         }

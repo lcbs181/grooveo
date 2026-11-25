@@ -334,6 +334,7 @@ private fun RemotePlaylistTrackRow(
                             leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                             onClick = { menuExpanded = false; onAddToPlaylistClick() },
                         )
+                        dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(track, onDismissMenu = { menuExpanded = false })
                         DropdownMenuItem(
                             text = { Text("Zur Warteschlange hinzufügen") },
                             leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },

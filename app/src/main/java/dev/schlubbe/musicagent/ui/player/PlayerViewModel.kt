@@ -368,6 +368,8 @@ class PlayerViewModel @Inject constructor(
     // handoff's "…" menu spec) - the now-playing track otherwise had no way to be
     // saved into a playlist from the Player screen itself, unlike every other
     // track row in the app.
+    fun currentTrack(): dev.schlubbe.musicagent.data.remote.dto.TrackResultDto? = playerController.nowPlayingTrack()
+
     fun onAddToPlaylistClicked() {
         if (playerController.nowPlayingTrack() == null) return
         _addToPlaylistState.value = _addToPlaylistState.value.copy(pending = true)

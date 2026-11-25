@@ -186,16 +186,27 @@ private fun AmazonContent(
 
 @Composable
 private fun ExportifyContent(saving: Boolean, onExport: (String, ByteArray) -> Unit) {
+    var sendRequest by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    var sendResult by rememberSaveable { mutableStateOf<String?>(null) }
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            if (saving) "Export angekommen – der Import startet gleich …"
-            else "1. Auf „Loslegen“ tippen und bei Spotify anmelden.\n2. Auf „Alles exportieren“ tippen – der Rest geht von selbst.",
+            when {
+                saving -> "Export angekommen – der Import startet gleich …"
+                sendResult == "started" || sendResult == "busy" -> "Exportify sammelt deine Playlists … bei vielen Songs dauert das etwas. Der Import startet danach von selbst."
+                sendResult == "none" -> "Erst anmelden: auf „Loslegen“ tippen und bei Spotify einloggen. Sobald deine Playlists zu sehen sind, unten auf „Import starten“."
+                else -> "1. Auf „Loslegen“ tippen und bei Spotify anmelden.\n2. Sobald deine Playlists zu sehen sind: unten auf „Import starten“."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = Canopy.neutral600,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
-        Box(modifier = Modifier.fillMaxSize()) {
-            ExportifyWebView(onExport = onExport, modifier = Modifier.fillMaxSize())
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            ExportifyWebView(
+                onExport = onExport,
+                sendRequest = sendRequest,
+                onSendResult = { sendResult = it },
+                modifier = Modifier.fillMaxSize(),
+            )
             if (saving) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Canopy.bg.copy(alpha = 0.85f)),
@@ -203,6 +214,20 @@ private fun ExportifyContent(saving: Boolean, onExport: (String, ByteArray) -> U
                 ) { CircularProgressIndicator(color = Canopy.accent) }
             }
         }
+        CanopyButton(
+            text = "Import starten",
+            onClick = {
+                sendResult = null
+                sendRequest++
+            },
+            enabled = !saving,
+            leadingIcon = phosphorIcon("arrow-circle-down"),
+            block = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp + LocalChromeInset.current),
+        )
     }
 }
 

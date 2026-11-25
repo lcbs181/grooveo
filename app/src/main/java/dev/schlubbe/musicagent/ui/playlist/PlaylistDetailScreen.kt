@@ -301,6 +301,7 @@ fun PlaylistDetailScreen(
                             PlaylistTrackRow(
                                 index = zeroBasedIndex + 1,
                                 item = item,
+                                playlistId = playlist.id,
                                 isLiked = item.track.id in uiState.likedTrackIds,
                                 isEditing = isEditing,
                                 onClick = {
@@ -415,6 +416,7 @@ fun PlaylistDetailScreen(
 private fun PlaylistTrackRow(
     index: Int,
     item: PlaylistTrackOutDto,
+    playlistId: String,
     isLiked: Boolean,
     isEditing: Boolean,
     onClick: () -> Unit,
@@ -523,6 +525,12 @@ private fun PlaylistTrackRow(
                                     leadingIcon = { Icon(phosphorIcon("plus-circle"), contentDescription = null, tint = Canopy.accent) },
                                     onClick = { menuExpanded = false; onAddToPlaylistClick() },
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Aus dieser Playlist entfernen") },
+                                    leadingIcon = { Icon(phosphorIcon("minus-circle"), contentDescription = null, tint = Canopy.accent) },
+                                    onClick = { menuExpanded = false; onRemove() },
+                                )
+                                dev.schlubbe.musicagent.ui.playlist.RemoveFromPlaylistMenuItem(item.track.toTrackResultDto(), onDismissMenu = { menuExpanded = false }, exceptPlaylistId = playlistId)
                                 DropdownMenuItem(
                                     text = { Text("Zur Warteschlange hinzufügen") },
                                     leadingIcon = { Icon(phosphorIcon("list-plus"), contentDescription = null, tint = Canopy.accent) },
